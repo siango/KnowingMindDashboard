@@ -1,0 +1,5 @@
+[
+  {"item":"ตั้ง Trigger อัปเดตรายวัน","project":"ArunRoo","owner":"สหาย","priority":"High","due":"2025-09-09","link":""},
+  {"item":"ทดสอบ deploy Pages","project":"Suite Infra","owner":"สหาย","priority":"High","due":"2025-09-08","link":""},
+  {"item":"ปรับ pipeline podcast","project":"ArunRoo","owner":"สหาย","priority":"Med","due":"2025-09-10","link":""}
+]
