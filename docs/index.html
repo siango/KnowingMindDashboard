@@ -174,3 +174,19 @@ function csvRows(txt){return txt.trim().split(/\r?\n/).slice(1).map(r=>r.split('
 })();
 </script>
 <!-- /KM-ALIAS-FIX -->
+<!-- KM-CACHE-BUST -->
+<script>
+(function(){
+  const bust = '?t='+(Date.now());
+  const _fetch = window.fetch;
+  window.fetch = function(input, init){
+    try{
+      if(typeof input==='string' && /(^data\.json$|^machine_aliases\.json$)/.test(input)){
+        input = input + (input.includes('?')?'&':'?') + 'v=' + Date.now();
+      }
+    }catch(e){}
+    return _fetch(input, init);
+  };
+})();
+</script>
+<!-- /KM-CACHE-BUST -->
