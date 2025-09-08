@@ -40,7 +40,8 @@
   "machines": [
     {
       "machine_id": "localhost",
-      "last_update": "2025-09-08T18:47:13+07:00",
+      "name": "OPPOReno13",
+      "last_update": "2025-09-08T20:21:31+07:00",
       "status": "ok"
     }
   ]
