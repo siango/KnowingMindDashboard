@@ -28,6 +28,13 @@
 <body><div class="wrap">
   <div class="card">
     <h1>📊 KnowingMind Dashboard</h1>
+    <div id="machines-card" class="card" style="margin-top:16px;">
+      <h2>สถานะเครื่อง</h2>
+      <div id="machines-note" class="muted">กำลังโหลด…</div>
+      <div style="overflow:auto">
+        <table id="machines-table" style="display:none"><thead><tr><th>เครื่อง</th><th>อัปเดทล่าสุด</th><th>สถานะ</th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
     <div class="sub">อัปเดตล่าสุด: <span id="lastUpdate">-</span></div>
 
     <div class="kpis">
@@ -108,4 +115,29 @@ function csvRows(txt){return txt.trim().split(/\r?\n/).slice(1).map(r=>r.split('
   }catch(e){}
 })();
 </script>
+  <!-- KM-MACHINES-START -->
+  <script>
+  async function loadMachines(){
+    const note=document.getElementById("machines-note");
+    const table=document.getElementById("machines-table");
+    const tbody=table.querySelector("tbody");
+    try{
+      const res=await fetch("data.json",{cache:"no-store"});
+      if(!res.ok) throw new Error("HTTP "+res.status);
+      const data=await res.json();
+      const items=Array.isArray(data.machines)?data.machines:[];
+      if(items.length===0){note.textContent="ยังไม่พบข้อมูลเครื่อง";return;}
+      items.sort((a,b)=>new Date(b.last_update||0)-new Date(a.last_update||0));
+      tbody.innerHTML=items.map(m=>{
+        const t=m.last_update?new Date(m.last_update).toLocaleString():"-";
+        const badge=(m.status||"").toLowerCase()==="ok"?"✅ ok":(m.status||"-");
+        return `<tr><td>${m.machine_id||"-"}</td><td>${t}</td><td>${badge}</td></tr>`;
+      }).join("");
+      note.style.display="none";
+      table.style.display="table";
+    }catch(e){note.textContent="โหลดข้อมูลเครื่องไม่สำเร็จ";console.error(e);}
+  }
+  document.addEventListener("DOMContentLoaded",loadMachines);
+  </script>
+  <!-- KM-MACHINES-END -->
 </body></html>
