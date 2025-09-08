@@ -2,8 +2,8 @@
   "machines": [
     {
       "machine_id": "cmd: Failure calling service settings: Failed transaction (2147483646)",
-      "name": "Termux-Office",
-      "last_update": "2025-09-08T14:40:13Z",
+      "name": "Termux-Oppo13",
+      "last_update": "2025-09-08T14:42:43Z",
       "status": "ok"
     },
     {
