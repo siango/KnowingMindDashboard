@@ -1,45 +1,25 @@
-<!doctype html><html lang="th"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>KnowingMind — Daily Dashboard</title>
-<style>
-body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:16px}
-.card{border:1px solid #eee;border-radius:12px;padding:16px;margin-bottom:16px;box-shadow:0 2px 8px rgba(0,0,0,.06)}
-.kpi{display:flex;gap:16px;flex-wrap:wrap}
-.kpi div{flex:1;min-width:160px;padding:12px;border:1px solid #f0f0f0;border-radius:10px;text-align:center}
-.todo{display:grid;grid-template-columns:1fr auto auto auto auto;gap:8px;align-items:center}
-.pill{padding:4px 8px;border-radius:999px;border:1px solid #ddd;font-size:12px}
-.high{background:#fff3f0;border-color:#ffb199}.med{background:#fffbe6;border-color:#ffe58f}.low{background:#f6ffed;border-color:#b7eb8f}
-a{color:#1677ff;text-decoration:none}table{border-collapse:collapse;width:100%}th,td{border:1px solid #eee;padding:8px;text-align:left}
-</style>
-<h2>📅 สรุปวันนี้</h2>
-<div class="card" id="summary"><div class="kpi">
-  <div><div>Overall</div><h2 id="overall">-</h2></div>
-  <div><div>Valuation</div><h2 id="val">-</h2></div>
-  <div><div>Δ vs เมื่อวาน</div><h2 id="delta">-</h2></div>
-</div><div style="margin-top:12px;color:#666">โซนเวลา Asia/Bangkok</div></div>
-<h2>📈 โปรเจกต์</h2>
-<div class="card"><table id="projects"><thead><tr><th>โปรเจกต์</th><th>% คืบหน้า</th><th>มูลค่า (ลบ.)</th></tr></thead><tbody></tbody></table></div>
-<h2>✅ เช็กลิสต์งานกำลังทำ</h2>
-<div class="card" id="todosWrap"><div class="todo" style="font-weight:600"><div>งาน</div><div>โปรเจกต์</div><div>เจ้าของ</div><div>Priority</div><div>Due</div></div></div>
-<script>
-async function J(u){const r=await fetch(u,{cache:'no-store'});return r.json()}
-function pc(p){const t=(p||'').toLowerCase();return t==='high'?'pill high':(t==='low'?'pill low':'pill med')}
-(async ()=>{
-  const dash = await J('./dashboard.json');
-  const checklist = await J('../checklist.json').catch(()=>[]);
-  const csv = await fetch('../projects.csv',{cache:'no-store'}).then(r=>r.text());
-  const rows = csv.trim().split(/\r?\n/).slice(1).map(l=>l.split(','));
-  const tb = document.querySelector('#projects tbody');
-  rows.forEach(r=>{const tr=document.createElement('tr');tr.innerHTML=`<td>${r[0]}</td><td>${r[1]}%</td><td>${r[2]}</td>`;tb.appendChild(tr);});
-  document.getElementById('overall').textContent=(dash.overall_pct??'-')+'%';
-  document.getElementById('val').textContent=(dash.total_valuation_mln??'-')+' ลบ.';
-  document.getElementById('delta').textContent=(dash.delta_mln>=0?'+':'')+(dash.delta_mln??0)+' ลบ.';
-  const wrap=document.getElementById('todosWrap');
-  const todos = dash.todos?.length ? dash.todos : checklist;
-  (todos||[]).forEach(t=>{
-    const d=document.createElement('div');d.className='todo';
-    const link=t.link?`<a href="${t.link}" target="_blank">${t.item}</a>`:t.item;
-    d.innerHTML=`<div>${link}</div><div class="pill">${t.project||'-'}</div><div>${t.owner||'-'}</div><div class="${pc(t.priority)}">${t.priority||'-'}</div><div>${t.due||'-'}</div>`;
-    wrap.appendChild(d);
-  });
-})();
-</script>
+<!doctype html><meta charset="utf-8">
+<title>KnowingMind Dashboard</title>
+<h1>📊 KnowingMind Dashboard</h1>
+<p>Last updated: DATE_PLACEHOLDER</p>
+<table border="1" cellspacing="0" cellpadding="4">
+<thead>
+<tr><th>Project</th><th>Progress เมื่อวาน</th><th>วันนี้</th><th>Valuation (M฿)</th><th>มูลค่าเพิ่ม (M฿)</th></tr>
+</thead><tbody>
+<tr><td>KnowingMindApp</td><td>60%</td><td><b>65%</b></td><td>45</td><td>2</td></tr>
+<tr><td>ArunRoo</td><td>70%</td><td><b>75%</b></td><td>38</td><td>2</td></tr>
+<tr><td>SatiShift</td><td>65%</td><td><b>70%</b></td><td>32</td><td>2</td></tr>
+<tr><td>Suite Infra</td><td>60%</td><td><b>60%</b></td><td>25</td><td>0</td></tr>
+<tr><td>AI Creator</td><td>25%</td><td><b>30%</b></td><td>12</td><td>1</td></tr>
+<tr><td>Foundation / SE</td><td>20%</td><td><b>25%</b></td><td>8</td><td>1</td></tr>
+<tr><td>Donation Module</td><td>15%</td><td><b>20%</b></td><td>7</td><td>1</td></tr>
+<tr><td>Ops Services</td><td>10%</td><td><b>15%</b></td><td>6</td><td>1</td></tr>
+<tr><td>Content & Growth</td><td>50%</td><td><b>55%</b></td><td>18</td><td>2</td></tr>
+<tr><td>Game / Roblox</td><td>20%</td><td><b>20%</b></td><td>0</td><td>0</td></tr>
+</tbody></table>
+<h2>Checklist วันนี้</h2>
+<ul>
+<li>อัปเดตตารางเมื่อเช้า</li>
+<li>เปรียบเทียบกับเมื่อวาน</li>
+<li>Publish อัตโนมัติผ่าน GitHub Pages</li>
+</ul>
