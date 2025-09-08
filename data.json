@@ -36,5 +36,12 @@
       "text": "LINE OA quick replies",
       "done": false
     }
+  ],
+  "machines": [
+    {
+      "machine_id": "localhost",
+      "last_update": "2025-09-08T17:32:38+07:00",
+      "status": "ok"
+    }
   ]
 }
