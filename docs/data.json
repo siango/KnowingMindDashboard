@@ -40,8 +40,8 @@
   "machines": [
     {
       "machine_id": "localhost",
-      "name": "OPPOReno13",
-      "last_update": "2025-09-08T20:21:31+07:00",
+      "name": "Termux-Office",
+      "last_update": "2025-09-08T20:39:28+07:00",
       "status": "ok"
     }
   ]
