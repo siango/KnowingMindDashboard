@@ -141,3 +141,36 @@ function csvRows(txt){return txt.trim().split(/\r?\n/).slice(1).map(r=>r.split('
   </script>
   <!-- KM-MACHINES-END -->
 </body></html>
+<!-- KM-ALIAS-FIX: map machine_id -> alias after page load -->
+<script>
+(function(){
+  const run = async () => {
+    try{
+      const res = await fetch('machine_aliases.json', {cache:'no-store'});
+      if(!res.ok) return;
+      const alias = await res.json();
+
+      // ฟังก์ชันแทนข้อความคอลัมน์ชื่อเครื่องในตาราง "สถานะเครื่อง"
+      const replaceCell = (td) => {
+        if(!td) return;
+        const raw = (td.textContent||'').trim();
+        const friendly = alias[raw];
+        if(friendly && friendly !== raw) td.textContent = friendly;
+      };
+
+      // หา section ที่หัวข้อมีคำว่า "สถานะเครื่อง"
+      document.querySelectorAll('h1,h2,h3').forEach(h => {
+        if(/สถานะเครื่อง/.test(h.textContent||'')) {
+          // ตารางแรกใต้หัวข้อนี้
+          const table = h.parentElement && h.parentElement.querySelector('table');
+          if (table) {
+            table.querySelectorAll('tbody tr').forEach(tr => replaceCell(tr.cells && tr.cells[0]));
+          }
+        }
+      });
+    }catch(e){ console.error('alias-fix:', e); }
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run); else run();
+})();
+</script>
+<!-- /KM-ALIAS-FIX -->
