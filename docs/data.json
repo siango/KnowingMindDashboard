@@ -1,6 +1,12 @@
 {
   "machines": [
     {
+      "machine_id": "cmd: Failure calling service settings: Failed transaction (2147483646)",
+      "name": "mshorse",
+      "last_update": "2025-09-08T14:38:45Z",
+      "status": "ok"
+    },
+    {
       "machine_id": "localhost",
       "name": "mshorse",
       "last_update": "2025-09-08T14:24:34Z",
