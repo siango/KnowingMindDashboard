@@ -1,0 +1,12 @@
+[
+  {"project":"KnowingMindApp","delta":2,"reason":"CI/CD และ Cloud Run stable"},
+  {"project":"ArunRoo","delta":2,"reason":"เปิด Readcast + daily posts"},
+  {"project":"SatiShift","delta":2,"reason":"เพิ่ม NimmanQueue และ AlmsRoutes"},
+  {"project":"Suite Infra","delta":0,"reason":"คงที่"},
+  {"project":"AI Creator","delta":1,"reason":"เริ่ม script-first Termux integration"},
+  {"project":"Foundation / SE","delta":1,"reason":"วางแผนนิติบุคคล + เอกสาร"},
+  {"project":"Donation Module","delta":1,"reason":"Phase plan เริ่มขยับ"},
+  {"project":"Ops Services","delta":1,"reason":"เพิ่ม workforce / attendance / noticeboard"},
+  {"project":"Content & Growth","delta":2,"reason":"Growth Loop เริ่มใช้งานจริง"},
+  {"project":"Game / Roblox","delta":0,"reason":"ยังไม่ขยับ"}
+]
