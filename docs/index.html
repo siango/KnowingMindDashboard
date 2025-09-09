@@ -1,6 +1,8 @@
+﻿  <script src="config.env.js?v=20250909230447"></script>
+  <script src="js/gas-client.js?v=20250909230447"></script>
 <!doctype html><html lang="th"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>KnowingMind Dashboard</title>
+<title>[build:20250909230447] KnowingMind Dashboard</title>
 <style>
   :root{--bg:#0b1020;--card:#10172a;--text:#e5e7eb;--muted:#9ca3af;--line:#2a3655;--pos:#22c55e;--zero:#9ca3af;}
   @media (prefers-color-scheme: light){
@@ -27,11 +29,11 @@
 </style>
 <body><script>
 (async () => {
-  // ping แบบ health
+  // ping à¹à¸šà¸š health
   const health = await window.KMS.gasFetch({ action: 'health', source: 'pages' }, 'GET');
   console.log('health:', health);
 
-  // ลองโหลด dashboard (ถ้า Apps Script รองรับ)
+  // à¸¥à¸­à¸‡à¹‚à¸«à¸¥à¸” dashboard (à¸–à¹‰à¸² Apps Script à¸£à¸­à¸‡à¸£à¸±à¸š)
   try {
     const data = await window.KMS.gasFetch({ action: 'dashboard' }, 'GET');
     const el = document.querySelector('[data-km="dashboard-json"]');
@@ -44,36 +46,36 @@
 </script>
 <div class="wrap">
   <div class="card">
-    <h1>📊 KnowingMind Dashboard</h1>
+    <h1>ðŸ“Š KnowingMind Dashboard</h1>
     <div id="machines-card" class="card" style="margin-top:16px;">
-      <h2>สถานะเครื่อง</h2>
-      <div id="machines-note" class="muted">กำลังโหลด…</div>
+      <h2>à¸ªà¸–à¸²à¸™à¸°à¹€à¸„à¸£à¸·à¹ˆà¸­à¸‡</h2>
+      <div id="machines-note" class="muted">à¸à¸³à¸¥à¸±à¸‡à¹‚à¸«à¸¥à¸”â€¦</div>
       <div style="overflow:auto">
-        <table id="machines-table" style="display:none"><thead><tr><th>เครื่อง</th><th>อัปเดทล่าสุด</th><th>สถานะ</th><th>การแก้ไข</th></tr></thead><tbody></tbody></table>
+        <table id="machines-table" style="display:none"><thead><tr><th>à¹€à¸„à¸£à¸·à¹ˆà¸­à¸‡</th><th>à¸­à¸±à¸›à¹€à¸”à¸—à¸¥à¹ˆà¸²à¸ªà¸¸à¸”</th><th>à¸ªà¸–à¸²à¸™à¸°</th><th>à¸à¸²à¸£à¹à¸à¹‰à¹„à¸‚</th></tr></thead><tbody></tbody></table>
       </div>
     </div>
-    <div class="sub">อัปเดตล่าสุด: <span id="lastUpdate">-</span></div>
+    <div class="sub">à¸­à¸±à¸›à¹€à¸”à¸•à¸¥à¹ˆà¸²à¸ªà¸¸à¸”: <span id="lastUpdate">-</span></div>
 
     <div class="kpis">
-      <div class="kpi"><div class="t">มูลค่ารวม (M฿)</div><div class="v" id="k_sum">-</div></div>
-      <div class="kpi"><div class="t">เพิ่มขึ้นวันนี้ (M฿)</div><div class="v" id="k_delta">-</div></div>
-      <div class="kpi"><div class="t">โปรเจกต์ที่ขยับขึ้น</div><div class="v" id="k_up">-</div></div>
+      <div class="kpi"><div class="t">à¸¡à¸¹à¸¥à¸„à¹ˆà¸²à¸£à¸§à¸¡ (Mà¸¿)</div><div class="v" id="k_sum">-</div></div>
+      <div class="kpi"><div class="t">à¹€à¸žà¸´à¹ˆà¸¡à¸‚à¸¶à¹‰à¸™à¸§à¸±à¸™à¸™à¸µà¹‰ (Mà¸¿)</div><div class="v" id="k_delta">-</div></div>
+      <div class="kpi"><div class="t">à¹‚à¸›à¸£à¹€à¸ˆà¸à¸•à¹Œà¸—à¸µà¹ˆà¸‚à¸¢à¸±à¸šà¸‚à¸¶à¹‰à¸™</div><div class="v" id="k_up">-</div></div>
     </div>
 
-    <h2>ตารางเปรียบเทียบเมื่อวาน–วันนี้</h2>
+    <h2>à¸•à¸²à¸£à¸²à¸‡à¹€à¸›à¸£à¸µà¸¢à¸šà¹€à¸—à¸µà¸¢à¸šà¹€à¸¡à¸·à¹ˆà¸­à¸§à¸²à¸™â€“à¸§à¸±à¸™à¸™à¸µà¹‰</h2>
     <table id="tblMain"><thead>
-      <tr><th>Project</th><th>Progress เมื่อวาน</th><th>วันนี้</th><th>Valuation (M฿)</th><th>มูลค่าเพิ่ม (M฿)</th></tr>
+      <tr><th>Project</th><th>Progress à¹€à¸¡à¸·à¹ˆà¸­à¸§à¸²à¸™</th><th>à¸§à¸±à¸™à¸™à¸µà¹‰</th><th>Valuation (Mà¸¿)</th><th>à¸¡à¸¹à¸¥à¸„à¹ˆà¸²à¹€à¸žà¸´à¹ˆà¸¡ (Mà¸¿)</th></tr>
     </thead><tbody></tbody></table>
 
-    <h2>ตารางมูลค่าเพิ่ม + หมายเหตุ</h2>
+    <h2>à¸•à¸²à¸£à¸²à¸‡à¸¡à¸¹à¸¥à¸„à¹ˆà¸²à¹€à¸žà¸´à¹ˆà¸¡ + à¸«à¸¡à¸²à¸¢à¹€à¸«à¸•à¸¸</h2>
     <table id="tblDelta"><thead>
-      <tr><th>Project</th><th>มูลค่าเพิ่ม (M฿)</th><th>หมายเหตุ</th></tr>
+      <tr><th>Project</th><th>à¸¡à¸¹à¸¥à¸„à¹ˆà¸²à¹€à¸žà¸´à¹ˆà¸¡ (Mà¸¿)</th><th>à¸«à¸¡à¸²à¸¢à¹€à¸«à¸•à¸¸</th></tr>
     </thead><tbody></tbody></table>
 
-    <h2>สรุปภาพรวม</h2>
+    <h2>à¸ªà¸£à¸¸à¸›à¸ à¸²à¸žà¸£à¸§à¸¡</h2>
     <ul id="summary"></ul>
 
-    <h2>Checklist วันนี้</h2>
+    <h2>Checklist à¸§à¸±à¸™à¸™à¸µà¹‰</h2>
     <ul id="cks"></ul>
   </div>
 </div>
@@ -86,7 +88,7 @@ function csvRows(txt){return txt.trim().split(/\r?\n/).slice(1).map(r=>r.split('
   document.getElementById('lastUpdate').textContent =
     new Date().toLocaleString('th-TH',{hour12:false});
 
-  // --- ตารางหลัก ---
+  // --- à¸•à¸²à¸£à¸²à¸‡à¸«à¸¥à¸±à¸ ---
   const rows = csvRows(await get('projects_today.csv'));
   let sum=0, delta=0, ups=[];
   const tb = document.querySelector('#tblMain tbody');
@@ -100,12 +102,12 @@ function csvRows(txt){return txt.trim().split(/\r?\n/).slice(1).map(r=>r.split('
            <td class="${(+d>0)?'pos':'zero'}">${d}</td></tr>`);
   });
 
-  // --- สรุปเลขบน ---
+  // --- à¸ªà¸£à¸¸à¸›à¹€à¸¥à¸‚à¸šà¸™ ---
   document.getElementById('k_sum').textContent   = sum.toLocaleString('th-TH');
   document.getElementById('k_delta').textContent = `+${delta.toLocaleString('th-TH')}`;
   document.getElementById('k_up').textContent    = ups.length;
 
-  // --- เหตุผลมูลค่าเพิ่ม ---
+  // --- à¹€à¸«à¸•à¸¸à¸œà¸¥à¸¡à¸¹à¸¥à¸„à¹ˆà¸²à¹€à¸žà¸´à¹ˆà¸¡ ---
   try{
     const reasons = JSON.parse(await get('delta_reason.json'));
     const tb2 = document.querySelector('#tblDelta tbody');
@@ -117,12 +119,12 @@ function csvRows(txt){return txt.trim().split(/\r?\n/).slice(1).map(r=>r.split('
     });
   }catch(e){}
 
-  // --- สรุปภาพรวม ---
+  // --- à¸ªà¸£à¸¸à¸›à¸ à¸²à¸žà¸£à¸§à¸¡ ---
   const s = document.getElementById('summary');
   s.insertAdjacentHTML('beforeend',
-    `<li>📈 Valuation รวมเพิ่มขึ้นวันนี้: +${delta} M฿ (รวม ≈ ${sum} M฿)</li>`);
+    `<li>ðŸ“ˆ Valuation à¸£à¸§à¸¡à¹€à¸žà¸´à¹ˆà¸¡à¸‚à¸¶à¹‰à¸™à¸§à¸±à¸™à¸™à¸µà¹‰: +${delta} Mà¸¿ (à¸£à¸§à¸¡ â‰ˆ ${sum} Mà¸¿)</li>`);
   s.insertAdjacentHTML('beforeend',
-    `<li>🔼 โปรเจกต์ที่ขยับชัดเจน: ${ups.join(', ') || '—'}</li>`);
+    `<li>ðŸ”¼ à¹‚à¸›à¸£à¹€à¸ˆà¸à¸•à¹Œà¸—à¸µà¹ˆà¸‚à¸¢à¸±à¸šà¸Šà¸±à¸”à¹€à¸ˆà¸™: ${ups.join(', ') || 'â€”'}</li>`);
 
   // --- Checklist ---
   try{
@@ -143,16 +145,16 @@ function csvRows(txt){return txt.trim().split(/\r?\n/).slice(1).map(r=>r.split('
       if(!res.ok) throw new Error("HTTP "+res.status);
       const data=await res.json();
       const items=Array.isArray(data.machines)?data.machines:[];
-      if(items.length===0){note.textContent="ยังไม่พบข้อมูลเครื่อง";return;}
+      if(items.length===0){note.textContent="à¸¢à¸±à¸‡à¹„à¸¡à¹ˆà¸žà¸šà¸‚à¹‰à¸­à¸¡à¸¹à¸¥à¹€à¸„à¸£à¸·à¹ˆà¸­à¸‡";return;}
       items.sort((a,b)=>new Date(b.last_update||0)-new Date(a.last_update||0));
       tbody.innerHTML=items.map(m=>{
         const t=m.last_update?new Date(m.last_update).toLocaleString():"-";
-        const badge=(m.status||"").toLowerCase()==="ok"?"✅ ok":(m.status||"-");
+        const badge=(m.status||"").toLowerCase()==="ok"?"âœ… ok":(m.status||"-");
         return `<tr><td>${m.machine_id||"-"}</td><td>${t}</td><td>${badge}</td></tr>`;
       }).join("");
       note.style.display="none";
       table.style.display="table";
-    }catch(e){note.textContent="โหลดข้อมูลเครื่องไม่สำเร็จ";console.error(e);}
+    }catch(e){note.textContent="à¹‚à¸«à¸¥à¸”à¸‚à¹‰à¸­à¸¡à¸¹à¸¥à¹€à¸„à¸£à¸·à¹ˆà¸­à¸‡à¹„à¸¡à¹ˆà¸ªà¸³à¹€à¸£à¹‡à¸ˆ";console.error(e);}
   }
   document.addEventListener("DOMContentLoaded",loadMachines);
   </script>
@@ -167,7 +169,7 @@ function csvRows(txt){return txt.trim().split(/\r?\n/).slice(1).map(r=>r.split('
       if(!res.ok) return;
       const alias = await res.json();
 
-      // ฟังก์ชันแทนข้อความคอลัมน์ชื่อเครื่องในตาราง "สถานะเครื่อง"
+      // à¸Ÿà¸±à¸‡à¸à¹Œà¸Šà¸±à¸™à¹à¸—à¸™à¸‚à¹‰à¸­à¸„à¸§à¸²à¸¡à¸„à¸­à¸¥à¸±à¸¡à¸™à¹Œà¸Šà¸·à¹ˆà¸­à¹€à¸„à¸£à¸·à¹ˆà¸­à¸‡à¹ƒà¸™à¸•à¸²à¸£à¸²à¸‡ "à¸ªà¸–à¸²à¸™à¸°à¹€à¸„à¸£à¸·à¹ˆà¸­à¸‡"
       const replaceCell = (td) => {
         if(!td) return;
         const raw = (td.textContent||'').trim();
@@ -175,10 +177,10 @@ function csvRows(txt){return txt.trim().split(/\r?\n/).slice(1).map(r=>r.split('
         if(friendly && friendly !== raw) td.textContent = friendly;
       };
 
-      // หา section ที่หัวข้อมีคำว่า "สถานะเครื่อง"
+      // à¸«à¸² section à¸—à¸µà¹ˆà¸«à¸±à¸§à¸‚à¹‰à¸­à¸¡à¸µà¸„à¸³à¸§à¹ˆà¸² "à¸ªà¸–à¸²à¸™à¸°à¹€à¸„à¸£à¸·à¹ˆà¸­à¸‡"
       document.querySelectorAll('h1,h2,h3').forEach(h => {
-        if(/สถานะเครื่อง/.test(h.textContent||'')) {
-          // ตารางแรกใต้หัวข้อนี้
+        if(/à¸ªà¸–à¸²à¸™à¸°à¹€à¸„à¸£à¸·à¹ˆà¸­à¸‡/.test(h.textContent||'')) {
+          // à¸•à¸²à¸£à¸²à¸‡à¹à¸£à¸à¹ƒà¸•à¹‰à¸«à¸±à¸§à¸‚à¹‰à¸­à¸™à¸µà¹‰
           const table = h.parentElement && h.parentElement.querySelector('table');
           if (table) {
             table.querySelectorAll('tbody tr').forEach(tr => replaceCell(tr.cells && tr.cells[0]));
@@ -207,3 +209,4 @@ function csvRows(txt){return txt.trim().split(/\r?\n/).slice(1).map(r=>r.split('
 })();
 </script>
 <!-- /KM-CACHE-BUST -->
+
