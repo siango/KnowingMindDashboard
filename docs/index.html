@@ -3,51 +3,59 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>[fix:20250909234225] [fix:20250909233710] [fix:20250909233326] [fix:20250909233055] [fix:20250909232604] KnowingMind Dashboard</title>
+  <title>[fix:20250909234524] [fix:20250909234225] [fix:20250909233710] [fix:20250909233326] [fix:20250909233055] [fix:20250909232604] KnowingMind Dashboard</title>
   <script src="config.env.js?v=20250909232604"></script>
   <script src="js/gas-client.js?v=20250909232604"></script>
 <!-- km-inline-fallback -->
 <script>
 (function(){
   window.KMS = window.KMS || {};
-  if (typeof window.KMS.gasFetch !== 'function') {
-    const GAS_URL = (window.KMS && window.KMS.GAS_URL) || '';
-    const API_KEY = (window.KMS && window.KMS.API_KEY) || '';
-    window.KMS.gasFetch = async function(params={}, method='GET', timeoutMs=12000){
-      const ctl = new AbortController(); const t = setTimeout(()=>ctl.abort(), timeoutMs);
-      try{
-        const headers = {'User-Agent':'KMDashboard/1.0'}; if (API_KEY) headers['X-API-Key'] = API_KEY;
-        if (method === 'GET') {
-          const qs = new URLSearchParams(params).toString();
-          const url = qs ? ${GAS_URL}??source=powershell&action=health : GAS_URL;
-          const res = await fetch(url, {headers, signal: ctl.signal, cache:'no-store'});
-          if (!res.ok) throw new Error(HTTP ); return await res.json();
-        } else {
-          headers['Content-Type'] = 'application/json';
-          const res = await fetch(GAS_URL, {method:'POST', headers, body: JSON.stringify(params), signal: ctl.signal});
-          if (!res.ok) throw new Error(HTTP ); return await res.json();
-        }
-      } catch(e) {
-        // JSONP fallback
-        return new Promise((resolve, reject)=>{
-          const cb = KMS_JSONP__;
-          window[cb] = (data)=>{ resolve(data); cleanup(); };
-          function cleanup(){ try{delete window[cb]}catch(_){ } ; if(s) s.remove(); clearTimeout(tt); }
-          const u = new URL(GAS_URL);
-          Object.entries(params||{}).forEach(([k,v])=>u.searchParams.set(k, v));
-          u.searchParams.set('callback', cb);
-          const s = document.createElement('script'); s.src = u.toString();
-          s.onerror = ()=>{ cleanup(); reject(new Error('JSONP load error')); };
-          document.head.appendChild(s);
-          const tt = setTimeout(()=>{ cleanup(); reject(new Error('JSONP timeout')); }, timeoutMs);
-        });
-      } finally { clearTimeout(t); }
-    };
-    console.log('[km] inline fallback wired');
-  }
+  if (typeof window.KMS.gasFetch === 'function') return;
+
+  var GAS_URL = (window.KMS && window.KMS.GAS_URL) || '';
+  var API_KEY = (window.KMS && window.KMS.API_KEY) || '';
+
+  window.KMS.gasFetch = function(params, method, timeoutMs){
+    params    = params    || {};
+    method    = method    || 'GET';
+    timeoutMs = timeoutMs || 12000;
+
+    var headers = {'User-Agent':'KMDashboard/1.0'};
+    if (API_KEY) headers['X-API-Key'] = API_KEY;
+
+    function jsonp(qs){
+      return new Promise(function(resolve, reject){
+        var cb = 'KMS_JSONP_' + Date.now() + '_' + Math.floor(Math.random()*1e6);
+        window[cb] = function(data){ resolve(data); cleanup(); };
+        function cleanup(){ try{ delete window[cb]; }catch(e){} if (s) s.remove(); clearTimeout(tt); }
+        var url = GAS_URL + (qs ? ('?' + qs + '&') : '?') + 'callback=' + cb;
+        var s = document.createElement('script');
+        s.src = url;
+        s.onerror = function(){ cleanup(); reject(new Error('JSONP load error')); };
+        document.head.appendChild(s);
+        var tt = setTimeout(function(){ cleanup(); reject(new Error('JSONP timeout')); }, timeoutMs);
+      });
+    }
+
+    if (method === 'GET') {
+      var qs = new URLSearchParams(params).toString();
+      var url = GAS_URL + (qs ? ('?' + qs) : '');
+      return fetch(url, {headers:headers, cache:'no-store'})
+        .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .catch(function(){ return jsonp(qs); });
+    } else {
+      headers['Content-Type'] = 'application/json';
+      return fetch(GAS_URL, {method:'POST', headers:headers, body:JSON.stringify(params)})
+        .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .catch(function(){ return jsonp(''); });
+    }
+  };
+
+  console.log('[km] inline fallback wired');
 })();
 </script>
 <!-- /km-inline-fallback -->
+
   <style>
     body{font-family:system-ui,Segoe UI,Roboto,Prompt,sans-serif;margin:0;background:#0b1020;color:#e5e7eb}
     .wrap{max-width:960px;margin:auto;padding:16px}
@@ -129,6 +137,7 @@ if (typeof window.KMS.gasFetch !== 'function') {
   </script>
 </body>
 </html>
+
 
 
 
