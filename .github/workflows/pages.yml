@@ -1,9 +1,8 @@
 name: pages build and deployment
-
 on:
   push:
-    branches: [ "main" ]
-  workflow_dispatch:  # อยากกดรันเองก็ได้
+    branches: ["main"]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -11,7 +10,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: "pages"
+  group: pages
   cancel-in-progress: true
 
 jobs:
@@ -19,8 +18,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      # ถ้ามี Node project จะ build ให้อัตโนมัติ
       - name: Detect Node project
         id: detect
         run: |
@@ -45,29 +42,26 @@ jobs:
           if npm run -s build; then
             echo "built"
           else
-            echo "no build script, will deploy static files"
+            echo "no build script"
           fi
 
-      # เลือกโฟลเดอร์ผลลัพธ์แบบอัตโนมัติ (เจออันไหนก่อนใช้อันนั้น)
       - name: Choose output directory
         id: out
         run: |
           for d in dist build out docs public; do
             if [ -d "$d" ]; then
-              echo "path=$d" >> "$GITHUB_OUTPUT"
-              exit 0
+              echo "path=$d" >> "$GITHUB_OUTPUT"; exit 0
             fi
           done
-          echo "path=." >> "$GITHUB_OUTPUT"  # ถ้าไม่เจออะไรเลย ใช้รากโปรเจ็กต์
-
+          echo "path=." >> "$GITHUB_OUTPUT"
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
           path: ${{ steps.out.outputs.path }}
 
   deploy:
-    runs-on: ubuntu-latest
     needs: build
+    runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
