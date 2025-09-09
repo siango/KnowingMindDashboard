@@ -25,7 +25,24 @@
   h2{margin:18px 0 8px 0;font-size:18px}
   ul{margin:8px 0 0 18px}
 </style>
-<body><div class="wrap">
+<body><script>
+(async () => {
+  // ping แบบ health
+  const health = await window.KMS.gasFetch({ action: 'health', source: 'pages' }, 'GET');
+  console.log('health:', health);
+
+  // ลองโหลด dashboard (ถ้า Apps Script รองรับ)
+  try {
+    const data = await window.KMS.gasFetch({ action: 'dashboard' }, 'GET');
+    const el = document.querySelector('[data-km="dashboard-json"]');
+    if (el) el.textContent = JSON.stringify({ health, dashboard: data }, null, 2);
+  } catch (e) {
+    const el = document.querySelector('[data-km="dashboard-json"]');
+    if (el) el.textContent = JSON.stringify({ health, note: 'dashboard() not available', error: e.message }, null, 2);
+  }
+})();
+</script>
+<div class="wrap">
   <div class="card">
     <h1>📊 KnowingMind Dashboard</h1>
     <div id="machines-card" class="card" style="margin-top:16px;">
