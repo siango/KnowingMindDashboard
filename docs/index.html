@@ -2,7 +2,7 @@
   <script src="js/gas-client.js?v=20250909230447"></script>
 <!doctype html><html lang="th"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>[build:20250909230447] KnowingMind Dashboard</title>
+<title>[build:20250909232154] [build:20250909230447] KnowingMind Dashboard</title>
 <style>
   :root{--bg:#0b1020;--card:#10172a;--text:#e5e7eb;--muted:#9ca3af;--line:#2a3655;--pos:#22c55e;--zero:#9ca3af;}
   @media (prefers-color-scheme: light){
@@ -159,6 +159,25 @@ function csvRows(txt){return txt.trim().split(/\r?\n/).slice(1).map(r=>r.split('
   document.addEventListener("DOMContentLoaded",loadMachines);
   </script>
   <!-- KM-MACHINES-END -->
+<div id="ai-banner" style="position:sticky;top:0;z-index:1000;background:#111827;color:#fff;padding:10px 14px;border-radius:12px;margin:8px 0">
+  <span id="ai-status">Loading…</span>
+</div>
+<script>
+(async () => {
+  try {
+    const h = await window.KMS.gasFetch({ action:'health', source:'pages' }, 'GET');
+    let text = 'health: ' + (h && h.ping || '—');
+    try {
+      const d = await window.KMS.gasFetch({ action:'dashboard' }, 'GET');
+      text += ' | dashboard: ok (' + (d && d.summary && d.summary.progress ? (d.summary.progress.today_percent+'%') : '—') + ')';
+    } catch (e) { text += ' | dashboard: ' + e.message; }
+    document.getElementById('ai-status').textContent = text + ' @ ' + new Date().toLocaleString('th-TH');
+  } catch(e){
+    document.getElementById('ai-status').textContent = 'Load failed: ' + e.message;
+    console.error(e);
+  }
+})();
+</script>
 </body></html>
 <!-- KM-ALIAS-FIX: map machine_id -> alias after page load -->
 <script>
@@ -209,4 +228,5 @@ function csvRows(txt){return txt.trim().split(/\r?\n/).slice(1).map(r=>r.split('
 })();
 </script>
 <!-- /KM-CACHE-BUST -->
+
 
