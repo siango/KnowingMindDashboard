@@ -1,93 +1,33 @@
-<!doctype html>
-<html lang="th">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>KnowingMind Dashboard</title>
-  <style>
-    body { background:#f1f1f1; margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial; }
-    .container { margin:40px auto; max-width:960px; background:#fff; padding:24px; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,.08); }
-    h1 { margin:0 0 8px 0; font-size:22px; }
-    .muted { color:#666; font-size:13px; margin-bottom:20px; }
-    table { width:100%; border-collapse:collapse; }
-    th, td { padding:10px 12px; border-bottom:1px solid #eee; text-align:left; }
-    th { background:#fafafa; position:sticky; top:0; }
-    .right { text-align:right; }
-    .ok { color:#15803d; } .warn { color:#b45309; } .bad { color:#b91c1c; }
-  </style>
-</head>
-<body>
-<div class="container">
-  <h1>KnowingMind Dashboard</h1>
-  <div class="muted" id="status">loading…</div>
-
-  <table id="tbl">
-    <thead>
-      <tr>
-        <th>Project</th>
-        <th class="right">Progress</th>
-        <th class="right">Valuation (M฿)</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
-</div>
-
+<!doctype html><html lang="th"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>KnowingMind Dashboard</title>
+<style>
+body{margin:0;font-family:sans-serif;background:#0f1623;color:#e6eefc}
+.wrap{display:flex;min-height:100vh}
+.side{width:240px;background:#121a29;padding:20px}
+.tab{display:block;margin:6px 0;padding:10px;border-radius:8px;color:#9db1d6;text-align:left}
+.tab.active,.tab:hover{background:#0d1a30;color:#fff}
+.main{flex:1;padding:20px}
+pre{background:#0b1322;padding:10px;border-radius:8px;color:#b9d1ff;overflow:auto}
+</style>
+</head><body><div class="wrap">
+<aside class="side">
+  <div class="brand">📘 KM Suite</div>
+  <button class="tab active" data-page="home">🏠 Home</button>
+  <button class="tab" data-page="dashboard">📊 Dashboard</button>
+  <button class="tab" data-page="update">⬆️ Update</button>
+  <button class="tab" data-page="gas">🔌 GAS</button>
+</aside>
+<main class="main">
+  <section id="page-home"><h1>KnowingMind Dashboard</h1><p>แท็บแนวตั้งซ้ายสไตล์หนังสือ</p></section>
+  <section id="page-dashboard" hidden><h1>Dashboard</h1><pre id="dash-out">ยังไม่มีข้อมูล</pre></section>
+  <section id="page-update" hidden><h1>Update</h1><p>พิมพ์ <code>km-update</code> หรือใช้วิดเจ็ต “อัพเดท_Dashboard”</p></section>
+  <section id="page-gas" hidden><h1>GAS Test</h1><pre id="gas-out">ยังไม่มีข้อมูล</pre></section>
+</main></div>
 <script>
-(async () => {
-  const pct = v => Number.isFinite(+v) ? Math.max(0, Math.min(100, +v)) : null;
-  const num = v => Number.isFinite(+v) ? +v : null;
-  const fmtPct = v => v==null ? "—" : `${v.toFixed(0)}%`;
-  const fmtNum = v => v==null ? "—" : v.toLocaleString("th-TH");
-  const $ = s => document.querySelector(s);
-  const $tbody = $("#tbl tbody");
-  const setStatus = t => $("#status").textContent = t;
-
-  const FALLBACK = [
-    { name: "KnowingMindApp", pct: 65, valuation_mln: 45 },
-    { name: "ArunRoo",        pct: 75, valuation_mln: 38 },
-    { name: "SatiShift",      pct: 70, valuation_mln: 32 },
-    { name: "Suite Infra",    pct: 60, valuation_mln: 25 },
-  ];
-
-  async function loadData() {
-    try {
-      const r = await fetch("./data.csv", { cache: "no-store" });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const text = await r.text();
-      const [header, ...rows] = text.trim().split(/\r?\n/);
-      const cols = header.split(",").map(s => s.trim().toLowerCase());
-      const iName = cols.indexOf("name");
-      const iPct  = cols.indexOf("pct");
-      const iVal  = cols.indexOf("valuation_mln");
-      if (iName < 0) throw new Error("CSV missing 'name'");
-      const out = rows.map(line => {
-        const c = line.split(",").map(s => s.trim());
-        return { name: c[iName], pct: pct(c[iPct]), valuation_mln: num(c[iVal]) };
-      }).filter(x => x.name);
-      return out.length ? out : FALLBACK;
-    } catch (e) {
-      console.warn("Use fallback due to:", e);
-      return FALLBACK;
-    }
-  }
-
-  function rowClass(p){ if(p==null) return ""; if(p>=75) return "ok"; if(p>=40) return "warn"; return "bad"; }
-
-  const data = await loadData();
-  $tbody.innerHTML = "";
-  for (const it of data) {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${it.name || "—"}</td>
-      <td class="right ${rowClass(it.pct)}">${fmtPct(it.pct)}</td>
-      <td class="right">${fmtNum(it.valuation_mln)}</td>
-    `;
-    $tbody.appendChild(tr);
-  }
-  setStatus(\`Loaded \${data.length} item(s).\`);
-})();
-</script>
-<script src="summary.js?v=1757369842"></script>
-</body>
-</html>
+const tabs=document.querySelectorAll(".tab");
+const sections={home:page("home"),dashboard:page("dashboard"),update:page("update"),gas:page("gas")};
+function page(id){return document.getElementById("page-"+id)}
+tabs.forEach(t=>t.onclick=()=>{tabs.forEach(x=>x.classList.remove("active"));t.classList.add("active");
+Object.values(sections).forEach(s=>s.hidden=true);sections[t.dataset.page].hidden=false;});
+</script></body></html>
