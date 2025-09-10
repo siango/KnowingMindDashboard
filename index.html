@@ -1,108 +1,97 @@
 <!doctype html>
 <html lang="th">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>KnowingMind Dashboard</title>
 <style>
-  :root{--bg:#0f1623;--panel:#121a29;--accent:#0da3dd;--text:#e6eefc;--muted:#9bd1ff;}
-  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,sans-serif;background:var(--bg);color:var(--text);}
-  .wrap{display:flex;min-height:100vh;gap:12px;padding:20px;box-sizing:border-box}
-  .side{width:240px;background:var(--panel);padding:16px;border-radius:12px}
-  .brand{font-weight:700;margin-bottom:12px;opacity:.9}
-  .tab{display:block;width:100%;text-align:left;background:#0d1320;border:1px solid #0b1020;
-       color:var(--muted);padding:10px 12px;margin:6px 0;border-radius:8px;cursor:pointer}
-  .tab:hover,.tab.active{background:var(--accent);color:#00121a}
-  .main{flex:1;background:var(--panel);border-radius:12px;padding:20px;overflow:auto}
-  h1{margin:0 0 8px 0}
-  .meta{font-size:.9rem;opacity:.85;margin:0 0 12px 0}
-  pre{background:#0b1322;border:1px solid #0b1020;color:#b9d1ff;padding:14px;border-radius:8px;overflow:auto}
-  .hint{margin-top:12px;font-size:.9rem;opacity:.8}
-  .badge{display:inline-block;background:#0b1322;border:1px solid #0b1020;padding:2px 8px;border-radius:999px;margin-left:8px}
+  :root{--bg:#0f1623;--side:#121a29;--card:#0b1320;--accent:#0da3d6;--text:#e6eefc;--muted:#89d1ff;}
+  html,body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Noto Sans Thai',sans-serif;background:var(--bg);color:var(--text)}
+  .wrap{display:flex;min-height:100vh}
+  .side{width:240px;background:var(--side);padding:20px}
+  .brand{font-size:18px;font-weight:700;color:#fff;margin-bottom:10px}
+  .tab{display:block;width:100%;text-align:left;border:0;outline:none;background:#0b1320;color:#9db7d4;
+       padding:10px;border-radius:8px;margin:6px 0;cursor:pointer}
+  .tab.active,.tab:hover{background:#0da3d6;color:#091524}
+  .main{flex:1;padding:20px}
+  h1{margin:0 0 10px 0}
+  pre{background:var(--card);padding:12px;border-radius:8px;color:var(--muted);overflow:auto}
+  .badge{display:inline-block;background:#132137;color:#89d1ff;padding:4px 8px;border-radius:999px;font-size:12px;margin:6px 0 14px}
 </style>
 </head>
 <body>
 <div class="wrap">
   <aside class="side">
     <div class="brand">📘 KM Suite</div>
-    <button class="tab active"   data-page="home">🏠 Home</button>
-    <button class="tab"          data-page="dashboard">📊 Dashboard</button>
-    <button class="tab"          data-page="update">⬆️ Update</button>
-    <button class="tab"          data-page="gas">🛠️ GAS</button>
+    <button class="tab active"    data-page="home">🏠 Home</button>
+    <button class="tab"           data-page="dashboard">📊 Dashboard</button>
+    <button class="tab"           data-page="update">⬆️ Update</button>
+    <button class="tab"           data-page="gas">🛠️ GAS</button>
   </aside>
 
   <main class="main">
     <section id="page-home">
-      <h1>KnowingMind Dashboard <span id="stamp" class="badge"></span></h1>
-      <p class="meta">หน้าแนวตั้งซ้าย—สลับแท็บเพื่อดูผล JSON จาก GAS หรือวิธีกดอัปเดต</p>
-      <pre id="home-out">ยังไม่มีข้อมูล</pre>
+      <h1>KnowingMind Dashboard</h1>
+      <div class="badge">เมนูแนวตั้งซ้ายแบบหนังสือ</div>
+      <p>กดแท็บซ้ายเพื่อดูผลลัพธ์เรียลไทม์จาก GAS หรือกด <code>km-update</code> ใน Termux เพื่อสั่ง deploy workflow</p>
     </section>
 
     <section id="page-dashboard" hidden>
       <h1>Dashboard</h1>
-      <pre id="dash-out">ยังไม่มีข้อมูล</pre>
+      <pre id="out-dashboard">กำลังดึงข้อมูล…</pre>
     </section>
 
     <section id="page-update" hidden>
       <h1>Update</h1>
       <p>พิมพ์ <code>km-update</code> ใน Termux หรือกดวิดเจ็ต “อัพเดท_Dashboard”</p>
-      <div class="hint">การอัปเดตจะ trigger GitHub Pages workflow และรีเฟรชหน้านี้</div>
+      <pre>สคริปต์จะเรียก workflow: pages-build-deployment (ref=main)</pre>
     </section>
 
     <section id="page-gas" hidden>
       <h1>GAS Test</h1>
-      <pre id="gas-out">ยังไม่มีข้อมูล</pre>
+      <pre id="out-gas">กำลังดึงข้อมูล…</pre>
     </section>
   </main>
 </div>
 
 <script>
-  // แท็บซ้าย
-  const tabs=[...document.querySelectorAll(".tab")];
-  const sections={
-    home:document.getElementById("page-home"),
-    dashboard:document.getElementById("page-dashboard"),
-    update:document.getElementById("page-update"),
-    gas:document.getElementById("page-gas")
+  // ---- nav ----
+  const tabs = document.querySelectorAll(".tab");
+  const sections = {
+    home:      document.getElementById("page-home"),
+    dashboard: document.getElementById("page-dashboard"),
+    update:    document.getElementById("page-update"),
+    gas:       document.getElementById("page-gas")
   };
   tabs.forEach(btn=>{
     btn.onclick=()=>{
-      tabs.forEach(b=>b.classList.remove("active"));
+      tabs.forEach(x=>x.classList.remove("active"));
       btn.classList.add("active");
       Object.values(sections).forEach(s=>s.hidden=true);
       sections[btn.dataset.page].hidden=false;
-    }
+    };
   });
 
-  // เติม timestamp บนหัวข้อ
-  const ts=new Date(); 
-  document.getElementById("stamp").textContent =
-    ts.toLocaleString('th-TH',{hour12:false});
-
-  // ถ้ามี endpoint GAS ให้ใส่ที่นี่ (แบบ JSON/JSONP ก็ได้)
-  // ตัวอย่าง: const url = 'https://script.google.com/macros/s/XXX/exec?action=dashboard';
-  const urlHealth = null;     // ใส่ URL health ถ้ามี
-  const urlDashboard = null;  // ใส่ URL dashboard ถ้ามี
-  const urlGas = null;        // test endpoint
-
-  // แสดง JSON สวยๆ
-  const show = (id, data) => {
-    document.getElementById(id).textContent =
-      typeof data==='string' ? data : JSON.stringify(data,null,2);
-  };
-
-  // ตัวอย่างค่า mock (กรณีไม่ได้ตั้ง URL)
-  const mock = {
-    health:{ok:true,ping:"alive",file:"KMSuite_DataHub_Main",
-      sheets:["ชีต1","Tasks","Goals","Devices","Finance_Transactions","Events_Log"],
-      params:{action:"health",source:"pages"}},
-    dashboard:{ok:true,ping:"alive",file:"KMSuite_DataHub_Main",
-      sheets:["ชีต1","Tasks","Goals","Devices","Finance_Transactions","Events_Log"],
-      params:{action:"dashboard"}}
-  };
-  show("home-out", mock);
-  show("dash-out", mock.dashboard);
-  show("gas-out", {note:"ใส่ URL GAS แล้วรีเฟรชหน้าเพื่อดึงข้อมูลจริงได้ทันที"});
+  // ---- fetch GAS (ปรับจากตัวแปรที่สคริปต์จะใส่ให้) ----
+  const GAS_BASE = "https://script.google.com/macros/s/XXXX/exec"; // จะถูกสคริปต์แทนที่
+  async function fetchJson(url, outId){
+    const out = document.getElementById(outId);
+    try{
+      const res = await fetch(url, {cache:"no-store"});
+      if(!res.ok) throw new Error("HTTP "+res.status);
+      const data = await res.json();
+      out.textContent = JSON.stringify(data, null, 2);
+    }catch(e){
+      out.textContent = "ERR: "+e.message;
+    }
+  }
+  if(GAS_BASE.startsWith("http")){
+    fetchJson(`${GAS_BASE}?action=dashboard`, "out-dashboard");
+    fetchJson(`${GAS_BASE}?action=health`, "out-gas");
+  }else{
+    document.getElementById("out-dashboard").textContent = "ยังไม่ตั้งค่า GAS_BASE";
+    document.getElementById("out-gas").textContent       = "ยังไม่ตั้งค่า GAS_BASE";
+  }
 </script>
 </body>
 </html>
