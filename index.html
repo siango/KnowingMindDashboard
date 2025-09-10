@@ -1,97 +1,150 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="th">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>KnowingMind Dashboard</title>
 <style>
-  :root{--bg:#0f1623;--side:#121a29;--card:#0b1320;--accent:#0da3d6;--text:#e6eefc;--muted:#89d1ff;}
-  html,body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Noto Sans Thai',sans-serif;background:var(--bg);color:var(--text)}
+  :root{--bg:#0f1623;--panel:#121a29;--ink:#e6eefc;--minor:#9bb3d1;--ok:#10b981;--bad:#ef4444;--card:#0b1320;--brand:#4aa3ff}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
   .wrap{display:flex;min-height:100vh}
-  .side{width:240px;background:var(--side);padding:20px}
-  .brand{font-size:18px;font-weight:700;color:#fff;margin-bottom:10px}
-  .tab{display:block;width:100%;text-align:left;border:0;outline:none;background:#0b1320;color:#9db7d4;
-       padding:10px;border-radius:8px;margin:6px 0;cursor:pointer}
-  .tab.active,.tab:hover{background:#0da3d6;color:#091524}
-  .main{flex:1;padding:20px}
-  h1{margin:0 0 10px 0}
-  pre{background:var(--card);padding:12px;border-radius:8px;color:var(--muted);overflow:auto}
-  .badge{display:inline-block;background:#132137;color:#89d1ff;padding:4px 8px;border-radius:999px;font-size:12px;margin:6px 0 14px}
+  aside{width:240px;background:var(--panel);padding:18px}
+  .brand{font-weight:700;color:#fff;margin-bottom:12px}
+  .tab{display:block;width:100%;text-align:left;background:#0d1a30;border:1px solid #1e2b45;color:#cfe2ff;
+       padding:10px 12px;margin:6px 0;border-radius:8px;cursor:pointer}
+  .tab:hover,.tab.active{background:#0d1a3a;color:#fff}
+  main{flex:1;padding:22px;overflow:auto}
+  h1{margin:6px 0 10px}
+  .bar{font-size:14px;color:var(--minor);margin-bottom:16px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin:12px 0 18px}
+  .card{background:var(--card);border:1px solid #1e2b45;border-radius:12px;padding:14px}
+  .k{color:var(--minor)}
+  .chip{display:inline-block;font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid #27476b;margin-left:6px}
+  .ok{color:#caffd7;border-color:#13543c;background:#042d20}
+  .bad{color:#ffd1d1;border-color:#542323;background:#2a0c0c}
+  .time{font-size:12px;color:var(--minor)}
+  pre{background:#0b1320;color:#b9d1ff;border:1px dashed #27476b;border-radius:10px;padding:14px;overflow:auto}
+  .hint{font-size:12px;color:var(--minor);margin-top:6px}
+  .count{font-variant-numeric:tabular-nums}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <aside class="side">
+  <aside>
     <div class="brand">📘 KM Suite</div>
-    <button class="tab active"    data-page="home">🏠 Home</button>
-    <button class="tab"           data-page="dashboard">📊 Dashboard</button>
-    <button class="tab"           data-page="update">⬆️ Update</button>
-    <button class="tab"           data-page="gas">🛠️ GAS</button>
+    <button class="tab active" data-page="home">🏠 Home</button>
+    <button class="tab" data-page="dashboard">📊 Dashboard</button>
+    <button class="tab" data-page="update">⬆️ Update</button>
+    <button class="tab" data-page="gas">🛠️ GAS</button>
   </aside>
 
-  <main class="main">
+  <main>
     <section id="page-home">
       <h1>KnowingMind Dashboard</h1>
-      <div class="badge">เมนูแนวตั้งซ้ายแบบหนังสือ</div>
-      <p>กดแท็บซ้ายเพื่อดูผลลัพธ์เรียลไทม์จาก GAS หรือกด <code>km-update</code> ใน Termux เพื่อสั่ง deploy workflow</p>
+      <div class="bar" id="status-bar">กำลังโหลด…</div>
+
+      <div class="cards" id="cards">
+        <!-- จะถูกเติมด้วย JS -->
+      </div>
+
+      <div class="time">อัปเดตอัตโนมัติทุก <span class="count" id="every">60</span> วินาที |
+        รีเฟรชในอีก <span class="count" id="left">60</span> วิ</div>
+
+      <p class="hint">ด้านล่างคือผล JSON ดิบ (ไว้ดีบัก):</p>
+      <pre id="dash-json">ยังไม่มีข้อมูล</pre>
     </section>
 
     <section id="page-dashboard" hidden>
       <h1>Dashboard</h1>
-      <pre id="out-dashboard">กำลังดึงข้อมูล…</pre>
+      <pre id="dash-raw-more">ยังไม่มีข้อมูล</pre>
     </section>
 
     <section id="page-update" hidden>
       <h1>Update</h1>
       <p>พิมพ์ <code>km-update</code> ใน Termux หรือกดวิดเจ็ต “อัพเดท_Dashboard”</p>
-      <pre>สคริปต์จะเรียก workflow: pages-build-deployment (ref=main)</pre>
     </section>
 
     <section id="page-gas" hidden>
       <h1>GAS Test</h1>
-      <pre id="out-gas">กำลังดึงข้อมูล…</pre>
+      <pre id="gas-out">ยังไม่มีข้อมูล</pre>
     </section>
   </main>
 </div>
 
 <script>
-  // ---- nav ----
-  const tabs = document.querySelectorAll(".tab");
-  const sections = {
-    home:      document.getElementById("page-home"),
-    dashboard: document.getElementById("page-dashboard"),
-    update:    document.getElementById("page-update"),
-    gas:       document.getElementById("page-gas")
+/* == Tab switcher == */
+const tabs=[...document.querySelectorAll('.tab')];
+const pages={
+  home:document.getElementById('page-home'),
+  dashboard:document.getElementById('page-dashboard'),
+  update:document.getElementById('page-update'),
+  gas:document.getElementById('page-gas'),
+};
+tabs.forEach(btn=>{
+  btn.onclick=()=>{
+    tabs.forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    Object.values(pages).forEach(p=>p.hidden=true);
+    pages[btn.dataset.page].hidden=false;
   };
-  tabs.forEach(btn=>{
-    btn.onclick=()=>{
-      tabs.forEach(x=>x.classList.remove("active"));
-      btn.classList.add("active");
-      Object.values(sections).forEach(s=>s.hidden=true);
-      sections[btn.dataset.page].hidden=false;
-    };
-  });
+});
 
-  // ---- fetch GAS (ปรับจากตัวแปรที่สคริปต์จะใส่ให้) ----
-  const GAS_BASE = "https://script.google.com/macros/s/XXXX/exec"; // จะถูกสคริปต์แทนที่
-  async function fetchJson(url, outId){
-    const out = document.getElementById(outId);
-    try{
-      const res = await fetch(url, {cache:"no-store"});
-      if(!res.ok) throw new Error("HTTP "+res.status);
-      const data = await res.json();
-      out.textContent = JSON.stringify(data, null, 2);
-    }catch(e){
-      out.textContent = "ERR: "+e.message;
-    }
-  }
-  if(GAS_BASE.startsWith("http")){
-    fetchJson(`${GAS_BASE}?action=dashboard`, "out-dashboard");
-    fetchJson(`${GAS_BASE}?action=health`, "out-gas");
-  }else{
-    document.getElementById("out-dashboard").textContent = "ยังไม่ตั้งค่า GAS_BASE";
-    document.getElementById("out-gas").textContent       = "ยังไม่ตั้งค่า GAS_BASE";
-  }
+/* == Auto-refresh countdown == */
+const EVERY = 60; // วินาที
+document.getElementById('every').textContent = EVERY;
+let left = EVERY;
+setInterval(()=> {
+  left--; if (left<=0) location.reload();
+  document.getElementById('left').textContent = left;
+}, 1000);
+
+/* == Render status cards จาก JSON ใน <pre id="dash-json"> ==
+   *** ไม่เปลี่ยนแหล่งข้อมูลเดิมของคุณ ***
+   สมมติว่าระบบเดิมจะเติม JSON ลงใน <pre> ตัวนี้แล้ว (ซึ่งเราเห็นว่าทำงานอยู่) */
+function renderCards() {
+  const pre = document.getElementById('dash-json');
+  const cards = document.getElementById('cards');
+  const bar = document.getElementById('status-bar');
+  let data = null;
+  try { data = JSON.parse(pre.textContent.trim()); }
+  catch { /* ยัง parse ไม่ได้ก็รอไปก่อน */ return; }
+
+  // สร้างการ์ด
+  const health = data.health || {};
+  const dash   = data.dashboard || {};
+  const okHealth = !!health.ok;
+  const okDash   = !!dash.ok;
+
+  const when = new Date().toLocaleString('th-TH',{hour12:false});
+  bar.textContent = `health: ${okHealth?'alive':'dead'} | dashboard: ${okDash?'ok':'error'} @ ${when}`;
+
+  cards.innerHTML = `
+    <div class="card">
+      <div><b>Health</b><span class="chip ${okHealth?'ok':'bad'}">${okHealth?'OK':'ERR'}</span></div>
+      <div class="k">file</div><div>${health.file||'-'}</div>
+      <div class="k">sheets</div><div>${(health.sheets||[]).join(', ')||'-'}</div>
+    </div>
+    <div class="card">
+      <div><b>Dashboard</b><span class="chip ${okDash?'ok':'bad'}">${okDash?'OK':'ERR'}</span></div>
+      <div class="k">file</div><div>${dash.file||'-'}</div>
+      <div class="k">sheets</div><div>${(dash.sheets||[]).join(', ')||'-'}</div>
+    </div>
+  `;
+
+  // สำเนา JSON ไปอีกแท็บ (Dashboard)
+  const rawMore = document.getElementById('dash-raw-more');
+  rawMore.textContent = JSON.stringify(data,null,2);
+}
+
+/* พยายาม render ทุกๆ 500ms จนกว่าจะ parse JSON ได้ (รองรับกรณีข้อมูลถูกเติมภายหลัง) */
+let tries=0;
+const t = setInterval(()=>{
+  tries++;
+  try { renderCards(); if (document.getElementById('cards').children.length) clearInterval(t); }
+  catch {}
+  if (tries>40) clearInterval(t); // 20 วินาทีพอ
+}, 500);
 </script>
 </body>
 </html>
