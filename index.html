@@ -1,32 +1,33 @@
-<!DOCTYPE html>
-<html lang="th">
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<!DOCTYPE html><html lang="th"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>KnowingMind Dashboard</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
 <style>
-  :root{--bg:#0f1623;--panel:#121a29;--ink:#e6eefc;--minor:#9bb3d1;--ok:#10b981;--bad:#ef4444;--card:#0b1320;--brand:#4aa3ff}
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
-  .wrap{display:flex;min-height:100vh}
-  aside{width:240px;background:var(--panel);padding:18px}
-  .brand{font-weight:700;color:#fff;margin-bottom:12px}
-  .tab{display:block;width:100%;text-align:left;background:#0d1a30;border:1px solid #1e2b45;color:#cfe2ff;
-       padding:10px 12px;margin:6px 0;border-radius:8px;cursor:pointer}
-  .tab:hover,.tab.active{background:#0d1a3a;color:#fff}
-  main{flex:1;padding:22px;overflow:auto}
-  h1{margin:6px 0 10px}
-  .bar{font-size:14px;color:var(--minor);margin-bottom:16px}
-  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin:12px 0 18px}
-  .card{background:var(--card);border:1px solid #1e2b45;border-radius:12px;padding:14px}
-  .k{color:var(--minor)}
-  .chip{display:inline-block;font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid #27476b;margin-left:6px}
-  .ok{color:#caffd7;border-color:#13543c;background:#042d20}
-  .bad{color:#ffd1d1;border-color:#542323;background:#2a0c0c}
-  .time{font-size:12px;color:var(--minor)}
-  pre{background:#0b1320;color:#b9d1ff;border:1px dashed #27476b;border-radius:10px;padding:14px;overflow:auto}
-  .hint{font-size:12px;color:var(--minor);margin-top:6px}
-  .count{font-variant-numeric:tabular-nums}
+:root{--bg:#0f1623;--panel:#121a29;--ink:#e6eefc;--minor:#9bb3d1;--ok:#10b981;--bad:#ef4444;--card:#0b1320;--line:#1e2b45}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto}
+.wrap{display:flex;min-height:100vh}
+aside{width:240px;background:var(--panel);padding:18px}
+.brand{font-weight:700;margin-bottom:12px}
+.tab{display:block;width:100%;text-align:left;background:#0d1a30;border:1px solid var(--line);color:#cfe2ff;
+     padding:10px 12px;margin:6px 0;border-radius:8px;cursor:pointer}
+.tab:hover,.tab.active{background:#0d1a3a;color:#fff}
+main{flex:1;padding:22px;overflow:auto}
+h1{margin:6px 0 10px}
+.bar{font-size:14px;color:var(--minor);margin-bottom:16px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin:12px 0 18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+.k{color:var(--minor)}
+.chip{display:inline-block;font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid #27476b;margin-left:6px}
+.ok{color:#caffd7;border-color:#13543c;background:#042d20} .bad{color:#ffd1d1;border-color:#542323;background:#2a0c0c}
+pre{background:#0b1320;color:#b9d1ff;border:1px dashed #27476b;border-radius:10px;padding:14px;overflow:auto}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+.btn{background:#1a2b44;border:1px solid var(--line);color:#e6eefc;border-radius:10px;padding:8px 12px;cursor:pointer}
+.btn:hover{filter:brightness(1.1)}
+.input{background:#0d1524;border:1px solid var(--line);color:#e6eefc;border-radius:8px;padding:8px 10px}
+table{width:100%;border-collapse:collapse;margin-top:10px}
+th,td{border:1px solid var(--line);padding:8px;text-align:left}
+th{background:#0d1a3a}
+.footer{opacity:.6;font-size:12px;margin-top:20px}
 </style>
 </head>
 <body>
@@ -35,50 +36,88 @@
     <div class="brand">📘 KM Suite</div>
     <button class="tab active" data-page="home">🏠 Home</button>
     <button class="tab" data-page="dashboard">📊 Dashboard</button>
-    <button class="tab" data-page="update">⬆️ Update</button>
+    <button class="tab" data-page="ops">⚙️ คอมพ์ & สคริปต์</button>
     <button class="tab" data-page="gas">🛠️ GAS</button>
   </aside>
 
   <main>
+    <!-- HOME -->
     <section id="page-home">
       <h1>KnowingMind Dashboard</h1>
-      <div class="bar" id="status-bar">กำลังโหลด…</div>
+      <div class="bar" id="status-bar">loading…</div>
+      <p>แดชบอร์ดตัวอย่าง พร้อมแท็บแนวตั้งซ้าย, สถานะ GitHub Actions แบบเรียลไทม์ และกราฟ (Chart.js)</p>
+      <div class="cards" id="cards"></div>
+      <canvas id="barChart" height="160"></canvas>
+      <canvas id="pieChart" height="160" style="margin-top:12px"></canvas>
+    </section>
 
-      <div class="cards" id="cards">
-        <!-- จะถูกเติมด้วย JS -->
+    <!-- DASHBOARD -->
+    <section id="page-dashboard" hidden>
+      <h1>Dashboard (ข้อมูล)</h1>
+      <div class="row">
+        <button class="btn" id="btnRefresh">🔄 Refresh</button>
+        <button class="btn" id="btnAdd">➕ เพิ่มรายการ</button>
+        <button class="btn" id="btnDownload">⬇️ ดาวน์โหลด JSON</button>
+        <a class="btn" href="#" id="btnDeploy" title="เรียก deploy ผ่าน Termux alias">🚀 Trigger Deploy</a>
       </div>
 
-      <div class="time">อัปเดตอัตโนมัติทุก <span class="count" id="every">60</span> วินาที |
-        รีเฟรชในอีก <span class="count" id="left">60</span> วิ</div>
+      <table id="tbl" hidden>
+        <thead><tr><th>ชื่อ</th><th>ทั้งหมด</th><th>เสร็จ</th><th>แก้ไข</th></tr></thead>
+        <tbody></tbody>
+      </table>
 
-      <p class="hint">ด้านล่างคือผล JSON ดิบ (ไว้ดีบัก):</p>
-      <pre id="dash-json">ยังไม่มีข้อมูล</pre>
+      <div id="form" class="row" hidden>
+        <input class="input" id="fName"  placeholder="ชื่อ เช่น Tasks"/>
+        <input class="input" id="fTot"   type="number" min="0" value="0"/>
+        <input class="input" id="fDone"  type="number" min="0" value="0"/>
+        <button class="btn" id="fSave">💾 บันทึก</button>
+        <button class="btn" id="fCancel">✖️ ยกเลิก</button>
+      </div>
+
+      <p class="k">JSON</p>
+      <pre id="jsonbox">[]</pre>
+      <div class="footer">ไฟล์จริง: <code>data.json</code> ในสาขา <code>gh-pages</code></div>
     </section>
 
-    <section id="page-dashboard" hidden>
-      <h1>Dashboard</h1>
-      <pre id="dash-raw-more">ยังไม่มีข้อมูล</pre>
+    <!-- OPS -->
+    <section id="page-ops" hidden>
+      <h1>คอมพ์ & สคริปต์</h1>
+      <p>วิธีอัปเดตแบบ 1 คลิก:</p>
+      <ol>
+        <li>บนมือถือ: ใช้ <b>Termux Widget</b> ปุ่ม <code>อัพเดท_Dashboard</code></li>
+        <li>หรือใน Termux: พิมพ์ <code>km-update</code></li>
+      </ol>
+      <div class="row">
+        <a class="btn" href="termux://">เปิด Termux</a>
+        <a class="btn" target="_blank" id="runsLink">ดูงานล่าสุด</a>
+      </div>
+      <p class="k">สถานะ GitHub Actions</p>
+      <pre id="runs">loading…</pre>
     </section>
 
-    <section id="page-update" hidden>
-      <h1>Update</h1>
-      <p>พิมพ์ <code>km-update</code> ใน Termux หรือกดวิดเจ็ต “อัพเดท_Dashboard”</p>
-    </section>
-
+    <!-- GAS -->
     <section id="page-gas" hidden>
-      <h1>GAS Test</h1>
-      <pre id="gas-out">ยังไม่มีข้อมูล</pre>
+      <h1>ผลลัพธ์จาก GAS (health + dashboard)</h1>
+      <pre id="gas">ยังไม่มีข้อมูล</pre>
     </section>
   </main>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
-/* == Tab switcher == */
+/* ====== Config ที่ฝังมากับเพจ ====== */
+window.KM_CONFIG = {
+  user:  "siango",
+  repo:  "KnowingMindDashboard",
+  gasUrl: ""  // ว่างได้
+};
+
+/* ====== ระบบแท็บ ====== */
 const tabs=[...document.querySelectorAll('.tab')];
 const pages={
   home:document.getElementById('page-home'),
   dashboard:document.getElementById('page-dashboard'),
-  update:document.getElementById('page-update'),
+  ops:document.getElementById('page-ops'),
   gas:document.getElementById('page-gas'),
 };
 tabs.forEach(btn=>{
@@ -90,61 +129,154 @@ tabs.forEach(btn=>{
   };
 });
 
-/* == Auto-refresh countdown == */
-const EVERY = 60; // วินาที
-document.getElementById('every').textContent = EVERY;
-let left = EVERY;
-setInterval(()=> {
-  left--; if (left<=0) location.reload();
-  document.getElementById('left').textContent = left;
-}, 1000);
+/* ====== Utilities ====== */
+const $ = (s, p=document)=>p.querySelector(s);
+const $$= (s, p=document)=>[...p.querySelectorAll(s)];
+const fmt = n => new Intl.NumberFormat('th-TH').format(n);
+const state = { data:[], editIndex:-1, bar:null, pie:null };
 
-/* == Render status cards จาก JSON ใน <pre id="dash-json"> ==
-   *** ไม่เปลี่ยนแหล่งข้อมูลเดิมของคุณ ***
-   สมมติว่าระบบเดิมจะเติม JSON ลงใน <pre> ตัวนี้แล้ว (ซึ่งเราเห็นว่าทำงานอยู่) */
-function renderCards() {
-  const pre = document.getElementById('dash-json');
-  const cards = document.getElementById('cards');
-  const bar = document.getElementById('status-bar');
-  let data = null;
-  try { data = JSON.parse(pre.textContent.trim()); }
-  catch { /* ยัง parse ไม่ได้ก็รอไปก่อน */ return; }
-
-  // สร้างการ์ด
-  const health = data.health || {};
-  const dash   = data.dashboard || {};
-  const okHealth = !!health.ok;
-  const okDash   = !!dash.ok;
-
-  const when = new Date().toLocaleString('th-TH',{hour12:false});
-  bar.textContent = `health: ${okHealth?'alive':'dead'} | dashboard: ${okDash?'ok':'error'} @ ${when}`;
-
-  cards.innerHTML = `
-    <div class="card">
-      <div><b>Health</b><span class="chip ${okHealth?'ok':'bad'}">${okHealth?'OK':'ERR'}</span></div>
-      <div class="k">file</div><div>${health.file||'-'}</div>
-      <div class="k">sheets</div><div>${(health.sheets||[]).join(', ')||'-'}</div>
-    </div>
-    <div class="card">
-      <div><b>Dashboard</b><span class="chip ${okDash?'ok':'bad'}">${okDash?'OK':'ERR'}</span></div>
-      <div class="k">file</div><div>${dash.file||'-'}</div>
-      <div class="k">sheets</div><div>${(dash.sheets||[]).join(', ')||'-'}</div>
-    </div>
-  `;
-
-  // สำเนา JSON ไปอีกแท็บ (Dashboard)
-  const rawMore = document.getElementById('dash-raw-more');
-  rawMore.textContent = JSON.stringify(data,null,2);
+/* ====== โหลดข้อมูลจริง (data.json) ====== */
+async function loadDataJson(){
+  try{
+    const r = await fetch('data.json', {cache:'no-store'});
+    if(!r.ok) throw new Error(r.status);
+    const j = await r.json();
+    state.data = Array.isArray(j)? j : [];
+  }catch(e){
+    // fallback mock
+    state.data = [
+      {name:'Tasks', total:42, done:31},
+      {name:'Goals', total:12, done:7},
+      {name:'Devices', total:5,  done:5},
+    ];
+  }
+  $('#jsonbox').textContent = JSON.stringify(state.data,null,2);
+  renderTable(); renderCards(); renderCharts();
 }
 
-/* พยายาม render ทุกๆ 500ms จนกว่าจะ parse JSON ได้ (รองรับกรณีข้อมูลถูกเติมภายหลัง) */
-let tries=0;
-const t = setInterval(()=>{
-  tries++;
-  try { renderCards(); if (document.getElementById('cards').children.length) clearInterval(t); }
-  catch {}
-  if (tries>40) clearInterval(t); // 20 วินาทีพอ
-}, 500);
+/* ====== เรนเดอร์การ์ด/กราฟ ====== */
+function renderCards(){
+  const cards = $('#cards');
+  const sumTotal = state.data.reduce((a,b)=>a+b.total,0);
+  const sumDone  = state.data.reduce((a,b)=>a+b.done,0);
+  cards.innerHTML = `
+    <div class="card"><div><b>รายการ</b></div>
+      <div class="k">ทั้งหมด</div><div>${fmt(sumTotal)}</div>
+      <div class="k">เสร็จ</div><div>${fmt(sumDone)}</div>
+    </div>
+    ${state.data.map(x=>`
+      <div class="card">
+        <div><b>${x.name}</b> <span class="chip ${x.done>=x.total?'ok':''}">
+          ${x.done}/${x.total}</span></div>
+        <div class="k">คงเหลือ</div><div>${fmt(Math.max(0,x.total-x.done))}</div>
+      </div>`).join('')}
+  `;
+}
+function renderCharts(){
+  const names = state.data.map(x=>x.name);
+  const totals= state.data.map(x=>x.total);
+  const dones = state.data.map(x=>x.done);
+  const remain= totals.map((t,i)=>Math.max(0,t-dones[i]));
+
+  if(state.bar) state.bar.destroy();
+  state.bar = new Chart($('#barChart'), {
+    type:'bar',
+    data:{ labels:names, datasets:[
+      {label:'ทั้งหมด', data:totals},
+      {label:'เสร็จ',   data:dones},
+      {label:'คงเหลือ', data:remain},
+    ]},
+    options:{ responsive:true, plugins:{legend:{position:'bottom'}} }
+  });
+
+  if(state.pie) state.pie.destroy();
+  const sumDone  = dones.reduce((a,b)=>a+b,0);
+  const sumTotal = totals.reduce((a,b)=>a+b,0);
+  state.pie = new Chart($('#pieChart'), {
+    type:'pie',
+    data:{ labels:['เสร็จ','คงเหลือ'], datasets:[{ data:[sumDone,Math.max(0,sumTotal-sumDone)] }]},
+    options:{ plugins:{legend:{position:'bottom'}} }
+  });
+}
+
+/* ====== ตาราง + แบบฟอร์ม เพิ่ม/แก้ไข ====== */
+function renderTable(){
+  const tbl=$('#tbl'), tb=tbl.querySelector('tbody'); tbl.hidden=false;
+  tb.innerHTML = state.data.map((x,i)=>`
+    <tr>
+      <td>${x.name}</td>
+      <td>${fmt(x.total)}</td>
+      <td>${fmt(x.done)}</td>
+      <td><button class="btn" data-i="${i}">แก้ไข</button></td>
+    </tr>
+  `).join('');
+  $$('#tbl .btn').forEach(b=>{
+    b.onclick=()=>{
+      const i=Number(b.dataset.i); state.editIndex=i;
+      $('#form').hidden=false;
+      $('#fName').value = state.data[i].name;
+      $('#fTot').value  = state.data[i].total;
+      $('#fDone').value = state.data[i].done;
+    };
+  });
+}
+$('#btnAdd').onclick=()=>{ state.editIndex=-1; $('#form').hidden=false;
+  $('#fName').value=''; $('#fTot').value=0; $('#fDone').value=0; };
+$('#fCancel').onclick=()=>$('#form').hidden=true;
+$('#fSave').onclick=()=>{
+  const obj = {name:$('#fName').value.trim(), total:Number($('#fTot').value||0), done:Number($('#fDone').value||0)};
+  if(!obj.name) return;
+  if(state.editIndex<0) state.data.push(obj); else state.data[state.editIndex]=obj;
+  $('#jsonbox').textContent = JSON.stringify(state.data,null,2);
+  renderTable(); renderCards(); renderCharts();
+  $('#form').hidden=true;
+};
+/* ดาวน์โหลด JSON */
+$('#btnDownload').onclick=()=>{
+  const blob = new Blob([JSON.stringify(state.data,null,2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download='data.json'; a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),500);
+};
+/* Refresh */
+$('#btnRefresh').onclick=()=>loadAll();
+
+/* ปุ่ม Trigger Deploy: แค่เตือนให้ไปกดที่ Termux (เราเรียกสคริปต์เครื่องไม่ได้จากเว็บ) */
+$('#btnDeploy').onclick=(e)=>{
+  e.preventDefault();
+  alert('ให้สลับไป Termux แล้วพิมพ์: km-update  หรือกดวิดเจ็ต "อัพเดท_Dashboard"');
+};
+
+/* ====== ดึงสถานะ GitHub Actions แบบเรียลไทม์ ====== */
+async function loadRuns(){
+  const u = window.KM_CONFIG.user, r = window.KM_CONFIG.repo;
+  const api = `https://api.github.com/repos/${u}/${r}/actions/runs?per_page=1`;
+  const res = await fetch(api, {cache:'no-store'}); const j = await res.json();
+  const run = (j.workflow_runs||[])[0];
+  const bar = document.getElementById('status-bar');
+  const txt = run ? `health: alive | last run: ${run.status}/${run.conclusion||'-'} @ ${new Date(run.updated_at).toLocaleString('th-TH',{hour12:false})}` 
+                  : 'no runs';
+  bar.textContent = txt;
+  const pre = document.getElementById('runs');
+  pre.textContent = JSON.stringify(run||{}, null, 2);
+  document.getElementById('runsLink').href = run?.html_url || `https://github.com/${u}/${r}/actions`;
+}
+
+/* ====== GAS (ถ้าระบุ URL) ====== */
+async function loadGas(){
+  const url = window.KM_CONFIG.gasUrl;
+  if(!url){ document.getElementById('gas').textContent='(ยังไม่ได้ตั้งค่า GAS_URL)'; return; }
+  try{
+    const res = await fetch(url, {cache:'no-store'});
+    const j   = await res.json();
+    document.getElementById('gas').textContent = JSON.stringify(j,null,2);
+  }catch(e){
+    document.getElementById('gas').textContent = 'โหลด GAS ไม่สำเร็จ: '+e;
+  }
+}
+
+/* ====== รวมโหลดทั้งหมด ====== */
+async function loadAll(){ await loadDataJson(); await loadRuns(); await loadGas(); }
+loadAll(); setInterval(loadRuns, 15000); // refresh สถานะทุก 15s
 </script>
-</body>
-</html>
+</body></html>
