@@ -1,33 +1,108 @@
-<!doctype html><html lang="th"><head>
-<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>KnowingMind Dashboard</title>
 <style>
-body{margin:0;font-family:sans-serif;background:#0f1623;color:#e6eefc}
-.wrap{display:flex;min-height:100vh}
-.side{width:240px;background:#121a29;padding:20px}
-.tab{display:block;margin:6px 0;padding:10px;border-radius:8px;color:#9db1d6;text-align:left}
-.tab.active,.tab:hover{background:#0d1a30;color:#fff}
-.main{flex:1;padding:20px}
-pre{background:#0b1322;padding:10px;border-radius:8px;color:#b9d1ff;overflow:auto}
+  :root{--bg:#0f1623;--panel:#121a29;--accent:#0da3dd;--text:#e6eefc;--muted:#9bd1ff;}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,sans-serif;background:var(--bg);color:var(--text);}
+  .wrap{display:flex;min-height:100vh;gap:12px;padding:20px;box-sizing:border-box}
+  .side{width:240px;background:var(--panel);padding:16px;border-radius:12px}
+  .brand{font-weight:700;margin-bottom:12px;opacity:.9}
+  .tab{display:block;width:100%;text-align:left;background:#0d1320;border:1px solid #0b1020;
+       color:var(--muted);padding:10px 12px;margin:6px 0;border-radius:8px;cursor:pointer}
+  .tab:hover,.tab.active{background:var(--accent);color:#00121a}
+  .main{flex:1;background:var(--panel);border-radius:12px;padding:20px;overflow:auto}
+  h1{margin:0 0 8px 0}
+  .meta{font-size:.9rem;opacity:.85;margin:0 0 12px 0}
+  pre{background:#0b1322;border:1px solid #0b1020;color:#b9d1ff;padding:14px;border-radius:8px;overflow:auto}
+  .hint{margin-top:12px;font-size:.9rem;opacity:.8}
+  .badge{display:inline-block;background:#0b1322;border:1px solid #0b1020;padding:2px 8px;border-radius:999px;margin-left:8px}
 </style>
-</head><body><div class="wrap">
-<aside class="side">
-  <div class="brand">📘 KM Suite</div>
-  <button class="tab active" data-page="home">🏠 Home</button>
-  <button class="tab" data-page="dashboard">📊 Dashboard</button>
-  <button class="tab" data-page="update">⬆️ Update</button>
-  <button class="tab" data-page="gas">🔌 GAS</button>
-</aside>
-<main class="main">
-  <section id="page-home"><h1>KnowingMind Dashboard</h1><p>แท็บแนวตั้งซ้ายสไตล์หนังสือ</p></section>
-  <section id="page-dashboard" hidden><h1>Dashboard</h1><pre id="dash-out">ยังไม่มีข้อมูล</pre></section>
-  <section id="page-update" hidden><h1>Update</h1><p>พิมพ์ <code>km-update</code> หรือใช้วิดเจ็ต “อัพเดท_Dashboard”</p></section>
-  <section id="page-gas" hidden><h1>GAS Test</h1><pre id="gas-out">ยังไม่มีข้อมูล</pre></section>
-</main></div>
+</head>
+<body>
+<div class="wrap">
+  <aside class="side">
+    <div class="brand">📘 KM Suite</div>
+    <button class="tab active"   data-page="home">🏠 Home</button>
+    <button class="tab"          data-page="dashboard">📊 Dashboard</button>
+    <button class="tab"          data-page="update">⬆️ Update</button>
+    <button class="tab"          data-page="gas">🛠️ GAS</button>
+  </aside>
+
+  <main class="main">
+    <section id="page-home">
+      <h1>KnowingMind Dashboard <span id="stamp" class="badge"></span></h1>
+      <p class="meta">หน้าแนวตั้งซ้าย—สลับแท็บเพื่อดูผล JSON จาก GAS หรือวิธีกดอัปเดต</p>
+      <pre id="home-out">ยังไม่มีข้อมูล</pre>
+    </section>
+
+    <section id="page-dashboard" hidden>
+      <h1>Dashboard</h1>
+      <pre id="dash-out">ยังไม่มีข้อมูล</pre>
+    </section>
+
+    <section id="page-update" hidden>
+      <h1>Update</h1>
+      <p>พิมพ์ <code>km-update</code> ใน Termux หรือกดวิดเจ็ต “อัพเดท_Dashboard”</p>
+      <div class="hint">การอัปเดตจะ trigger GitHub Pages workflow และรีเฟรชหน้านี้</div>
+    </section>
+
+    <section id="page-gas" hidden>
+      <h1>GAS Test</h1>
+      <pre id="gas-out">ยังไม่มีข้อมูล</pre>
+    </section>
+  </main>
+</div>
+
 <script>
-const tabs=document.querySelectorAll(".tab");
-const sections={home:page("home"),dashboard:page("dashboard"),update:page("update"),gas:page("gas")};
-function page(id){return document.getElementById("page-"+id)}
-tabs.forEach(t=>t.onclick=()=>{tabs.forEach(x=>x.classList.remove("active"));t.classList.add("active");
-Object.values(sections).forEach(s=>s.hidden=true);sections[t.dataset.page].hidden=false;});
-</script></body></html>
+  // แท็บซ้าย
+  const tabs=[...document.querySelectorAll(".tab")];
+  const sections={
+    home:document.getElementById("page-home"),
+    dashboard:document.getElementById("page-dashboard"),
+    update:document.getElementById("page-update"),
+    gas:document.getElementById("page-gas")
+  };
+  tabs.forEach(btn=>{
+    btn.onclick=()=>{
+      tabs.forEach(b=>b.classList.remove("active"));
+      btn.classList.add("active");
+      Object.values(sections).forEach(s=>s.hidden=true);
+      sections[btn.dataset.page].hidden=false;
+    }
+  });
+
+  // เติม timestamp บนหัวข้อ
+  const ts=new Date(); 
+  document.getElementById("stamp").textContent =
+    ts.toLocaleString('th-TH',{hour12:false});
+
+  // ถ้ามี endpoint GAS ให้ใส่ที่นี่ (แบบ JSON/JSONP ก็ได้)
+  // ตัวอย่าง: const url = 'https://script.google.com/macros/s/XXX/exec?action=dashboard';
+  const urlHealth = null;     // ใส่ URL health ถ้ามี
+  const urlDashboard = null;  // ใส่ URL dashboard ถ้ามี
+  const urlGas = null;        // test endpoint
+
+  // แสดง JSON สวยๆ
+  const show = (id, data) => {
+    document.getElementById(id).textContent =
+      typeof data==='string' ? data : JSON.stringify(data,null,2);
+  };
+
+  // ตัวอย่างค่า mock (กรณีไม่ได้ตั้ง URL)
+  const mock = {
+    health:{ok:true,ping:"alive",file:"KMSuite_DataHub_Main",
+      sheets:["ชีต1","Tasks","Goals","Devices","Finance_Transactions","Events_Log"],
+      params:{action:"health",source:"pages"}},
+    dashboard:{ok:true,ping:"alive",file:"KMSuite_DataHub_Main",
+      sheets:["ชีต1","Tasks","Goals","Devices","Finance_Transactions","Events_Log"],
+      params:{action:"dashboard"}}
+  };
+  show("home-out", mock);
+  show("dash-out", mock.dashboard);
+  show("gas-out", {note:"ใส่ URL GAS แล้วรีเฟรชหน้าเพื่อดึงข้อมูลจริงได้ทันที"});
+</script>
+</body>
+</html>
