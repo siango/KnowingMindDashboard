@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="th"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>KnowingMind Console</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>body{background:#0b1220}</style></head>
+<body><div id="root"></div>
+<script type="text/babel">
+const {useMemo, useState} = React;
+const tone={OK:"bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-400/30",WARN:"bg-amber-500/15 text-amber-300 ring-1 ring-amber-400/30",BAD:"bg-rose-500/15 text-rose-300 ring-1 ring-rose-400/30"};
+const cls=(...s)=>s.filter(Boolean).join(" ");
+const Section=({children})=>(<div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 md:p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">{children}</div>);
+const ProgressBar=({value})=>(<div className="relative h-2 w-full overflow-hidden rounded-full bg-white/10"><div className="absolute inset-y-0 left-0 rounded-r-full bg-gradient-to-r from-sky-400 to-teal-300" style={{width:`${Math.min(100,Math.max(0,value))}%`}} /></div>);
+
+const DATA=[
+  {name:"KnowingMindApp",progress:65,valuation:45,health:"OK",y:{progress:62,valuation:44}},
+  {name:"ArunRoo",progress:75,valuation:38,health:"OK",y:{progress:72,valuation:37}},
+  {name:"SatiShift",progress:70,valuation:32,health:"WARN",y:{progress:68,valuation:31}},
+  {name:"Suite Infra",progress:60,valuation:25,health:"OK",y:{progress:58,valuation:25}},
+  {name:"AI Creator",progress:30,valuation:12,health:"WARN",y:{progress:28,valuation:12}},
+  {name:"Foundation / SE",progress:25,valuation:8,health:"WARN",y:{progress:24,valuation:8}},
+  {name:"Donation Module",progress:20,valuation:7,health:"WARN",y:{progress:20,valuation:7}},
+  {name:"Ops Services",progress:15,valuation:6,health:"WARN",y:{progress:15,valuation:6}},
+  {name:"Content & Growth",progress:55,valuation:18,health:"OK",y:{progress:54,valuation:18}},
+  {name:"Game / Roblox",progress:20,valuation:0,health:"WARN",y:{progress:20,valuation:0}},
+  {name:"Beyond the Rich",progress:40,valuation:10,health:"OK",y:{progress:35,valuation:9}}
+];
+
+function Delta({v,label,unit}){
+  const pos=v>0, neg=v<0;
+  return (<span className={cls("inline-flex items-center rounded-full px-2 py-0.5 text-[11px] ring-1",pos&&"bg-emerald-500/10 text-emerald-300 ring-emerald-400/30",neg&&"bg-rose-500/10 text-rose-300 ring-rose-400/30",!pos&&!neg&&"bg-white/5 text-slate-300 ring-white/10")}>
+    <span className="mr-1">{pos?"▲":neg?"▼":"•"}</span>{label} {pos?"+":""}{v}{unit||""}
+  </span>);
+}
+
+function TopCard({p}){
+  const dP=p.y?p.progress-p.y.progress:0; const dV=p.y?p.valuation-p.y.valuation:0;
+  return (<div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5">
+    <div className="mb-3 flex items-center justify-between gap-2">
+      <div className="text-base font-semibold">{p.name}</div>
+      <span className={cls("rounded-full px-2 py-0.5 text-xs",tone[p.health]||tone.WARN)}>{p.health}</span>
+    </div>
+    <div className="mb-2 text-xs text-slate-400">มูลค่า: {p.valuation} M</div>
+    <ProgressBar value={p.progress} />
+    <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+      {p.y && <Delta v={dP} label="คืบหน้า" unit="%" />}
+      {p.y && <Delta v={dV} label="มูลค่า" unit=" M" />}
+    </div>
+  </div>);
+}
+
+function App(){
+  const [tab,setTab]=useState("overview");
+  const projects=useMemo(()=>DATA.slice(),[]);
+  const top=useMemo(()=>projects.slice().sort((a,b)=>b.valuation-a.valuation).slice(0,3),[projects]);
+  const others=useMemo(()=>projects.slice().sort((a,b)=>b.valuation-a.valuation).slice(3),[projects]);
+
+  return (<div className="min-h-screen text-slate-100">
+    <div className="mx-auto grid max-w-7xl grid-cols-[250px_1fr] gap-6 px-4 py-6 md:px-8">
+      <aside className="sticky top-4 h-fit rounded-2xl border border-white/10 bg-white/[0.04] p-3 backdrop-blur">
+        <div className="mb-3 px-2 text-sm font-semibold tracking-wide text-slate-300/90">
+          KnowingMind — Console
+          <a href="/mobile/admin-app/" className="mt-2 block rounded-lg border border-indigo-300/30 bg-indigo-400/10 px-3 py-2 text-center text-indigo-200 hover:bg-indigo-400/15">สร้างแอปผู้บริหาร (มือถือ)</a>
+        </div>
+        <div className="flex flex-col gap-2">
+          { [["overview","📊","Overview"],["update","↻","Update"],["today","📅","Today"],["check","✅","Checklist"]].map(([k,ico,label])=> (
+            <button key={k} onClick={()=>setTab(k)} className={(tab===k?"bg-white/8 text-white shadow-inner ring-1 ring-white/15":"text-slate-300/80 hover:text-white hover:bg-white/5 ring-1 ring-white/0 hover:ring-white/10")+" group relative flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition"}>
+              <span className="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-white/10 text-sm">{ico}</span>
+              <span className="font-medium tracking-wide">{label}</span>
+              {tab===k && <span className="ml-auto h-5 w-1.5 rounded-full bg-gradient-to-b from-sky-300 to-indigo-400" />}
+            </button>
+          ))}
+        </div>
+      </aside>
+
+      <main className="space-y-6">
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-2xl font-extrabold tracking-tight text-white">KnowingMind Dashboard</h1>
+        </header>
+
+        {tab==="overview" && (<div className="grid gap-6">
+          <Section>
+            <div className="mb-3 text-sm font-semibold text-slate-300">Top Projects (มูลค่าสูงสุด)</div>
+            <div className="grid gap-4 md:grid-cols-3">
+              {top.map(p=> <TopCard key={p.name} p={p}/>)}
+            </div>
+          </Section>
+
+          <Section>
+            <div className="mb-3 text-sm font-semibold text-slate-300">Projects — Others</div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="text-slate-400">
+                  <tr><th className="py-2">โปรเจกต์</th><th className="py-2">คืบหน้า</th><th className="py-2">มูลค่า (M)</th><th className="py-2">Δ วันนี้</th><th className="py-2">สุขภาพ</th></tr>
+                </thead>
+                <tbody className="divide-y divide-white/10">
+                  {others.map(p=>{
+                    const dP=p.y?p.progress-p.y.progress:0, dV=p.y?p.valuation-p.y.valuation:0;
+                    return (<tr key={p.name} className="hover:bg-white/5">
+                      <td className="py-2 pr-2">{p.name}</td>
+                      <td className="py-2 pr-2 tabular-nums">{p.progress}%</td>
+                      <td className="py-2 pr-2 tabular-nums">{p.valuation}</td>
+                      <td className="py-2 pr-2">
+                        <div className="flex flex-wrap gap-1 text-[11px]">
+                          {p.y && <Delta v={dP} label="% " />}{p.y && <Delta v={dV} label="M " />}
+                        </div>
+                      </td>
+                      <td className="py-2"><span className={(tone[p.health]||tone.WARN)+" rounded-full px-2 py-0.5 text-xs"}>{p.health}</span></td>
+                    </tr>);
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Section>
+        </div>)}
+      </main>
+    </div>
+  </div>);
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body></html>
