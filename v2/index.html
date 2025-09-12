@@ -1,26 +1,23 @@
 ﻿<!doctype html>
-<html lang='th'>
+<html lang="en">
 <head>
-  <meta charset='utf-8'/>
-  <meta name='viewport' content='width=device-width,initial-scale=1'/>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>KnowingMind Dashboard v2</title>
-  <link rel='stylesheet' href='./assets/styles.css'/>
-  <link rel='stylesheet' href='./assets/tabs.css'/>
-  <script src='https://cdn.jsdelivr.net/npm/chart.js'></script>
-  <script type='module' src='./assets/router.js' defer></script>
+  <link rel="stylesheet" href="assets/style.css"/>
 </head>
 <body>
-  <header class='topbar'>
-    <div class='brand'>KnowingMind Dashboard <span class='pill'>v2</span></div>
-    <nav class='tabs'>
-      <a href='#/overview'  data-tab='overview'  class='tab'>Overview</a>
-      <a href='#/analytics' data-tab='analytics' class='tab'>Analytics</a>
-      <a href='#/reports'   data-tab='reports'   class='tab'>Reports</a>
-      <a href='#/settings'  data-tab='settings'  class='tab'>Settings</a>
-    </nav>
-    <div class='right'><input id='q' class='search' placeholder='ค้นหา…'/><span id='now' class='muted'></span></div>
-  </header>
-  <main id='app' class='container'></main>
-  <footer class='footer'>© <span id='yr'></span> KnowingMind — modular live</footer>
+  <nav class="nav">
+    <div class="brand">KnowingMind Dashboard <span class="pill">v2</span></div>
+    <div class="tabs">
+      <a href="#/overview"  class="tab" data-tab="overview">Overview</a>
+      <a href="#/analytics" class="tab" data-tab="analytics">Analytics</a>
+      <a href="#/reports"   class="tab" data-tab="reports">Reports</a>
+      <a href="#/settings"  class="tab" data-tab="settings">Settings</a>
+    </div>
+  </nav>
+  <main id="app"></main>
+  <footer class="ft">© KnowingMind — modular live</footer>
+  <script type="module" src="assets/router.js"></script>
 </body>
 </html>

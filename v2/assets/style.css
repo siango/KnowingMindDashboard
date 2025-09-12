@@ -1,0 +1,10 @@
+﻿:root{--bg:#0f172a;--card:#1e293b;--text:#e2e8f0;--muted:#94a3b8;--accent:#38bdf8}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.6 system-ui,Segoe UI,Roboto,Arial}
+.nav{display:flex;align-items:center;gap:16px;justify-content:space-between;background:#162338;padding:10px 16px;border-bottom:1px solid #24324d}
+.brand{font-weight:700}.pill{background:var(--accent);color:#00151e;border-radius:10px;padding:2px 7px;margin-left:6px;font-size:12px}
+.tabs{display:flex;gap:10px}.tab{padding:6px 10px;border-radius:8px;color:#cbd5e1;text-decoration:none;border:1px solid #26344f;background:#111b2f}
+.tab.active{background:#243656;color:#fff}
+#app{max-width:1100px;margin:28px auto;padding:0 16px}
+.card{background:var(--card);border:1px solid #283756;border-radius:14px;padding:16px;margin:12px 0}
+.ft{opacity:.7;text-align:center;margin:24px 0;color:var(--muted)}
+.red{color:#f87171}
