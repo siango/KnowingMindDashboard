@@ -6,8 +6,8 @@
   <title>KnowingMind Dashboard v2</title>
   <link rel='stylesheet' href='./assets/styles.css'/>
   <link rel='stylesheet' href='./assets/tabs.css'/>
-  <script defer src='https://cdn.jsdelivr.net/npm/chart.js'></script>
-  <script defer type='module' src='./assets/router.js'></script>
+  <script src='https://cdn.jsdelivr.net/npm/chart.js'></script>
+  <script type='module' src='./assets/router.js' defer></script>
 </head>
 <body>
   <header class='topbar'>
@@ -18,10 +18,7 @@
       <a href='#/reports'   data-tab='reports'   class='tab'>Reports</a>
       <a href='#/settings'  data-tab='settings'  class='tab'>Settings</a>
     </nav>
-    <div class='right'>
-      <input id='q' class='search' placeholder='ค้นหา…'/>
-      <span id='now' class='muted'></span>
-    </div>
+    <div class='right'><input id='q' class='search' placeholder='ค้นหา…'/><span id='now' class='muted'></span></div>
   </header>
   <main id='app' class='container'></main>
   <footer class='footer'>© <span id='yr'></span> KnowingMind — modular live</footer>

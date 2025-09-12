@@ -1,4 +1,4 @@
-﻿const $ = (s,c=document)=>c.querySelector(s);
+﻿const $=(s,c=document)=>c.querySelector(s);
 const tick=()=>{ #now.textContent=new Date().toLocaleString(); #yr.textContent=new Date().getFullYear(); };
 const routes={
   overview: () => import('./tabs/overview.js'),
@@ -14,7 +14,6 @@ async function renderRoute(){
   const mount=#app; mount.innerHTML=<div class="card" style="padding:24px">Loading <b></b>…</div>;
   if(typeof disposer==='function'){ try{disposer()}catch{} disposer=null; }
   try{
-    if(!routes[hash]) throw new Error('Not Found');
     const mod=await routes[hash](); const fn=await mod.render(mount);
     if(typeof fn==='function') disposer=fn;
   }catch(e){ console.error(e); mount.innerHTML=<div class="card" style="padding:24px;color:#fca5a5">Oops: </div>; }

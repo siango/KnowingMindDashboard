@@ -1,5 +1,5 @@
-﻿:root{--bg:#0b1320;--card:#131b2e;--muted:#9fb0d0;--text:#eaf1ff;--accent:#4cc9f0;--ok:#22c55e;--warn:#f59e0b}
-*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:15px/1.6 system-ui,Segoe UI,Roboto,Arial}
+﻿:root{--bg:#0b1320;--card:#131b2e;--muted:#9fb0d0;--text:#eaf1ff;--accent:#4cc9f0}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.6 system-ui,Segoe UI,Roboto,Arial}
 .topbar{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid #22314f;background:#0f1830;position:sticky;top:0;z-index:10}
 .brand{font-weight:700;font-size:18px}.pill{background:var(--accent);color:#001b2a;border-radius:999px;padding:3px 8px;margin-left:6px;font-size:12px}
 .container{max-width:1100px;margin:32px auto;padding:0 16px}
@@ -12,11 +12,9 @@
 .search{background:#0b1426;border:1px solid #233355;color:#cfe2ff;border-radius:10px;padding:8px 10px;min-width:200px}
 .muted{color:var(--muted);margin-left:12px}
 @media(max-width:900px){.stats{grid-template-columns:repeat(2,1fr)}}@media(max-width:520px){.stats{grid-template-columns:1fr}}
-\n/* === KMD:LIVEMOCK === */
+/* === LIVE/MOCK === */
 .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid #2a3d66}
 .badge-live{background:#0f2a1a;border-color:#1f8f4d;color:#aef3c5}
 .badge-mock{background:#2c1212;border-color:#b84a4a;color:#ffb3b3}
-.liveable.mock{color:#ff8a8a}
-.liveable.live{color:var(--text)}
+.liveable.mock{color:#ff8a8a}.liveable.live{color:var(--text)}
 .card .header{display:flex;align-items:center;gap:10px;margin-bottom:10px}
-/* === /KMD:LIVEMOCK === */
