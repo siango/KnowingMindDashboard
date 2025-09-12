@@ -5,7 +5,7 @@ body{ margin:0; font-family:Inter,system-ui,Segoe UI,Roboto,Arial; background:va
 .brand{ font-weight:700; letter-spacing:.3px }
 .app{ display:grid; grid-template-columns: 240px 1fr; min-height:calc(100vh - 64px) }
 .sidebar{ background:var(--panel); border-right:1px solid #222533; padding:12px 8px; position:sticky; top:64px; height:calc(100vh - 64px); overflow:auto }
-.nav-link{ display:block; padding:10px 12px; margin:4px 4px; border-radius:12px; text-decoration:none; color:var(--text); background:transparent }
+.nav-link{ display:block; padding:10px 12px; margin:4px 4px; border-radius:12px; text-decoration:none; color:var(--text) }
 .nav-link:hover{ background:#222533 }
 .nav-link.active{ background:var(--blue); color:#0b1220; font-weight:700 }
 #content{ padding:16px; }
