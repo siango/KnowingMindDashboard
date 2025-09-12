@@ -1,21 +1,7 @@
-﻿import { fetchJSON, getBase } from '../lib/net.js';
-import { LivePoll } from '../lib/live.js';
-
-export async function render(mount){
-  mount.innerHTML=<div class='card' style='padding:20px'>
-    <div class='card-title'>Reports</div>
-    <table class='table'><thead><tr><th>Title</th><th>Type</th><th>Updated</th></tr></thead><tbody id='list'></tbody></table>
+﻿export async function render(mount){
+  mount.innerHTML = <div class='card' style='padding:20px'>
+    <h2>Reports (mock)</h2>
+    <ul><li>Weekly Summary</li><li>OKR Q4 Plan</li></ul>
   </div>;
-  const mock=()=>([{title:'Weekly Summary',type:'pdf',updated:new Date().toISOString(),url:'./reports/weekly-sample.pdf'},
-                   {title:'OKR Q4 Plan',type:'pdf',updated:new Date(Date.now()-86400000).toISOString(),url:'./reports/okr-q4.pdf'}]);
-  const updateOnce=async()=>{
-    const base=getBase(); const url=base?\C:\Users\SIANG~1.AUS\AppData\Local\Temp\kms-ghpages-fix-20250912-201826/reports:''; let items;
-    if(url){ const {ok,data}=await fetchJSON(url); items=ok?data:mock(); } else items=mock();
-    const tb=document.getElementById('list'); tb.innerHTML='';
-    items.forEach(x=>{ const tr=document.createElement('tr');
-      tr.innerHTML=<td><a href="\" target="_blank">\</a></td><td>\</td><td>\</td>;
-      tb.appendChild(tr);
-    });
-  };
-  const poll=new LivePoll(updateOnce,60000); poll.start(); return ()=>poll.stop();
+  return ()=>{};
 }
