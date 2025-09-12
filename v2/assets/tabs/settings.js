@@ -1,10 +1,22 @@
-﻿export async function render(mount){
+﻿import { fetchJSON, getBase } from '../lib/net.js';
+
+export async function render(mount){
   mount.innerHTML=<div class='card' style='padding:20px'>
     <div class='card-title'>Settings</div>
-    <label class='muted'>API Endpoint (ใช้กับแท็บ Overview)</label>
-    <input id='api' class='search' style='width:100%' placeholder='https://your.api/endpoint'/>
-    <p class='muted' style='margin-top:10px'>* เก็บใน localStorage ของเบราว์เซอร์</p>
+    <label class='muted'>API Base (เช่น https://api.yourdomain.com/kms)</label>
+    <input id='api' class='search' style='width:100%' placeholder='https://your.api/kms'/>
+    <div style='margin-top:10px'>
+      <button id='save' class='tab'>Save</button>
+      <button id='test' class='tab'>Test /dashboard</button>
+      <span id='status' class='muted'></span>
+    </div>
   </div>;
-  const key='kms_api_endpoint', el=document.getElementById('api');
-  el.value=localStorage.getItem(key)||''; el.addEventListener('change',()=>localStorage.setItem(key,el.value));
+  const key='kms_api_base', input=document.getElementById('api'), status=document.getElementById('status');
+  input.value=getBase();
+  document.getElementById('save').onclick=()=>{ localStorage.setItem(key,input.value.trim()); status.textContent='Saved'; };
+  document.getElementById('test').onclick=async()=>{
+    const base=(input.value||'').replace(/\/+$/,''); if(!base){ status.textContent='Please set base first'; return; }
+    status.textContent='Testing…'; const {ok,error}=await fetchJSON(\\C:\Users\SIANG~1.AUS\AppData\Local\Temp\kms-ghpages-fix-20250912-201826/dashboard\);
+    status.textContent= ok ? 'OK' : ('Fail: '+error);
+  };
 }
