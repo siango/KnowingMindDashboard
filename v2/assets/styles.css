@@ -12,3 +12,11 @@
 .search{background:#0b1426;border:1px solid #233355;color:#cfe2ff;border-radius:10px;padding:8px 10px;min-width:200px}
 .muted{color:var(--muted);margin-left:12px}
 @media(max-width:900px){.stats{grid-template-columns:repeat(2,1fr)}}@media(max-width:520px){.stats{grid-template-columns:1fr}}
+\n/* === KMD:LIVEMOCK === */
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid #2a3d66}
+.badge-live{background:#0f2a1a;border-color:#1f8f4d;color:#aef3c5}
+.badge-mock{background:#2c1212;border-color:#b84a4a;color:#ffb3b3}
+.liveable.mock{color:#ff8a8a}
+.liveable.live{color:var(--text)}
+.card .header{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+/* === /KMD:LIVEMOCK === */
