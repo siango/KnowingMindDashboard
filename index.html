@@ -4,15 +4,12 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>KnowingMind Dashboard</title>
-  <script src="config.env.js"></script>
-
   <style>
     body{font-family:system-ui,Segoe UI,Roboto,Prompt,sans-serif;margin:0;background:#0b1020;color:#e5e7eb}
     .wrap{max-width:960px;margin:auto;padding:16px}
     pre{background:#0f172a;border:1px dashed #334155;border-radius:12px;padding:12px;overflow:auto}
     .banner{position:sticky;top:0;z-index:1000;background:#111827;padding:10px 14px;border-bottom:1px solid #334155}
   </style>
-
   <script>
   (function(){
     window.KMS = window.KMS || {};
@@ -24,33 +21,33 @@
         try{
           const headers = {'User-Agent':'KM-Dashboard/1.0'};
           if (API_KEY) headers['X-API-Key'] = API_KEY;
-          if (method === 'GET') {
+          if (method === 'GET'){
             const u = new URL(GAS_URL);
             Object.entries(params||{}).forEach(([k,v])=>u.searchParams.set(k,v));
             const res = await fetch(u.toString(), {headers, signal:ctl.signal, cache:'no-store'});
-            if (!res.ok) throw new Error('HTTP '+res.status);
+            if(!res.ok) throw new Error('HTTP '+res.status);
             return await res.json();
           } else {
             headers['Content-Type'] = 'application/json';
             const res = await fetch(GAS_URL,{method:'POST',headers,body:JSON.stringify(params),signal:ctl.signal});
-            if (!res.ok) throw new Error('HTTP '+res.status);
+            if(!res.ok) throw new Error('HTTP '+res.status);
             return await res.json();
           }
-        } catch(e){
+        }catch(e){
           return new Promise((resolve,reject)=>{
-            const cb = 'KMS_JSONP_'+Date.now()+'_'+Math.floor(Math.random()*1e6);
-            window[cb] = (data)=>{ resolve(data); cleanup(); };
-            function cleanup(){ try{ delete window[cb]; }catch(_){ } if(s) s.remove(); clearTimeout(tt); }
-            const u = new URL(GAS_URL);
+            const cb='KMS_JSONP_'+Date.now()+'_'+Math.floor(Math.random()*1e6);
+            window[cb]=(data)=>{resolve(data);cleanup();};
+            function cleanup(){try{delete window[cb];}catch(_){ }if(s)s.remove();clearTimeout(tt);}
+            const u=new URL(GAS_URL);
             Object.entries(params||{}).forEach(([k,v])=>u.searchParams.set(k,v));
             u.searchParams.set('callback',cb);
-            const s = document.createElement('script');
-            s.src = u.toString();
-            s.onerror = ()=>{ cleanup(); reject(new Error('JSONP error')); };
+            const s=document.createElement('script');
+            s.src=u.toString();
+            s.onerror=()=>{cleanup();reject(new Error('JSONP error'));};
             document.head.appendChild(s);
-            const tt = setTimeout(()=>{ cleanup(); reject(new Error('JSONP timeout')); },timeoutMs);
+            const tt=setTimeout(()=>{cleanup();reject(new Error('JSONP timeout'));},timeoutMs);
           });
-        } finally { clearTimeout(t); }
+        }finally{clearTimeout(t);}
       };
     }
   })();
@@ -63,26 +60,25 @@
     <p>ผลลัพธ์จาก GAS (health + dashboard)</p>
     <pre id="out">Loading…</pre>
   </div>
-
   <script>
   (async()=>{
-    const el = document.getElementById("out");
-    const banner = document.getElementById("ai-status");
+    const el=document.getElementById('out');
+    const banner=document.getElementById('ai-status');
     try{
-      const h = await KMS.gasFetch({action:"health",source:"pages"},"GET");
-      let txt = "health: " + (h && (h.ping||h.ok));
+      const h=await KMS.gasFetch({action:'health',source:'pages'},'GET');
+      let txt='health: '+(h&&(h.ping||h.ok));
       try{
-        const d = await KMS.gasFetch({action:"dashboard"},"GET");
-        el.textContent = JSON.stringify({ health:h, dashboard:d }, null, 2);
-        txt += " | dashboard: ok";
+        const d=await KMS.gasFetch({action:'dashboard'},'GET');
+        el.textContent=JSON.stringify({health:h,dashboard:d},null,2);
+        txt+=' | dashboard: ok';
       }catch(e){
-        el.textContent = JSON.stringify({ health:h, dashboard_error:e.message }, null, 2);
-        txt += " | dashboard: " + e.message;
+        el.textContent=JSON.stringify({health:h,dashboard_error:e.message},null,2);
+        txt+=' | dashboard: '+e.message;
       }
-      banner.textContent = txt + " @ " + new Date().toLocaleString("th-TH",{hour12:false});
+      banner.textContent=txt+' @ '+new Date().toLocaleString('th-TH',{hour12:false});
     }catch(e){
-      banner.textContent = "Load failed: " + e.message;
-      el.textContent = "ERR: " + e.message;
+      banner.textContent='Load failed: '+e.message;
+      el.textContent='ERR: '+e.message;
       console.error(e);
     }
   })();
