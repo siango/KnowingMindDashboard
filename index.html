@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="th">
 <head>
   <meta charset="utf-8" />
@@ -21,14 +21,14 @@
 <body>
 <div class="container">
   <h1>KnowingMind Dashboard</h1>
-  <div class="muted" id="status">loadingâ€¦</div>
+  <div class="muted" id="status">loading…</div>
 
   <table id="tbl">
     <thead>
       <tr>
         <th>Project</th>
         <th class="right">Progress</th>
-        <th class="right">Valuation (Mà¸¿)</th>
+        <th class="right">Valuation (M฿)</th>
       </tr>
     </thead>
     <tbody></tbody>
@@ -39,8 +39,8 @@
 (async () => {
   const pct = v => Number.isFinite(+v) ? Math.max(0, Math.min(100, +v)) : null;
   const num = v => Number.isFinite(+v) ? +v : null;
-  const fmtPct = v => v==null ? "â€”" : `${v.toFixed(0)}%`;
-  const fmtNum = v => v==null ? "â€”" : v.toLocaleString("th-TH");
+  const fmtPct = v => v==null ? "—" : `${v.toFixed(0)}%`;
+  const fmtNum = v => v==null ? "—" : v.toLocaleString("th-TH");
   const $ = s => document.querySelector(s);
   const $tbody = $("#tbl tbody");
   const setStatus = t => $("#status").textContent = t;
@@ -81,7 +81,7 @@
   for (const it of data) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${it.name || "â€”"}</td>
+      <td>${it.name || "—"}</td>
       <td class="right ${rowClass(it.pct)}">${fmtPct(it.pct)}</td>
       <td class="right">${fmtNum(it.valuation_mln)}</td>
     `;
@@ -91,7 +91,7 @@
 })();
 </script>
 <script src="summary.js?v=1757369842"></script>
-<pre data-km="dashboard-json" style="max-height:320px;overflow:auto;background:#fafafa;border:1px dashed #ddd;border-radius:12px;padding:12px">Loading…</pre>
+<pre data-km="dashboard-json" style="max-height:320px;overflow:auto;background:#fafafa;border:1px dashed #ddd;border-radius:12px;padding:12px">Loading�</pre>
 </body>
 </html>
 
