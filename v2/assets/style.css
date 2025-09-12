@@ -8,3 +8,12 @@
 .card{background:var(--card);border:1px solid #283756;border-radius:14px;padding:16px;margin:12px 0}
 .ft{opacity:.7;text-align:center;margin:24px 0;color:var(--muted)}
 .red{color:#f87171}
+.badge{display:inline-block;border:1px solid #2a3d66;border-radius:999px;font-size:12px;padding:2px 8px}
+.badge-live{background:#0f2a1a;border-color:#1f8f4d;color:#aef3c5}
+.badge-mock{background:#2c1212;border-color:#b84a4a;color:#ffb3b3}
+.section-hd{display:flex;align-items:center;gap:10px;margin:0 0 10px 0}
+.subtle{color:#94a3b8;font-size:13px}
+.list{margin:0;padding-left:20px}.list li{margin:6px 0}
+.ok{color:#86efac}.ok::before{content:'✓ ';font-weight:700}
+.err{color:#fca5a5}.err::before{content:'✗ ';font-weight:700}
+.kv{display:grid;grid-template-columns:160px 1fr;gap:8px 12px}.kv .k{color:#94a3b8}.kv .v{font-weight:600}
