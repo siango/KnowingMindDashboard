@@ -1,0 +1,7 @@
+﻿<!doctype html><meta charset="utf-8">
+<script>
+  // SPA redirect for GitHub Pages
+  const l = window.location;
+  const redirect = l.pathname.replace(/\\/[^\\/]*$/, '/') + 'index.html' + (l.search||'') + (l.hash||'');
+  window.location.replace(redirect);
+</script>
