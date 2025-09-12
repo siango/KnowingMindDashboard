@@ -1,50 +1,29 @@
 ﻿<!doctype html>
-<html lang="th">
+<html lang='th'>
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta charset='utf-8'/>
+  <meta name='viewport' content='width=device-width,initial-scale=1'/>
   <title>KnowingMind Dashboard v2</title>
-  <link rel="stylesheet" href="./assets/styles.css"/>
-  <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script defer src="./assets/app.js"></script>
+  <link rel='stylesheet' href='./assets/styles.css'/>
+  <link rel='stylesheet' href='./assets/tabs.css'/>
+  <script defer src='https://cdn.jsdelivr.net/npm/chart.js'></script>
+  <script defer src='./assets/router.js'></script>
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">KnowingMind Dashboard <span class="pill">v2</span></div>
-    <div class="right">
-      <input id="q" class="search" placeholder="ค้นหา…"/>
-      <span id="now" class="muted"></span>
+  <header class='topbar'>
+    <div class='brand'>KnowingMind Dashboard <span class='pill'>v2</span></div>
+    <nav class='tabs'>
+      <a href='#/overview'  data-tab='overview'  class='tab'>Overview</a>
+      <a href='#/analytics' data-tab='analytics' class='tab'>Analytics</a>
+      <a href='#/reports'   data-tab='reports'   class='tab'>Reports</a>
+      <a href='#/settings'  data-tab='settings'  class='tab'>Settings</a>
+    </nav>
+    <div class='right'>
+      <input id='q' class='search' placeholder='ค้นหา…'/>
+      <span id='now' class='muted'></span>
     </div>
   </header>
-
-  <main class="container">
-    <section class="grid stats">
-      <div class="card stat"><div class="label">Active Users</div><div id="m1" class="value">—</div></div>
-      <div class="card stat"><div class="label">Sessions</div><div id="m2" class="value">—</div></div>
-      <div class="card stat"><div class="label">Conversion</div><div id="m3" class="value">—</div></div>
-      <div class="card stat"><div class="label">Errors</div><div id="m4" class="value">—</div></div>
-    </section>
-
-    <section class="grid">
-      <div class="card">
-        <div class="card-title">Traffic (7d)</div>
-        <canvas id="chartTraffic"></canvas>
-      </div>
-      <div class="card">
-        <div class="card-title">Events by Type</div>
-        <canvas id="chartEvents"></canvas>
-      </div>
-    </section>
-
-    <section class="card">
-      <div class="card-title">Recent Items</div>
-      <table class="table" id="tbl">
-        <thead><tr><th>Name</th><th>Owner</th><th>Status</th><th>Updated</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </section>
-  </main>
-
-  <footer class="footer">© <span id="yr"></span> KnowingMind — demo build</footer>
+  <main id='app' class='container'></main>
+  <footer class='footer'>© <span id='yr'></span> KnowingMind — modular</footer>
 </body>
 </html>
