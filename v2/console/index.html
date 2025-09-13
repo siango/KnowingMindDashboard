@@ -7,7 +7,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet"/>
-  <link rel="stylesheet" href="assets/css/style.css?v=20250913-103847">
+  <link rel="stylesheet" href="assets/css/style.css?v=20250913-105456">
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;700&display=swap" rel="stylesheet"/>
 </head>
 <body>
   <header class="app-header">
@@ -25,7 +26,12 @@
         <a href="#/devices" class="nav-link">Devices</a>
         <a href="#/commands" class="nav-link">Commands</a>
               <a href="#/reports" class="nav-link">Reports</a>
-</nav>
+        <div class="sidebar-clock">
+          <div class="clock-face" id="km-clock" title="Clock">
+            <span class="time">00:00:00</span>
+            <span class="date">--</span>
+          </div>
+        </div></nav>
     </aside>
     <main id="content"><div class="loading">Loading...</div></main>
   </div>
@@ -42,7 +48,7 @@
     window.KM_VER="20250913-103847";
     window.KM_BOOTED=false;
   </script>
-  <script src="assets/js/app.js?v=20250913-103847"></script>
+  <script src="assets/js/app.js?v=20250913-105456"></script>
   <script>
     (function(){
       function esc(s){return String(s).replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;', "'":'&#39;'}[c]));}
@@ -60,4 +66,5 @@
   </script>
 </body>
 </html>
+
 

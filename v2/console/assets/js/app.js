@@ -39,3 +39,19 @@
   document.addEventListener('DOMContentLoaded', route);
   window.KM_BOOTED = true;
 })();
+/* KM_CLOCK_TICK */
+(function(){
+  function pad(n){ return (n<10?'0':'')+n; }
+  function fmtDate(d){
+    try{ return d.toLocaleDateString('th-TH',{weekday:'short',day:'2-digit',month:'short',year:'numeric'}); }
+    catch(e){ return d.toDateString(); }
+  }
+  function tick(){
+    var el=document.getElementById('km-clock'); if(!el) return;
+    var t=el.querySelector('.time'), dt=el.querySelector('.date'), now=new Date();
+    try{ t.textContent=now.toLocaleTimeString('th-TH',{hour12:false}); }
+    catch(e){ t.textContent=pad(now.getHours())+':'+pad(now.getMinutes())+':'+pad(now.getSeconds()); }
+    dt.textContent=fmtDate(now);
+  }
+  document.addEventListener('DOMContentLoaded',function(){ tick(); setInterval(tick,1000); });
+})();
