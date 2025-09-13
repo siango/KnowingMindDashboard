@@ -35,7 +35,7 @@
   }
 
   function route(){ const name = (location.hash.replace(/^#\/+/,'') || 'overview'); loadTab(name); }
-  window.addEventListener('hashchange', route);
+  window.addEventListener('hashchange', route); window.KM_route = route;
   document.addEventListener('DOMContentLoaded', route);
   window.KM_BOOTED = true;
 })();
@@ -105,6 +105,53 @@
   }catch(_){}
 
   function route(){ const id = (location.hash.replace(/^#\\/?/,'') || 'kma'); loadProject(id); }
-  window.addEventListener('hashchange', route);
+  window.addEventListener('hashchange', route); window.KM_route = route;
   document.addEventListener('DOMContentLoaded', route);
 }());
+
+;/* KM-AUTO:I18N */
+(()=>{ 
+  const SUP = ['en','th','zh']; const KEY='km_lang'; const DEF='en';
+  let BUSY=false, cache={};
+  const VER=(window.KM_VER||'')+'';   // cache-bust
+  const lang = ()=> localStorage.getItem(KEY) || DEF;
+
+  async function loadLang(l){
+    if (cache[l]) return cache[l];
+    const ctl = new AbortController(); const t = setTimeout(()=>ctl.abort(), 6000);
+    try{
+      const r = await fetch(`./assets/i18n/${l}.json${VER?`?v=${VER}`:''}`, {cache:'no-store', signal:ctl.signal});
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      cache[l] = await r.json(); return cache[l];
+    }catch(e){
+      console.warn('i18n load failed for', l, e);
+      if(l!=='en') return loadLang('en');  // fallback ปลอดภัย
+      return (cache.en ||= {});
+    }finally{ clearTimeout(t); }
+  }
+  function t(k){ const d = cache[lang()]||{}; return (d[k]??k); }
+
+  async function setLang(l){
+    if(BUSY) return; BUSY=true;
+    if(!SUP.includes(l)) l=DEF;
+    localStorage.setItem(KEY,l);
+    document.documentElement.setAttribute('lang', l);
+    await loadLang(l);
+    // re-render หน้าเดิมแบบไม่แตะ hash (กันลูป)
+    if (window.KM_route) window.KM_route();
+    BUSY=false;
+  }
+
+  // wire ปุ่มธงที่มี data-lang
+  document.addEventListener('click', (e)=>{
+    const btn = e.target.closest('[data-lang]');
+    if(!btn) return;
+    e.preventDefault();
+    setLang(btn.getAttribute('data-lang'));
+  });
+
+  // boot ครั้งแรก
+  loadLang(lang()).then(()=>window.dispatchEvent(new Event('km:lang-ready')));
+  // เผยให้ส่วนอื่นเรียกได้
+  window.KM_i18n = { t, setLang, lang, loadLang };
+})();
