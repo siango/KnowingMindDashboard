@@ -1,0 +1,5 @@
+﻿<!doctype html>
+<meta charset='utf-8'>
+<title>Redirect</title>
+<script>location.href='./v2/console/#/overview';</script>
+<p>Redirecting…</p>
