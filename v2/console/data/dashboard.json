@@ -2,7 +2,7 @@
     "id":  "dashboard",
     "name":  "KnowingMindDashboard (/v2)",
     "status":  "yellow",
-    "updated_at":  "2025-09-13T11:41:22+07:00",
+    "updated_at":  "2025-09-13T12:17:05+07:00",
     "latest":  "UI แท็บพร้อม + mock สี; เคยเจอ cache/branch mapping",
     "architecture":  "gh-pages ↔ (แผน) GAS/KMA data source",
     "risks":  "แคชไม่เห็นการเปลี่ยนแปลงทันที",

@@ -2,7 +2,7 @@
     "id":  "beyond_the_rich",
     "name":  "Beyond the Rich (MoneyAI)",
     "status":  "orange",
-    "updated_at":  "2025-09-13T11:41:22+07:00",
+    "updated_at":  "2025-09-13T12:17:05+07:00",
     "latest":  "sandbox ภายใน; ความสด/ความตรงของผลสดยังไม่นิ่ง",
     "architecture":  "Multi sources ↔ วิเคราะห์ ↔ dashboard/chat",
     "risks":  "ความแม่นข้อมูล, ความเสี่ยงทางการเงิน",
