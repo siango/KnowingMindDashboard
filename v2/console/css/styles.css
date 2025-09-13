@@ -9,6 +9,9 @@ aside{background:#101426;border-right:1px solid #22263a;padding:8px}
 aside .logo{display:flex;gap:10px;align-items:center;font-weight:700;padding:10px}
 aside nav a{display:block;padding:10px 12px;margin:6px 4px;border-radius:10px;color:var(--muted);text-decoration:none}
 aside nav a.active,aside nav a:hover{background:var(--panel);color:var(--text);outline:1px solid #2a2f46}
+#projects-subnav.subnav{margin:6px 0 6px 8px;border-left:2px solid #242942;padding-left:8px}
+#projects-subnav.subnav a{display:block;padding:8px 10px;margin:4px 0;border-radius:8px;color:var(--muted);text-decoration:none}
+#projects-subnav.subnav a.active,#projects-subnav.subnav a:hover{background:var(--panel);color:var(--text);outline:1px solid #2a2f46}
 main{padding:16px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
 .card{background:var(--panel);border:1px solid #242942;border-radius:14px;padding:12px}

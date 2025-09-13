@@ -7,19 +7,19 @@
   <meta http-equiv="Pragma" content="no-cache"/>
   <meta http-equiv="Expires" content="0"/>
   <title>KnowingMind Dashboard — Console</title>
-  <link rel="stylesheet" href="./css/styles.css?v=20250914-025016"/>
-  <script src="./config.env.js?v=20250914-025016"></script>
-  <script src="./js/gas-client.js?v=20250914-025016" defer></script>
-  <script src="./js/router.js?v=20250914-025016" defer></script>
-  <script src="./js/app.js?v=20250914-025016" defer></script>
+  <link rel="stylesheet" href="./css/styles.css?v=20250914-030015"/>
+  <script src="./config.env.js?v=20250914-030015"></script>
+  <script src="./js/gas-client.js?v=20250914-030015" defer></script>
+  <script src="./js/router.js?v=20250914-030015" defer></script>
+  <script src="./js/app.js?v=20250914-030015" defer></script>
 </head>
 <body>
   <header>
     <strong>KnowingMind Dashboard</strong> · Console UI · <small id="ver"></small>
     <span class="spacer"></span>
-    <button class="hbtn" id="btn-refresh" title="Refresh (cache-bust)" onclick="KMSHelpers.reload()">↻ Refresh</button>
-    <button class="hbtn" id="btn-hard"    title="Hard refresh (clear caches)" onclick="KMSHelpers.hardReload()">⟲ Hard</button>
-    <script>document.getElementById('ver').textContent = 'v'+(window.KMS?.VERSION||'-');</script>
+    <button class="hbtn" onclick="KMSHelpers.reload()">↻ Refresh</button>
+    <button class="hbtn" onclick="KMSHelpers.hardReload()">⟲ Hard</button>
+    <script>document.getElementById('ver').textContent='v'+(window.KMS?.VERSION||'-');</script>
   </header>
   <div class="wrapper">
     <aside>
@@ -28,6 +28,7 @@
         <a href="#/overview"  data-nav="overview">Overview</a>
         <a href="#/analytics" data-nav="analytics">Analytics</a>
         <a href="#/projects"  data-nav="projects">Projects</a>
+        <div id="projects-subnav" class="subnav"></div>
         <a href="#/commands"  data-nav="commands">Commands</a>
         <a href="#/settings"  data-nav="settings">Settings</a>
       </nav>
