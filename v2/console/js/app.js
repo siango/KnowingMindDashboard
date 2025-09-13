@@ -1,8 +1,24 @@
 (function(){
   const K = window.KMS, R = window.KMSRoute, G = window.KMSGAS;
 
+  // ===== Helpers for mobile-friendly refresh =====
+  const KMSHelpers = {
+    reload(){
+      const u = new URL(location.href);
+      u.searchParams.set('v', Date.now().toString());
+      location.href = u.toString();
+    },
+    async hardReload(){
+      try{ if('caches' in window){ for(const k of await caches.keys()) await caches.delete(k); } }catch(e){}
+      try{ localStorage.clear(); sessionStorage.clear(); }catch(e){}
+      this.reload();
+    }
+  };
+  window.KMSHelpers = KMSHelpers;
+
   async function loadHealth(){
     const box = document.getElementById('health-list');
+    if(!box) return;
     box.innerHTML = '';
     const items = Object.values(K.SERVICES||{});
     for(const svc of items){
@@ -70,7 +86,7 @@
     }
     else if(tab==='commands'){
       main.innerHTML = 
-        <h2>Commands (read‑only list)</h2>
+        <h2>Commands (read-only list)</h2>
         <div class="card"><ul class="bullets">
           <li>OSP9: Deploy Dashboard (/v2/console)</li>
           <li>OSP9: Pages Cache Bust</li>
@@ -85,14 +101,8 @@
           <button id="btn-reload">Reload with Version</button>
           <button id="btn-clear">Clear Cache & Storage</button>
         </div>;
-      document.getElementById('btn-reload').onclick = ()=>{
-        const u = new URL(location.href); u.searchParams.set('v', K.VERSION); location.href = u.toString();
-      };
-      document.getElementById('btn-clear').onclick = async()=>{
-        try{ for(const k of await caches.keys()) await caches.delete(k); }catch(e){}
-        try{ localStorage.clear(); sessionStorage.clear(); }catch(e){}
-        alert('Cache cleared. Reloading…'); location.reload();
-      };
+      document.getElementById('btn-reload').onclick = ()=> KMSHelpers.reload();
+      document.getElementById('btn-clear').onclick = ()=> KMSHelpers.hardReload();
     }
   }
 
