@@ -1,0 +1,20 @@
+﻿{
+  "nav.overview": "Overview",
+  "nav.analytics": "Analytics",
+  "nav.checklist": "Checklist",
+  "nav.tasks": "Tasks",
+  "nav.devices": "Devices",
+  "nav.commands": "Commands",
+  "nav.reports": "Reports",
+  "overview.live_status": "Live Status",
+  "overview.build_deploy": "Build / Deploy",
+  "overview.alerts": "Alerts",
+  "overview.summary": "Summary",
+  "table.project": "Project",
+  "table.progress": "Progress",
+  "table.status": "Status",
+  "badge.ok": "OK",
+  "badge.issue": "Issue",
+  "badge.watch": "Watch",
+  "clock.title": "Clock"
+}

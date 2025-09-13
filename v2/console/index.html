@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet"/>
-  <link rel="stylesheet" href="assets/css/style.css?v=20250913-105456">
+  <link rel="stylesheet" href="assets/css/style.css?v=20250913-105819">
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;700&display=swap" rel="stylesheet"/>
 </head>
 <body>
@@ -27,10 +27,13 @@
         <a href="#/commands" class="nav-link">Commands</a>
               <a href="#/reports" class="nav-link">Reports</a>
         <div class="sidebar-clock">
-          <div class="clock-face" id="km-clock" title="Clock">
-            <span class="time">00:00:00</span>
+          <div class="clock-face" id="km-clock" title="Clock"><div id="km-clock-title" class="muted" style="margin-bottom:6px;text-transform:uppercase;font-size:11px;letter-spacing:.6px">Clock</div><span class="time">00:00:00</span>
             <span class="date">--</span>
           </div>
+        </div>        <div class="sidebar-lang" id="km-lang" title="Language">
+          <button data-lang="th" aria-label="ไทย">🇹🇭</button>
+          <button data-lang="en" aria-label="English">🇬🇧</button>
+          <button data-lang="zh" aria-label="中文">🇨🇳</button>
         </div></nav>
     </aside>
     <main id="content"><div class="loading">Loading...</div></main>
@@ -48,7 +51,7 @@
     window.KM_VER="20250913-103847";
     window.KM_BOOTED=false;
   </script>
-  <script src="assets/js/app.js?v=20250913-105456"></script>
+  <script src="assets/js/app.js?v=20250913-105819"></script>
   <script>
     (function(){
       function esc(s){return String(s).replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;', "'":'&#39;'}[c]));}
@@ -64,7 +67,9 @@
       },1200);
     })();
   </script>
+<script src="assets/js/i18n.js?v=20250913-105819"></script>
 </body>
 </html>
+
 
 

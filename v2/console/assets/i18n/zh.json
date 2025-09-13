@@ -1,0 +1,20 @@
+﻿{
+  "nav.overview": "总览",
+  "nav.analytics": "分析",
+  "nav.checklist": "清单",
+  "nav.tasks": "任务",
+  "nav.devices": "设备",
+  "nav.commands": "命令",
+  "nav.reports": "报表",
+  "overview.live_status": "实时状态",
+  "overview.build_deploy": "构建 / 部署",
+  "overview.alerts": "警报",
+  "overview.summary": "汇总",
+  "table.project": "项目",
+  "table.progress": "进度",
+  "table.status": "状态",
+  "badge.ok": "正常",
+  "badge.issue": "故障",
+  "badge.watch": "关注",
+  "clock.title": "时钟"
+}

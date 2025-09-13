@@ -1,0 +1,20 @@
+﻿{
+  "nav.overview": "ภาพรวม",
+  "nav.analytics": "วิเคราะห์",
+  "nav.checklist": "เช็กลิสต์",
+  "nav.tasks": "งาน",
+  "nav.devices": "อุปกรณ์",
+  "nav.commands": "คำสั่ง",
+  "nav.reports": "รายงาน",
+  "overview.live_status": "สถานะระบบ",
+  "overview.build_deploy": "บิลด์ / ดีพลอย",
+  "overview.alerts": "การแจ้งเตือน",
+  "overview.summary": "สรุป",
+  "table.project": "โครงการ",
+  "table.progress": "ความคืบหน้า",
+  "table.status": "สถานะ",
+  "badge.ok": "ปกติ",
+  "badge.issue": "มีปัญหา",
+  "badge.watch": "เฝ้าดู",
+  "clock.title": "นาฬิกา"
+}
