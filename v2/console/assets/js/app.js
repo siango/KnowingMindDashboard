@@ -127,3 +127,67 @@
     document.documentElement.setAttribute('lang', localStorage.getItem('km_lang')||'en');
   })();
 })();
+;/* KM-AUTO:APP-EXT v2 (safe) */
+(async function(){
+  const $  = (q,d=document)=>d.querySelector(q);
+  const $$ = (q,d=document)=>Array.from(d.querySelectorAll(q));
+  const VER = (window.KM_VER||'') + '';
+  const DATA_BASE = './data/';
+
+  async function getJSON(f){
+    const u = DATA_BASE + f + (VER?('?v='+VER):'');
+    const r = await fetch(u,{cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status+' '+u);
+    return await r.json();
+  }
+
+  async function loadProject(id){
+    const content = $('#content'); content.innerHTML = '<div class="loading">Loading…</div>';
+    try{
+      const p = await getJSON(id+'.json');
+      const badge = (s)=> s==='green' ? 'live' : (s==='yellow'?'mock':'stale');
+      const pct   = (s)=> s==='green'?88:(s==='yellow'?55:25);
+      content.innerHTML = `
+        <div class="card glass" style="padding:1rem 1.25rem">
+          <h2 style="margin:.2rem 0 1rem 0">${p.name} <span class="badge ${badge(p.status)}">${p.status}</span></h2>
+          <div style="margin:.5rem 0 1rem 0" class="muted">${p.latest}</div>
+          <div class="progress" data-value="${pct(p.status)}"><span></span></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+            <div class="card glass" style="padding:12px"><h3>Architecture</h3><p class="muted">${p.architecture}</p></div>
+            <div class="card glass" style="padding:12px"><h3>Risks</h3><p class="muted">${p.risks||'-'}</p></div>
+          </div>
+          <div class="card glass" style="padding:12px;margin-top:16px">
+            <h3>Next steps</h3>
+            <ul>
+              <li><b>48ชม.</b> ${p.next_steps.h48||'-'}</li>
+              <li><b>7วัน</b> ${p.next_steps.d7||'-'}</li>
+              <li><b>30วัน</b> ${p.next_steps.d30||'-'}</li>
+            </ul>
+            <p class="muted">updated at ${p.updated_at||''}</p>
+          </div>
+        </div>`;
+      requestAnimationFrame(()=>{$('.progress>span',content).style.width =
+        Math.max(0,Math.min(100, Number($('.progress',content).dataset.value||0)))+'%';});
+      $$('.nav-link').forEach(a=>a.classList.toggle('active', a.getAttribute('href')==='#/'+id));
+    }catch(e){
+      content.innerHTML = '<div class="card"><h3>Load error</h3><pre>'+String(e.message||e)+'</pre></div>';
+      console.error(e);
+    }
+  }
+
+  // hydrate nav from _auto_tabs_block.html
+  try{
+    const holder = document.querySelector('.sidebar nav'); if(holder){
+      const resp = await fetch('./_auto_tabs_block.html'+(VER?('?v='+VER):''),{cache:'no-store'});
+      if(resp.ok){ holder.innerHTML = await resp.text(); }
+    }
+  }catch(_){}
+
+  function route(){
+    const id = (location.hash.replace(/^#\/?/,'') || 'overview');
+    if(id==='overview'){ if(typeof window.KM_OV==='function'){ window.KM_OV(); } else { setTimeout(route,60); } return; }
+    loadProject(id);
+  }
+  window.addEventListener('hashchange', route);
+  document.addEventListener('DOMContentLoaded', route);
+}());

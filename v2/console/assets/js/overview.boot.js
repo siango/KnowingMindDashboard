@@ -1,33 +1,24 @@
-﻿/* KM-OV-BOOT */
-(()=> {
-  const $ = (q,d=document)=>d.querySelector(q);
-  const VER = (window.KM_VER||"");
-  const DATA_BASE = "./data/";
-  async function j(path){
-    const r = await fetch(DATA_BASE+path+(VER?("?v="+VER):""),{cache:"no-store"});
-    if(!r.ok) throw new Error("HTTP "+r.status+" "+path);
-    return r.json();
-  }
-  async function boot(){
-    const host = $("#content") || $("main") || document.body;
-    host.innerHTML = '<div class="loading">Loading…</div>';
+﻿/* KM-OV-BOOT (safe) */
+(() => {
+  const $  = (q,d=document)=>d.querySelector(q);
+  const $$ = (q,d=document)=>Array.from(d.querySelectorAll(q));
+  const VER = (window.KM_VER||'') + '';
+  const DATA_BASE = './data/';
+  async function getJSON(n){ const u=DATA_BASE+n+(VER?('?v='+VER):''); const r=await fetch(u,{cache:'no-store'}); if(!r.ok) throw new Error('HTTP '+r.status+' '+u); return r.json(); }
+  window.KM_OV = async function(){
+    const el = $('#content'); if(!el) return;
+    el.innerHTML = '<div class="card glass" style="padding:16px">Loading overview...</div>';
     try{
-      const idx = await j("projects_index.json");
-      const items = (idx && idx.items) || [];
-      const cards = items.map(it => (
-        `<a href="#/${it.id}" class="project-card glass">
-           <div class="title">${it.name}</div>
-           <div class="muted">${it.id}</div>
-         </a>`
-      )).join("");
-      host.innerHTML = `<section class="overview">
-        <h2>Overview</h2>
-        <div class="grid">${cards}</div>
-      </section>`;
+      const idx = await getJSON('projects_index.json');
+      const cards = (idx.items||[]).map(it=>`
+        <a class="card glass" href="#/${it.id}" style="padding:14px;display:block;text-decoration:none">
+          <h3 style="margin:0 0 6px 0">${it.name}</h3>
+          <p class="muted" style="margin:0">ดูรายละเอียดโครงการ</p>
+        </a>`).join('');
+      el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px">${cards}</div>`;
     }catch(e){
-      host.innerHTML = `<div class="card"><h3>Overview error</h3><pre>${String(e.message||e)}</pre></div>`;
-      console.error(e);
+      el.innerHTML = '<div class="card glass" style="padding:16px"><h3>Overview error</h3><pre>'+String(e.message||e)+'</pre></div>';
     }
-  }
-  document.addEventListener("DOMContentLoaded", boot, {once:true});
+  };
+  if ((location.hash||'').replace(/^#\/?/,'')==='overview') window.KM_OV();
 })();

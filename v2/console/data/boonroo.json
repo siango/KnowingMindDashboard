@@ -2,7 +2,7 @@
     "id":  "boonroo",
     "name":  "BoonRoo (Donation)",
     "status":  "yellow",
-    "updated_at":  "2025-09-13T12:17:05+07:00",
+    "updated_at":  "2025-09-13T15:33:21+07:00",
     "latest":  "Phase1: PromptPay QR + webhook→Firestore + PDF ใบอนุโมทนา; Budget Alert ผ่าน LINE",
     "architecture":  "kma-api ↔ Firestore ↔ Payments ↔ Secrets ↔ LINE/Email",
     "risks":  "ความถูกต้องใบอนุโมทนา/ภาษี, ความปลอดภัยคีย์",

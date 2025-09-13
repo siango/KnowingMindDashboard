@@ -1,0 +1,153 @@
+﻿{
+    "timestamp":  "2025-09-13T15:33:21+07:00",
+    "timezone":  "Asia/Bangkok",
+    "source":  "chat",
+    "suite":  "KnowingMindSuite",
+    "data":  {
+                 "projects":  [
+                                  {
+                                      "id":  "kma",
+                                      "name":  "KnowingMindApp (KMA)",
+                                      "status":  "yellow",
+                                      "latest":  "Cloud Run kma-api online (ingress internal+LB, min=1) มี /api/ping; Firestore native multi-tenant; CI/CD WIF + Artifact Registry",
+                                      "architecture":  "Cloud Run(kma-api) ↔ Firestore ↔ Secret Manager ↔ (แผน) External HTTPS LB/Workflows",
+                                      "risks":  "ยังเรียกตรงจากอินเทอร์เน็ตไม่ได้เพราะ ingress จำกัด",
+                                      "next_steps":  {
+                                                         "h48":  "ตัดสินใจวิธีเข้าภายนอก: LB (Serverless NEG) หรือ Workflows/Scheduler",
+                                                         "d7":  "Docs API (หนังสือเข้า/ออก) + Smoke tests CI",
+                                                         "d30":  "หน้า Admin เอกสาร + usage report"
+                                                     }
+                                  },
+                                  {
+                                      "id":  "arunroo",
+                                      "name":  "อรุณรู้ (ArunRoo)",
+                                      "status":  "green",
+                                      "latest":  "n8n Cloud โพสต์รายวัน FB/IG/YT/TikTok (07:30–07:50); Podcast Readcast REV-E (sheet podcast_queue)",
+                                      "architecture":  "n8n ↔ Google Sheets ↔ Social ↔ (ตัวเลือก) KMA hook",
+                                      "risks":  "โควต้าโพสต์/สิทธิ์สื่อ",
+                                      "next_steps":  {
+                                                         "h48":  "notifier เมื่อโพสต์ล้มเหลว + log ต่อแพลตฟอร์ม",
+                                                         "d7":  "UTM→funnel เข้า KMA + analytics",
+                                                         "d30":  "monthly recap อัตโนมัติ (ภาพ+พอดแคสต์)"
+                                                     }
+                                  },
+                                  {
+                                      "id":  "satishift",
+                                      "name":  "สติเวร (SatiShift)",
+                                      "status":  "green",
+                                      "latest":  "satishift-webhook(public), satishift-fullstack(00002)/health; Scheduler */5 ยัง UTC; auto rotation, NimmanQueue, AlmsRoutes",
+                                      "architecture":  "LINE OA ↔ Apps Script/Sheets ↔ Full-Stack(Node/TS) ↔ Firestore ↔ Scheduler/Secrets",
+                                      "risks":  "Timezone เพี้ยน, ต้องพิสูจน์ fairness",
+                                      "next_steps":  {
+                                                         "h48":  "ตั้ง Scheduler Asia/Bangkok + log health",
+                                                         "d7":  "สคริปต์ตรวจความยุติธรรม + รายงานสัปดาห์",
+                                                         "d30":  "Temple Starter Kit รีลีส + README ล่าสุด"
+                                                     }
+                                  },
+                                  {
+                                      "id":  "dashboard",
+                                      "name":  "KnowingMindDashboard (/v2)",
+                                      "status":  "yellow",
+                                      "latest":  "UI แท็บพร้อม + mock สี; เคยเจอ cache/branch mapping",
+                                      "architecture":  "gh-pages ↔ (แผน) GAS/KMA data source",
+                                      "risks":  "แคชไม่เห็นการเปลี่ยนแปลงทันที",
+                                      "next_steps":  {
+                                                         "h48":  "ฝัง health ของ 3 Cloud Run + n8n last run",
+                                                         "d7":  "ปุ่ม Update now + SW/cache bust auto",
+                                                         "d30":  "กราฟ KPI + แผงผู้บริหาร"
+                                                     }
+                                  },
+                                  {
+                                      "id":  "ai_creator",
+                                      "name":  "AI Creator",
+                                      "status":  "yellow",
+                                      "latest":  "เตรียม route /ai/creator/* + Firestore collections",
+                                      "architecture":  "kma-api ↔ Firestore ↔ n8n ↔ Secrets",
+                                      "risks":  "ต้นทุน/โควต้า AI, คุณภาพคอนเทนต์",
+                                      "next_steps":  {
+                                                         "h48":  "POST /ai/creator/tasks + job runner",
+                                                         "d7":  "feedback loop + metric time-to-publish",
+                                                         "d30":  "self-init + แดชบอร์ดคุณภาพ"
+                                                     }
+                                  },
+                                  {
+                                      "id":  "beyond_the_rich",
+                                      "name":  "Beyond the Rich (MoneyAI)",
+                                      "status":  "orange",
+                                      "latest":  "sandbox ภายใน; ความสด/ความตรงของผลสดยังไม่นิ่ง",
+                                      "architecture":  "Multi sources ↔ วิเคราะห์ ↔ dashboard/chat",
+                                      "risks":  "ความแม่นข้อมูล, ความเสี่ยงทางการเงิน",
+                                      "next_steps":  {
+                                                         "h48":  "รวมหลายแหล่ง + consensus + time-stamp",
+                                                         "d7":  "hedge/cover module + PnL sim",
+                                                         "d30":  "กรอบจริยธรรม + training-only mode"
+                                                     }
+                                  },
+                                  {
+                                      "id":  "boonroo",
+                                      "name":  "BoonRoo (Donation)",
+                                      "status":  "yellow",
+                                      "latest":  "Phase1: PromptPay QR + webhook→Firestore + PDF ใบอนุโมทนา; Budget Alert ผ่าน LINE",
+                                      "architecture":  "kma-api ↔ Firestore ↔ Payments ↔ Secrets ↔ LINE/Email",
+                                      "risks":  "ความถูกต้องใบอนุโมทนา/ภาษี, ความปลอดภัยคีย์",
+                                      "next_steps":  {
+                                                         "h48":  "/donations/hook + PDF stub",
+                                                         "d7":  "Dashboard ยอดรายวัน + LINE Alert",
+                                                         "d30":  "Stripe/Opn + Apple/Google Pay"
+                                                     }
+                                  },
+                                  {
+                                      "id":  "roblox",
+                                      "name":  "Roblox Mindful Life",
+                                      "status":  "orange",
+                                      "latest":  "แนวคิด/สคริปต์ตั้งต้น; ยังไม่ production",
+                                      "architecture":  "Roblox(Lua) ↔ GitHub ↔ (แผน) kma-api",
+                                      "risks":  "ทรัพยากร/เวลา, นโยบายแพลตฟอร์ม",
+                                      "next_steps":  {
+                                                         "h48":  "repo + แผนที่ต้นแบบ + โหมดฝึก 1 นาที",
+                                                         "d7":  "hook ส่ง Mindful Minutes กลับ KMA",
+                                                         "d30":  "ทดสอบเล็ก + telemetry บนแดชบอร์ด"
+                                                     }
+                                  },
+                                  {
+                                      "id":  "gov_docs",
+                                      "name":  "Government-Docs (KMA)",
+                                      "status":  "yellow",
+                                      "latest":  "สคีมา Firestore docs/sequences/events/notifications พร้อม",
+                                      "architecture":  "kma-api ↔ Firestore ↔ LINE/Email ↔ (แผน) e-Signature",
+                                      "risks":  "เลขรับ-ส่ง/เวิร์กโฟลว์เซ็น, PDPA",
+                                      "next_steps":  {
+                                                         "h48":  "POST /docs/incoming + running number",
+                                                         "d7":  "Inbox view + แจ้งเตือน",
+                                                         "d30":  "ส่งต่อ/มอบหมาย/เซ็น + audit trail"
+                                                     }
+                                  },
+                                  {
+                                      "id":  "eboard",
+                                      "name":  "e-Board / Event Broadcasting",
+                                      "status":  "yellow",
+                                      "latest":  "วางแผนหน้า e-Board + เชื่อม FB/YT",
+                                      "architecture":  "GH Pages/KMA Frontend ↔ KMA API ↔ FB/YT/LINE",
+                                      "risks":  "สิทธิ์/โควต้า API, freshness",
+                                      "next_steps":  {
+                                                         "h48":  "หน้า e-Board static (mock→live slots)",
+                                                         "d7":  "ตัวดึงโพสต์/อัลบั้ม/คลิปสอน + แคช",
+                                                         "d30":  "โหมดป้ายประกาศ (auto refresh) + ปฏิทิน"
+                                                     }
+                                  },
+                                  {
+                                      "id":  "lms",
+                                      "name":  "LMS / Meditation Courses",
+                                      "status":  "yellow",
+                                      "latest":  "Roadmap คอร์สพื้นฐาน + ใบประกาศ + multilingual",
+                                      "architecture":  "KMA Frontend ↔ kma-api ↔ Payments ↔ Certificates(PDF) ↔ Analytics",
+                                      "risks":  "ประสบการณ์เรียน/Completion",
+                                      "next_steps":  {
+                                                         "h48":  "Course Landing + Checkout (mock)",
+                                                         "d7":  "POST /courses/enroll + PDF template",
+                                                         "d30":  "MVP 1 คอร์ส + metrics"
+                                                     }
+                                  }
+                              ]
+             }
+}

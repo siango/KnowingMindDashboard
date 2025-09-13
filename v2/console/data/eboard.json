@@ -2,7 +2,7 @@
     "id":  "eboard",
     "name":  "e-Board / Event Broadcasting",
     "status":  "yellow",
-    "updated_at":  "2025-09-13T12:17:05+07:00",
+    "updated_at":  "2025-09-13T15:33:21+07:00",
     "latest":  "วางแผนหน้า e-Board + เชื่อม FB/YT",
     "architecture":  "GH Pages/KMA Frontend ↔ KMA API ↔ FB/YT/LINE",
     "risks":  "สิทธิ์/โควต้า API, freshness",

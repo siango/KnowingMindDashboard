@@ -2,7 +2,7 @@
     "id":  "ai_creator",
     "name":  "AI Creator",
     "status":  "yellow",
-    "updated_at":  "2025-09-13T12:17:05+07:00",
+    "updated_at":  "2025-09-13T15:33:21+07:00",
     "latest":  "เตรียม route /ai/creator/* + Firestore collections",
     "architecture":  "kma-api ↔ Firestore ↔ n8n ↔ Secrets",
     "risks":  "ต้นทุน/โควต้า AI, คุณภาพคอนเทนต์",

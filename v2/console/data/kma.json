@@ -2,7 +2,7 @@
     "id":  "kma",
     "name":  "KnowingMindApp (KMA)",
     "status":  "yellow",
-    "updated_at":  "2025-09-13T12:17:05+07:00",
+    "updated_at":  "2025-09-13T15:33:21+07:00",
     "latest":  "Cloud Run kma-api online (ingress internal+LB, min=1) มี /api/ping; Firestore native multi-tenant; CI/CD WIF + Artifact Registry",
     "architecture":  "Cloud Run(kma-api) ↔ Firestore ↔ Secret Manager ↔ (แผน) External HTTPS LB/Workflows",
     "risks":  "ยังเรียกตรงจากอินเทอร์เน็ตไม่ได้เพราะ ingress จำกัด",
