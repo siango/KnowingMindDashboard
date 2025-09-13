@@ -7,12 +7,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet"/>
-  <link rel="stylesheet" href="assets/css/style.css?v=20250913-101857">
+  <link rel="stylesheet" href="assets/css/style.css?v=20250913-103847">
 </head>
 <body>
   <header class="app-header">
     <div class="brand">KnowingMind Dashboard</div>
-    <div class="meta"><span id="version">v-20250913-101857</span></div>
+    <div class="meta"><span id="version">v-20250913-103847</span></div>
   </header>
 
   <div class="app">
@@ -30,18 +30,32 @@
   </div>
 
   <footer class="app-footer">
-    <small>© KnowingMindSuite — refreshed at 20250913-101857</small>
+    <small>© KnowingMindSuite — refreshed at 20250913-103847</small>
   </footer>
 
-  <!-- KILL every existing Service Worker in this scope -->
   <script>
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations()
-        .then(rs => Promise.all(rs.map(r => r.unregister())))
-        .catch(()=>{});
+        .then(rs => Promise.all(rs.map(r => r.unregister()))).catch(()=>{});
     }
-    window.KM_VER="20250913-101857";
+    window.KM_VER="20250913-103847";
+    window.KM_BOOTED=false;
   </script>
-  <script src="assets/js/app.js?v=20250913-101857"></script>
+  <script src="assets/js/app.js?v=20250913-103847"></script>
+  <script>
+    (function(){
+      function esc(s){return String(s).replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;', "'":'&#39;'}[c]));}
+      setTimeout(function(){
+        if(!window.KM_BOOTED){
+          var el=document.getElementById('content');
+          el.innerHTML="<div class='card'><h3>Recovery mode</h3><p class='muted'>Main script didn't boot; loading Overview directly…</p></div>";
+          fetch('tabs/overview.html?v='+(window.KM_VER||'x'),{cache:'no-store'})
+            .then(r=>r.ok?r.text():Promise.reject('HTTP '+r.status))
+            .then(html=>{ el.innerHTML=html; })
+            .catch(err=>{ el.innerHTML="<div class='card'><h3>Load error</h3><pre>"+esc(err)+"</pre></div>"; });
+        }
+      },1200);
+    })();
+  </script>
 </body>
 </html>
