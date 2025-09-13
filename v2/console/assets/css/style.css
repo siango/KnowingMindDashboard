@@ -54,3 +54,11 @@
 .muted{opacity:.7}
 .progress{height:6px;background:#1f2937;border-radius:6px;overflow:hidden}
 .progress>span{display:block;height:100%;background:#60a5fa;width:0;transition:width .8s ease}
+/* KM-AUTO:BADGES-NAV */
+.badge{display:inline-block;padding:.2rem .6rem;border-radius:.5rem;font-size:.8rem;font-weight:600}
+.badge.live{background:#16a34a22;color:#22c55e;border:1px solid #22c55e55}
+.badge.mock{background:#f59e0b22;color:#f59e0b;border:1px solid #f59e0b55}
+.badge.stale{background:#6b728022;color:#9ca3af;border:1px solid #9ca3af55}
+.glass{background:rgba(20,24,34,.35);backdrop-filter:saturate(140%) blur(8px);-webkit-backdrop-filter:saturate(140%) blur(8px);border:1px solid rgba(255,255,255,.08)}
+.progress{height:6px;background:#1f2937;border-radius:6px;overflow:hidden}
+.progress>span{display:block;height:100%;background:#60a5fa;width:0;transition:width .8s ease}
