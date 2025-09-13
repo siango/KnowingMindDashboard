@@ -12,3 +12,86 @@
 <a href="#/eboard" class="nav-link"><span class="txt">e-Board / Event Broadcasting</span></a>
 <a href="#/lms" class="nav-link"><span class="txt">LMS / Meditation Courses</span></a>
 <!-- KM-AUTO-TABS:END -->
+
+<!-- KM:HEADER-METRICS:START -->
+<style>
+.km-header-metrics{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin:.25rem 0 0}
+.km-pill{display:inline-flex;align-items:center;gap:.4rem;padding:.2rem .6rem;border-radius:9999px;font-size:.85rem;background:#0b1220;border:1px solid #1f2a44;color:#e5e7eb}
+.km-pill strong{font-weight:700}
+.km-pill .delta.up{color:#22c55e}
+.km-pill .delta.down{color:#ef4444}
+.km-pill .delta.flat{color:#9ca3af}
+</style>
+<script>
+(function(){
+ const STORE_KEY='kms_daily_snapshots_v1';
+ const todayKey = new Date().toLocaleDateString('sv-SE');
+ const yestKey  = new Date(Date.now()-86400000).toLocaleDateString('sv-SE');
+
+ function getStore(){ try{ return JSON.parse(localStorage.getItem(STORE_KEY)||'{}'); }catch(e){ return {}; } }
+ function setStore(s){ localStorage.setItem(STORE_KEY, JSON.stringify(s)); }
+ function saveSnapshot(pid,data){
+   const s=getStore(); s[todayKey]=s[todayKey]||{}; s[todayKey][pid]={progress:data.progress,valuation:data.valuation,ts:Date.now()};
+   const keys=Object.keys(s).sort(); while(keys.length>7){ delete s[keys.shift()]; } setStore(s);
+ }
+ function fmtPct(x){ return (Math.round(x*1)/1).toFixed(0)+'%'; }
+ function fmtVal(x,unit){ try{ return new Intl.NumberFormat('th-TH',{maximumFractionDigits:2}).format(x)+(unit?' '+unit:''); }catch(e){return (Math.round(x*100)/100)+(unit?' '+unit:'');} }
+ function deltaBadge(now, prev){
+   if(prev==null||isNaN(prev)) return ['•','flat','—'];
+   const d = now - prev; const cls = d>0?'up': d<0?'down':'flat';
+   const sym= d>0?'▲': d<0?'▼':'•'; const txt = (Math.abs(d)<0.005?'±0':(d>0?'+':'−')+Math.abs(d).toFixed(2));
+   return [sym,cls,txt];
+ }
+
+ function renderFrom(container){
+   const titleEl = container.querySelector('[data-title-target]') || container.querySelector('h2,h1');
+   if(!titleEl) return;
+
+   // อ่านค่าจาก container ก่อน ถ้าไม่มีค่อยอ่านจาก title (<h2>) ตามวิธีที่ 1
+   const dsC = container.dataset||{}, dsT = titleEl.dataset||{};
+   const unit = dsC.unit || dsT.unit || 'M฿';
+   const progress = parseFloat( (dsC.progress ?? dsT.progress) ?? titleEl.getAttribute('aria-valuenow') );
+   const valuation = parseFloat( (dsC.valuation ?? dsT.valuation) ?? (container.querySelector('.km-valuation')?.textContent||'').replace(/[^\d.-]/g,'') );
+   const pid = (dsC.projId || dsT.projId || 'unknown');
+
+   if(isNaN(progress) && isNaN(valuation)) return;
+
+   saveSnapshot(pid,{progress,valuation});
+   const prev = (getStore()[yestKey]||{})[pid]||{};
+   const [sp,cp,tp]=(isNaN(progress)?['','flat','']:deltaBadge(progress,prev.progress));
+   const [sv,cv,tv]=(isNaN(valuation)?['','flat','']:deltaBadge(valuation,prev.valuation));
+
+   let host = titleEl.parentElement.querySelector('.km-header-metrics');
+   if(!host){ host=document.createElement('div'); host.className='km-header-metrics'; titleEl.after(host); } else { host.innerHTML=''; }
+
+   if(!isNaN(progress)){
+     const p=document.createElement('div');
+     p.className='km-pill';
+     p.innerHTML=`<span>คืบหน้า</span><strong>${fmtPct(progress)}</strong><span class="delta ${cp}" title="เทียบเมื่อวาน">${sp} ${tp}pt</span>`;
+     host.appendChild(p);
+   }
+   if(!isNaN(valuation)){
+     const v=document.createElement('div');
+     v.className='km-pill';
+     v.innerHTML=`<span>มูลค่า</span><strong>${fmtVal(valuation,unit)}</strong><span class="delta ${cv}" title="เทียบเมื่อวาน">${sv} ${tv}</span>`;
+     host.appendChild(v);
+   }
+ }
+
+ function renderAll(){
+   const cards = document.querySelectorAll('.km-card,[data-proj-id]'); 
+   if(cards.length===0){
+     // fallback: ถ้าไม่มีคอนเทนเนอร์ .km-card ให้ใช้พาเรนต์ของ h2 เป็น container ชั่วคราว
+     document.querySelectorAll('h2,h1').forEach(h=>{
+       if(h.dataset && (h.dataset.projId || h.dataset.progress || h.dataset.valuation)){
+         renderFrom(h.parentElement||document.body);
+       }
+     });
+   }else{
+     cards.forEach(renderFrom);
+   }
+ }
+ document.addEventListener('DOMContentLoaded', renderAll);
+})();
+</script>
+<!-- KM:HEADER-METRICS:END -->
