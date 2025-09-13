@@ -1,0 +1,14 @@
+﻿{
+    "id":  "dashboard",
+    "name":  "KnowingMindDashboard (/v2)",
+    "status":  "yellow",
+    "updated_at":  "2025-09-13T11:41:22+07:00",
+    "latest":  "UI แท็บพร้อม + mock สี; เคยเจอ cache/branch mapping",
+    "architecture":  "gh-pages ↔ (แผน) GAS/KMA data source",
+    "risks":  "แคชไม่เห็นการเปลี่ยนแปลงทันที",
+    "next_steps":  {
+                       "h48":  "ฝัง health ของ 3 Cloud Run + n8n last run",
+                       "d7":  "ปุ่ม Update now + SW/cache bust auto",
+                       "d30":  "กราฟ KPI + แผงผู้บริหาร"
+                   }
+}

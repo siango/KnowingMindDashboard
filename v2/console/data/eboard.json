@@ -1,0 +1,14 @@
+﻿{
+    "id":  "eboard",
+    "name":  "e-Board / Event Broadcasting",
+    "status":  "yellow",
+    "updated_at":  "2025-09-13T11:41:22+07:00",
+    "latest":  "วางแผนหน้า e-Board + เชื่อม FB/YT",
+    "architecture":  "GH Pages/KMA Frontend ↔ KMA API ↔ FB/YT/LINE",
+    "risks":  "สิทธิ์/โควต้า API, freshness",
+    "next_steps":  {
+                       "h48":  "หน้า e-Board static (mock→live slots)",
+                       "d7":  "ตัวดึงโพสต์/อัลบั้ม/คลิปสอน + แคช",
+                       "d30":  "โหมดป้ายประกาศ (auto refresh) + ปฏิทิน"
+                   }
+}

@@ -1,0 +1,14 @@
+﻿{
+    "id":  "lms",
+    "name":  "LMS / Meditation Courses",
+    "status":  "yellow",
+    "updated_at":  "2025-09-13T11:41:22+07:00",
+    "latest":  "Roadmap คอร์สพื้นฐาน + ใบประกาศ + multilingual",
+    "architecture":  "KMA Frontend ↔ kma-api ↔ Payments ↔ Certificates(PDF) ↔ Analytics",
+    "risks":  "ประสบการณ์เรียน/Completion",
+    "next_steps":  {
+                       "h48":  "Course Landing + Checkout (mock)",
+                       "d7":  "POST /courses/enroll + PDF template",
+                       "d30":  "MVP 1 คอร์ส + metrics"
+                   }
+}

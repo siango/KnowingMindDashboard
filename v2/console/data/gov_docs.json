@@ -1,0 +1,14 @@
+﻿{
+    "id":  "gov_docs",
+    "name":  "Government-Docs (KMA)",
+    "status":  "yellow",
+    "updated_at":  "2025-09-13T11:41:22+07:00",
+    "latest":  "สคีมา Firestore docs/sequences/events/notifications พร้อม",
+    "architecture":  "kma-api ↔ Firestore ↔ LINE/Email ↔ (แผน) e-Signature",
+    "risks":  "เลขรับ-ส่ง/เวิร์กโฟลว์เซ็น, PDPA",
+    "next_steps":  {
+                       "h48":  "POST /docs/incoming + running number",
+                       "d7":  "Inbox view + แจ้งเตือน",
+                       "d30":  "ส่งต่อ/มอบหมาย/เซ็น + audit trail"
+                   }
+}

@@ -1,0 +1,14 @@
+﻿{
+    "id":  "arunroo",
+    "name":  "อรุณรู้ (ArunRoo)",
+    "status":  "green",
+    "updated_at":  "2025-09-13T11:41:22+07:00",
+    "latest":  "n8n Cloud โพสต์รายวัน FB/IG/YT/TikTok (07:30–07:50); Podcast Readcast REV-E (sheet podcast_queue)",
+    "architecture":  "n8n ↔ Google Sheets ↔ Social ↔ (ตัวเลือก) KMA hook",
+    "risks":  "โควต้าโพสต์/สิทธิ์สื่อ",
+    "next_steps":  {
+                       "h48":  "notifier เมื่อโพสต์ล้มเหลว + log ต่อแพลตฟอร์ม",
+                       "d7":  "UTM→funnel เข้า KMA + analytics",
+                       "d30":  "monthly recap อัตโนมัติ (ภาพ+พอดแคสต์)"
+                   }
+}

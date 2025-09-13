@@ -1,0 +1,61 @@
+﻿{
+    "generated_at":  "2025-09-13T11:41:22+07:00",
+    "timezone":  "Asia/Bangkok",
+    "items":  [
+                  {
+                      "status":  "yellow",
+                      "name":  "KnowingMindApp (KMA)",
+                      "id":  "kma"
+                  },
+                  {
+                      "status":  "green",
+                      "name":  "อรุณรู้ (ArunRoo)",
+                      "id":  "arunroo"
+                  },
+                  {
+                      "status":  "green",
+                      "name":  "สติเวร (SatiShift)",
+                      "id":  "satishift"
+                  },
+                  {
+                      "status":  "yellow",
+                      "name":  "KnowingMindDashboard (/v2)",
+                      "id":  "dashboard"
+                  },
+                  {
+                      "status":  "yellow",
+                      "name":  "AI Creator",
+                      "id":  "ai_creator"
+                  },
+                  {
+                      "status":  "orange",
+                      "name":  "Beyond the Rich (MoneyAI)",
+                      "id":  "beyond_the_rich"
+                  },
+                  {
+                      "status":  "yellow",
+                      "name":  "BoonRoo (Donation)",
+                      "id":  "boonroo"
+                  },
+                  {
+                      "status":  "orange",
+                      "name":  "Roblox Mindful Life",
+                      "id":  "roblox"
+                  },
+                  {
+                      "status":  "yellow",
+                      "name":  "Government-Docs (KMA)",
+                      "id":  "gov_docs"
+                  },
+                  {
+                      "status":  "yellow",
+                      "name":  "e-Board / Event Broadcasting",
+                      "id":  "eboard"
+                  },
+                  {
+                      "status":  "yellow",
+                      "name":  "LMS / Meditation Courses",
+                      "id":  "lms"
+                  }
+              ]
+}

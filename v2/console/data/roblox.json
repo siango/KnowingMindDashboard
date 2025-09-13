@@ -1,0 +1,14 @@
+﻿{
+    "id":  "roblox",
+    "name":  "Roblox Mindful Life",
+    "status":  "orange",
+    "updated_at":  "2025-09-13T11:41:22+07:00",
+    "latest":  "แนวคิด/สคริปต์ตั้งต้น; ยังไม่ production",
+    "architecture":  "Roblox(Lua) ↔ GitHub ↔ (แผน) kma-api",
+    "risks":  "ทรัพยากร/เวลา, นโยบายแพลตฟอร์ม",
+    "next_steps":  {
+                       "h48":  "repo + แผนที่ต้นแบบ + โหมดฝึก 1 นาที",
+                       "d7":  "hook ส่ง Mindful Minutes กลับ KMA",
+                       "d30":  "ทดสอบเล็ก + telemetry บนแดชบอร์ด"
+                   }
+}

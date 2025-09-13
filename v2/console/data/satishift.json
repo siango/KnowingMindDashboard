@@ -1,0 +1,14 @@
+﻿{
+    "id":  "satishift",
+    "name":  "สติเวร (SatiShift)",
+    "status":  "green",
+    "updated_at":  "2025-09-13T11:41:22+07:00",
+    "latest":  "satishift-webhook(public), satishift-fullstack(00002)/health; Scheduler */5 ยัง UTC; auto rotation, NimmanQueue, AlmsRoutes",
+    "architecture":  "LINE OA ↔ Apps Script/Sheets ↔ Full-Stack(Node/TS) ↔ Firestore ↔ Scheduler/Secrets",
+    "risks":  "Timezone เพี้ยน, ต้องพิสูจน์ fairness",
+    "next_steps":  {
+                       "h48":  "ตั้ง Scheduler Asia/Bangkok + log health",
+                       "d7":  "สคริปต์ตรวจความยุติธรรม + รายงานสัปดาห์",
+                       "d30":  "Temple Starter Kit รีลีส + README ล่าสุด"
+                   }
+}
