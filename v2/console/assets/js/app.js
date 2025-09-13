@@ -191,3 +191,14 @@
   window.addEventListener('hashchange', route);
   document.addEventListener('DOMContentLoaded', route);
 }());
+;/* KM-OV-PROJ-TABS */
+(async function(){
+  const VER = (window.KM_VER||'')+'';
+  const holder = document.querySelector('#proj-tabs');
+  if(holder){
+    try{
+      const r = await fetch('./_auto_tabs_block.html'+(VER?('?v='+VER):''),{cache:'no-store'});
+      if(r.ok){ holder.innerHTML = await r.text(); }
+    }catch(_){}
+  }
+}());
