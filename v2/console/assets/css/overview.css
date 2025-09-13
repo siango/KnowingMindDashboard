@@ -1,0 +1,10 @@
+﻿/* KM-OV-CSS */
+.overview h2{margin:0 0 12px 0}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px}
+.project-card{display:block;padding:14px;border-radius:14px;border:1px solid rgba(255,255,255,.08);
+  background:rgba(20,24,34,.35);backdrop-filter:saturate(140%) blur(8px);-webkit-backdrop-filter:saturate(140%) blur(8px);
+  text-decoration:none;color:#cbd5e1}
+.project-card .title{font-weight:700;margin-bottom:6px}
+.project-card .muted{opacity:.7;font-size:.9rem}
+.project-card:hover{transform:translateY(-1px)}
+.loading{padding:10px}
