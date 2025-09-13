@@ -1,79 +1,37 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="th">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>KnowingMind Dashboard</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet"/>
-  <link rel="stylesheet" href="assets/css/style.css?v=20250913-105819">
-  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;700&display=swap" rel="stylesheet"/>
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+  <meta http-equiv="Pragma" content="no-cache"/>
+  <meta http-equiv="Expires" content="0"/>
+  <title>KnowingMind Dashboard — Console</title>
+  <link rel="stylesheet" href="./css/styles.css?v=20250914-024006"/>
+  <script src="./config.env.js?v=20250914-024006"></script>
+  <script src="./js/gas-client.js?v=20250914-024006" defer></script>
+  <script src="./js/router.js?v=20250914-024006" defer></script>
+  <script src="./js/app.js?v=20250914-024006" defer></script>
 </head>
 <body>
-  <header class="app-header">
-    <div class="brand">KnowingMind Dashboard</div>
-    <div class="meta"><span id="version">v-20250913-103847</span></div>
+  <header>
+    <strong>KnowingMind Dashboard</strong> · Console UI · <small id="ver"></small>
+    <script>document.getElementById('ver').textContent = 'v'+(window.KMS?.VERSION||'-');</script>
   </header>
-
-  <div class="app">
-    <aside class="sidebar">
+  <div class="wrapper">
+    <aside>
+      <div class="logo">📊 <span>KM Console</span></div>
       <nav>
-        <a href="#/overview" class="nav-link">Overview</a>
-        <a href="#/analytics" class="nav-link">Analytics</a>
-        <a href="#/checklist" class="nav-link">Checklist</a>
-        <a href="#/tasks" class="nav-link">Tasks</a>
-        <a href="#/devices" class="nav-link">Devices</a>
-        <a href="#/commands" class="nav-link">Commands</a>
-              <a href="#/reports" class="nav-link">Reports</a>
-        <div class="sidebar-clock">
-          <div class="clock-face" id="km-clock" title="Clock"><div id="km-clock-title" class="muted" style="margin-bottom:6px;text-transform:uppercase;font-size:11px;letter-spacing:.6px">Clock</div><span class="time">00:00:00</span>
-            <span class="date">--</span>
-          </div>
-        </div>        <div class="sidebar-lang" id="km-lang" title="Language">
-          <button data-lang="th" aria-label="ไทย">🇹🇭</button>
-          <button data-lang="en" aria-label="English">🇬🇧</button>
-          <button data-lang="zh" aria-label="中文">🇨🇳</button>
-        </div></nav>
+        <a href="#/overview"  data-nav="overview">Overview</a>
+        <a href="#/analytics" data-nav="analytics">Analytics</a>
+        <a href="#/projects"  data-nav="projects">Projects</a>
+        <a href="#/commands"  data-nav="commands">Commands</a>
+        <a href="#/settings"  data-nav="settings">Settings</a>
+      </nav>
     </aside>
-    <main id="content"><div class="loading">Loading...</div></main>
+    <main id="main"></main>
   </div>
-
-  <footer class="app-footer">
-    <small>© KnowingMindSuite — refreshed at 20250913-103847</small>
+  <footer>
+    <span>© 2025 KnowingMindSuite</span>
   </footer>
-
-  <script>
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations()
-        .then(rs => Promise.all(rs.map(r => r.unregister()))).catch(()=>{});
-    }
-    window.KM_VER="20250913-103847";
-    window.KM_BOOTED=false;
-  </script>
-  <script src="assets/js/app.js?v=20250913-105819"></script>
-  <script>
-    (function(){
-      function esc(s){return String(s).replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;', "'":'&#39;'}[c]));}
-      setTimeout(function(){
-        if(!window.KM_BOOTED){
-          var el=document.getElementById('content');
-          el.innerHTML="<div class='card'><h3>Recovery mode</h3><p class='muted'>Main script didn't boot; loading Overview directly…</p></div>";
-          fetch('tabs/overview.html?v='+(window.KM_VER||'x'),{cache:'no-store'})
-            .then(r=>r.ok?r.text():Promise.reject('HTTP '+r.status))
-            .then(html=>{ el.innerHTML=html; })
-            .catch(err=>{ el.innerHTML="<div class='card'><h3>Load error</h3><pre>"+esc(err)+"</pre></div>"; });
-        }
-      },1200);
-    })();
-  </script>
-<script src="assets/js/i18n.js?v=20250913-105819"></script>
-<script src="assets/js/overview.boot.js?v=v-20250913-153321"></script>
-<div id="proj-tabs" class="proj-tabs glass"></div>
-</body>
-</html>
-
-
-
-
-
+</body></html>
