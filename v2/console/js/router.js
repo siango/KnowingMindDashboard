@@ -1,9 +1,9 @@
-(function(){
+﻿(function(){
   const TOP=new Set(['overview','analytics','projects','commands','settings']);
   const PROJECTS=[
     {id:'kma',        title:'KnowingMindApp (KMA)'},
-    {id:'arunroo',    title:'อรุณรู้ (ArunRoo)'},
-    {id:'satishift',  title:'สติเวร (SatiShift)'},
+    {id:'arunroo',    title:'à¸­à¸£à¸¸à¸“à¸£à¸¹à¹‰ (ArunRoo)'},
+    {id:'satishift',  title:'à¸ªà¸•à¸´à¹€à¸§à¸£ (SatiShift)'},
     {id:'ai-creator', title:'AI Creator'},
     {id:'moneyai',    title:'Beyond the Rich (MoneyAI)'},
     {id:'boonroo',    title:'BoonRoo (Donation)'},

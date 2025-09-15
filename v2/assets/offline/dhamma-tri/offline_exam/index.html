@@ -1,0 +1,103 @@
+﻿<!doctype html><html lang="th"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Dhamma-Tri Offline Exam (MCQ + Essay)</title>
+<style>
+ body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;margin:14px;background:#fafafa;color:#222}
+ header{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-bottom:10px}
+ .btn{border:1px solid #ddd;background:#fff;border-radius:10px;padding:8px 12px;cursor:pointer}
+ .wrap{display:grid;gap:10px}
+ .q{border:1px solid #eee;border-radius:12px;padding:12px;background:#fff}
+ .q h3{margin:0 0 6px 0;font-size:16px}
+ .meta{font-size:12px;color:#666;margin-bottom:6px}
+ .opt{margin:6px 0;display:block}
+ textarea{width:100%;min-height:110px;border:1px solid #ddd;border-radius:10px;padding:10px;font-family:inherit}
+ .toolbar{position:sticky;bottom:12px;display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
+ .score{font-weight:600}
+ .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:#eef;color:#225;}
+ .hint{color:#666;font-size:12px}
+</style>
+</head><body>
+<header>
+  <div><strong>นักธรรมชั้นตรี (ออฟไลน์)</strong> <span class="pill" id="mode">OFFLINE</span></div>
+  <div>
+    <button class="btn" id="btnLoadMcq">ชุดปรนัย</button>
+    <button class="btn" id="btnLoadEssay">ชุดอัตนัย</button>
+  </div>
+</header>
+<div class="wrap">
+  <div class="q"><div class="meta">โหมดออฟไลน์ — คำตอบเก็บในอุปกรณ์นี้</div><div class="hint">สลับชุดได้ตลอด ระบบบันทึกคำตอบอัตโนมัติ</div></div>
+  <div id="list"></div>
+</div>
+<div class="toolbar">
+  <span class="score" id="scoreBox">คะแนน: 0/0</span>
+  <button class="btn" id="btnSum">สรุปคะแนน</button>
+  <button class="btn" id="btnSave">บันทึก</button>
+  <button class="btn" id="btnExport">ส่งออก (.json)</button>
+  <input type="file" id="fileImport" style="display:none" accept=".json"/>
+  <button class="btn" id="btnImport">นำเข้า</button>
+  <button class="btn" id="btnClear">ล้างคำตอบ</button>
+</div>
+<script>
+(function(){
+  const KEY='dhamma_tri_offline_answers_v1';
+  const STATE={answers:{},setId:'mcq'};
+  const els={list:document.getElementById('list'),
+    sum:btnSum, save:btnSave, export:btnExport, importBtn:btnImport, fileImport:fileImport,
+    clear:btnClear, score:scoreBox, btnMcq:btnLoadMcq, btnEssay:btnLoadEssay};
+
+  function lsLoad(){ try{const raw=localStorage.getItem(KEY); if(raw){STATE.answers=JSON.parse(raw).answers||{};}}catch(e){} }
+  function lsSave(){ localStorage.setItem(KEY, JSON.stringify({answers:STATE.answers, ts:Date.now()})); }
+  function setAnswer(id,v){ STATE.answers[id]=v; lsSave(); }
+
+  async function loadSet(setId){
+    STATE.setId=setId;
+    const file = (setId==='essay')?'data/questions_essay_sample.json':'data/questions_sample.json';
+    const res = await fetch(file+'?v='+Date.now()); const data = await res.json(); render(data);
+  }
+
+  function render(data){
+    els.list.innerHTML=''; let correct=0,total=0;
+    (data.questions||[]).forEach((q,i)=>{
+      total++; const qid=(data.id||'set')+'_'+(q.id||('Q'+(i+1)));
+      const div=document.createElement('div'); div.className='q';
+      const h=document.createElement('h3'); h.textContent='ข้อ '+(i+1)+'. '+q.text; div.appendChild(h);
+      if(q.type==='essay'){
+        const ta=document.createElement('textarea'); ta.placeholder=q.placeholder||'พิมพ์คำตอบที่นี่...';
+        ta.value=STATE.answers[qid]||''; ta.oninput=()=>setAnswer(qid,ta.value); div.appendChild(ta);
+        if(q.guideline){ const hint=document.createElement('div'); hint.className='hint';
+          hint.textContent='แนวตอบ: '+(Array.isArray(q.guideline)?q.guideline.join(' / '):q.guideline); div.appendChild(hint); }
+      }else{
+        const box=document.createElement('div');
+        (q.options||[]).forEach((opt,idx)=>{
+          const label=document.createElement('label'); label.className='opt';
+          const input=document.createElement('input'); input.type='radio'; input.name=qid; input.value=idx;
+          input.checked=(String(STATE.answers[qid])===String(idx)); input.onchange=()=>setAnswer(qid,Number(idx));
+          label.appendChild(input); label.appendChild(document.createTextNode(' '+opt)); box.appendChild(label);
+        });
+        div.appendChild(box);
+        if(typeof q.answer==='number' && String(STATE.answers[qid])===String(q.answer)) correct++;
+      }
+      els.list.appendChild(div);
+    });
+    els.score.textContent='คะแนน: '+correct+'/'+total+(STATE.setId==='essay'?' (อัตนัยไม่ตรวจอัตโนมัติ)':'');
+  }
+
+  function summary(){ if(STATE.setId==='essay'){alert('ชุดอัตนัย: ระบบไม่ตรวจอัตโนมัติ'); return;}
+    alert(els.score.textContent); }
+  function exportJson(){ const payload={ts:new Date().toISOString(), set:STATE.setId, answers:STATE.answers};
+    const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='dhamma_tri_answers_'+Date.now()+'.json'; a.click(); URL.revokeObjectURL(a.href); }
+  function importJson(){ els.fileImport.click(); }
+  els.fileImport.addEventListener('change', function(){ const f=this.files&&this.files[0]; if(!f) return;
+    const r=new FileReader(); r.onload=()=>{ try{ const o=JSON.parse(r.result); if(o.answers){STATE.answers=o.answers; lsSave(); loadSet(STATE.setId); alert('นำเข้าคำตอบสำเร็จ');} else alert('ไฟล์ไม่ถูกต้อง'); }catch(e){ alert('อ่านไฟล์ไม่สำเร็จ'); } };
+    r.readAsText(f); this.value=''; });
+  function clearAns(){ if(confirm('ล้างคำตอบทั้งหมดในเครื่องนี้?')){ STATE.answers={}; lsSave(); loadSet(STATE.setId); } }
+
+  els.sum.onclick=summary; els.save.onclick=lsSave; els.export.onclick=exportJson;
+  els.importBtn.onclick=importJson; els.clear.onclick=clearAns;
+  els.btnMcq.onclick=()=>loadSet('mcq'); els.btnEssay.onclick=()=>loadSet('essay');
+
+  lsLoad(); loadSet('mcq');
+})();
+</script>
+</body></html>
