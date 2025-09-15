@@ -25,3 +25,4 @@
   function goProj(id){ location.hash='#/proj/'+id; }
   window.KMSRoute={normalize,goTop,goProj,PROJECTS};
 })();
+
