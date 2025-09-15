@@ -1,0 +1,20 @@
+﻿{
+  "projects": [
+    {"name":"SatiShift","progress":62,"value_m":"3.2"},
+    {"name":"ArunRoo","progress":78,"value_m":"1.9"},
+    {"name":"KMA API","progress":55,"value_m":"4.1"},
+    {"name":"AI Creator","progress":41,"value_m":"0.8"}
+  ],
+  "analytics": {
+    "dau": 214, "wau": 812, "retention7": 27,
+    "completion": 58, "nps": 41,
+    "errors_today": 2, "deploys_today": 3
+  },
+  "checklist_today": [
+    {"title":"Verify gh-pages build & cache-bust","done": true},
+    {"title":"Sync central DB snapshot → dashboard","done": false},
+    {"title":"Heartbeat: devices online >= 3/4","done": true},
+    {"title":"Monk exam: upload 10 Q/A new set","done": false},
+    {"title":"Ops: Budget alert rule 70/90%","done": false}
+  ]
+}

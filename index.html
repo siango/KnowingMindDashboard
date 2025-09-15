@@ -4,15 +4,21 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>KnowingMind Dashboard</title>
-  <link rel="stylesheet" href="style.css?v=20250916044021">
-  <script src="router.js?v=20250916044021" defer></script>
+  <link rel="stylesheet" href="style.css?v=20250916044537">
+  <script src="app.js?v=20250916044537" defer></script>
 </head>
 <body>
-  <nav>
-    <a href="#/general">ผู้ใช้ทั่วไป</a> |
-    <a href="#/admin">ผู้บริหาร</a> |
-    <a href="#/dev">นักพัฒนา</a>
-  </nav>
-  <main id="app">Loading...</main>
+  <header class="topbar">
+    <div class="brand">KnowingMind Dashboard</div>
+    <nav class="tabs">
+      <a href="#/general">General</a>
+      <a href="#/admin">Admin</a>
+      <a href="#/dev">Dev</a>
+      <a href="#/analytics">Analytics</a>
+      <a href="#/checklist">Checklist</a>
+    </nav>
+  </header>
+  <main id="app" class="container">Loading...</main>
+  <footer class="foot">Build: 20250916044537 — Public: Landing/Overview/Analytics • Private: Logs/Error/Secrets</footer>
 </body>
 </html>
