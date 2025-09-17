@@ -1,0 +1,25 @@
+﻿{
+  "generated_at": "2025-09-18T05:07:23",
+  "totals": {
+    "projects_count": 13,
+    "running": 4,
+    "wip": 4,
+    "planned": 5,
+    "progress_avg": 47.7
+  },
+  "projects": [
+    {"key":"KMA","name":"KnowingMindApp (kma-api)","progress":70,"status":"running","notes":"Cloud Run internal+LB; health OK; invoke via Workflow/Scheduler"},
+    {"key":"AR","name":"ArunRoo (อรุณรู้)","progress":65,"status":"running","notes":"arunroo-ics public; Readcast podcast + Sheets podcast_queue"},
+    {"key":"SSF","name":"SatiShift (สติเวร)","progress":75,"status":"running","notes":"LINE webhook public; auto-rotation + NimmanQueue + Alms routes"},
+    {"key":"AIC","name":"AI Creator (ผู้สร้างใหม่)","progress":40,"status":"wip","notes":"Phase 1 MVP; Firestore ai_creator_*; route /ai/creator/* + n8n"},
+    {"key":"EXM","name":"Exam App (นักธรรมตรี)","progress":60,"status":"wip","notes":"Mobile Viewer v3; data 2559–2560 seeded; PWA pending"},
+    {"key":"KMD","name":"KnowingMind Dashboard","progress":70,"status":"running","notes":"GitHub Pages (gh-pages) + domain; 3 views Public/Executive/Dev"},
+    {"key":"CDH","name":"Central Data Hub","progress":80,"status":"running","notes":"Snapshots initialized (kms_*_latest.*) 2025-09-17"},
+    {"key":"SEC","name":"Security Tools bundle","progress":60,"status":"wip","notes":"Checksum baseline, backup scripts, update guidelines"},
+    {"key":"DON","name":"Donation Module","progress":20,"status":"planned","notes":"Phase 1: PromptPay QR + receipt PDF + dashboard"},
+    {"key":"OPS","name":"Ops/Workforce Service","progress":15,"status":"planned","notes":"workforce, attendance, ops, procure, noticeboard, audit"},
+    {"key":"ORG","name":"Legal/Foundation Plan","progress":25,"status":"planned","notes":"foundation + company/SE, governance & PDPA templates"},
+    {"key":"RBLX","name":"Game Roblox — Mindful Life","progress":10,"status":"planned","notes":"Roblox world prototype; Lua modules skeleton (Localization.lua, BackupUtil.lua)"},
+    {"key":"BTR","name":"Beyond the Rich (MoneyAI)","progress":10,"status":"planned","notes":"Sports odds + finance behavior engine; spin-off; dashboard integration pending"}
+  ]
+}
