@@ -18,3 +18,19 @@
   <a class="btn" href="https://siango.github.io/KnowingMindDashboard/">Visit Site</a>
 </body>
 </html>
+
+<script>
+;(function(){
+ try{
+  if("serviceWorker" in navigator){
+    navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister()));
+  }
+  if(window.caches&&caches.keys){
+    caches.keys().then(keys=>keys.forEach(k=>caches.delete(k)));
+  }
+  const k="__sw_fix_v1__";
+  if(!sessionStorage.getItem(k)){ sessionStorage.setItem(k,"1"); location.reload(); }
+ }catch(e){}
+})();
+</script>
+

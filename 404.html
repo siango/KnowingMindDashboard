@@ -1,6 +1,36 @@
-﻿<!doctype html><meta charset="utf-8">
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>KnowingMindDashboard</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; margin: 5em; }
+    h1 { color: #2d2a32; }
+    p { color: #666; }
+    .btn { display: inline-block; padding: 10px 20px; margin: 1em;
+           background: #2d2a32; color: #fff; text-decoration: none; border-radius: 6px; }
+    .btn:hover { background: #444; }
+  </style>
+</head>
+<body>
+  <h1>🚀 KnowingMindDashboard</h1>
+  <p>Deployment via gh-pages branch</p>
+  <a class="btn" href="https://siango.github.io/KnowingMindDashboard/">Visit Site</a>
+</body>
+</html>
+
 <script>
-  const l=window.location;
-  const redirect=l.pathname.replace(/\\/[^\\/]*$/, '/')+'index.html'+(l.search||'')+(l.hash||'');
-  window.location.replace(redirect);
+;(function(){
+ try{
+  if("serviceWorker" in navigator){
+    navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister()));
+  }
+  if(window.caches&&caches.keys){
+    caches.keys().then(keys=>keys.forEach(k=>caches.delete(k)));
+  }
+  const k="__sw_fix_v1__";
+  if(!sessionStorage.getItem(k)){ sessionStorage.setItem(k,"1"); location.reload(); }
+ }catch(e){}
+})();
 </script>
+
