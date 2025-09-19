@@ -1,0 +1,9 @@
+﻿{
+    "generated_at_utc":  "2025-09-19T11:49:10Z",
+    "timezone":  "Asia/Bangkok",
+    "services":  {
+                     "kma_api_base":  "https://kma-api-knowing-mind-app.asia-southeast1.run.app",
+                     "kma_api_key_masked":  ""
+                 },
+    "device":  "PC_Asus"
+}
