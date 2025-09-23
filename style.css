@@ -1,19 +1,14 @@
-﻿:root {
-  --lotus:#E573A0; --midnight:#2D2A32; --gold:#F2C94C; --sky:#80C2FF; --cloud:#F7F5F0;
-}
-*{box-sizing:border-box} body{margin:0;font-family:system-ui,Segoe UI,Arial,sans-serif;background:var(--cloud);color:#222}
-.topbar{position:sticky;top:0;background:#fff;border-bottom:1px solid #eee;display:flex;align-items:center;gap:16px;padding:10px 16px}
-.brand{font-weight:700;color:var(--midnight)}
-.tabs a{margin-right:10px;text-decoration:none;color:var(--midnight);padding:6px 10px;border-radius:999px}
-.tabs a:hover{background:#f0f0f0}
+﻿body{margin:0;font-family:system-ui,Arial,sans-serif;background:#f7f5f0;color:#222}
+.topbar{background:#2D2A32;color:#fff;padding:10px 16px;display:flex;align-items:center}
+.brand{font-weight:bold;margin-right:20px}
+.tabs a{color:#fff;margin-right:12px;text-decoration:none}
+.tabs a.active{border-bottom:2px solid #F2C94C}
 .container{padding:16px}
-.card{background:#fff;border:1px solid #eee;border-radius:16px;padding:16px;margin-bottom:12px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
-.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
-.badge{display:inline-block;padding:2px 8px;border-radius:999px;background:#eee;font-size:12px}
-.ok{color:#2e7d32}.err{color:#c62828}.warn{color:#ef6c00}
-.progress{height:10px;background:#eee;border-radius:999px;overflow:hidden}
-.progress > i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--lotus),var(--gold))}
-.kv{display:flex;justify-content:space-between;margin:4px 0;color:#555}
-.svgchart{width:100%;height:180px;border:1px dashed #ddd;border-radius:12px;background:#fff}
+.card{background:#fff;border-radius:12px;padding:16px;margin:8px;box-shadow:0 2px 6px rgba(0,0,0,.1)}
+.row{display:flex;flex-wrap:wrap;gap:12px}
+.kv{display:flex;justify-content:space-between;margin:4px 0}
+.progress{background:#eee;border-radius:8px;overflow:hidden;height:12px}
+.progress i{display:block;background:#80C2FF;height:100%}
+.svgchart{width:100%;max-width:600px;height:auto}
 .foot{padding:10px 16px;color:#666;font-size:12px}
-.small{font-size:12px;color:#666}
+.ok{color:green}
