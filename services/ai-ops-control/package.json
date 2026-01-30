@@ -1,0 +1,14 @@
+{
+  "name": "kms-ai-ops-control",
+  "version": "1.0.0",
+  "private": true,
+  "description": "KMS AI Ops Control API (SSOT GCS, readyz-only, no healthz)",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

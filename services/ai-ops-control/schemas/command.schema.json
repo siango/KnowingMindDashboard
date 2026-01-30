@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kms.local/schemas/command.schema.json",
+  "title": "KMS AI Ops Command",
+  "type": "object",
+  "required": ["id", "created_at", "owner", "device_target", "approved", "kind"],
+  "properties": {
+    "id": { "type": "string", "minLength": 8 },
+    "created_at": { "type": "string" },
+    "owner": { "type": "string" },
+    "device_target": { "type": "string" },
+    "approved": { "type": "string", "enum": ["YES", "NO"] },
+    "kind": { "type": "string" },
+    "payload": { "type": "object" }
+  },
+  "additionalProperties": true
+}
