@@ -2,78 +2,183 @@
 <html lang="th">
 <head>
   <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>KnowingMind Dashboard</title>
-  <script src="config.env.js"></script>
-  <script src="js/gas-client.js"></script>
   <style>
-    body{font-family:system-ui,Segoe UI,Roboto,Prompt,sans-serif;margin:0;background:#0b1020;color:#e5e7eb}
-    .wrap{max-width:960px;margin:auto;padding:16px}
-    pre{background:#0f172a;border:1px dashed #334155;border-radius:12px;padding:12px;overflow:auto}
-    .banner{position:sticky;top:0;z-index:1000;background:#111827;padding:10px 14px;border-bottom:1px solid #334155}
+    :root{--bg:#f6f5f2;--card:#fff;--ink:#222;--muted:#666;--ok:#27ae60;--bad:#e53935;--brand:#0b6cff;}
+    html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,Segoe UI,Arial,sans-serif}
+    .topbar{display:flex;gap:18px;align-items:center;padding:14px 18px;background:#fff;border-bottom:1px solid #e9e7e3;position:sticky;top:0}
+    .brand{font-weight:700}
+    .tabs a{margin-right:10px;text-decoration:none;color:#333;padding:6px 10px;border-radius:8px}
+    .tabs a.active{background:rgba(11,108,255,.08);color:var(--brand)}
+    .container{max-width:1100px;margin:28px auto;padding:0 16px}
+    .row{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+    .card{background:var(--card);border-radius:14px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+    h3{margin:0 0 12px}
+    .kv{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-top:1px dashed #eee}
+    .kv:first-child{border-top:0}
+    .ok{color:var(--ok);font-weight:600}
+    .bad{color:var(--bad);font-weight:600}
+    .small{color:var(--muted);font-size:12px;margin-top:8px}
+    .progress{height:10px;background:#eee;border-radius:99px;overflow:hidden}
+    .progress i{display:block;height:100%;background:linear-gradient(90deg,#8cc7ff,#0b6cff)}
+    .foot{color:var(--muted);font-size:12px;padding:10px 16px}
+    .svgchart{width:100%;height:auto;display:block}
   </style>
-
-  <!-- inline gasFetch fallback -->
-  <script>
-  (function(){
-    window.KMS = window.KMS || {};
-    if (typeof window.KMS.gasFetch !== 'function') {
-      const GAS_URL = (window.KMS && window.KMS.GAS_URL) || '';
-      const API_KEY = (window.KMS && window.KMS.API_KEY) || '';
-      window.KMS.gasFetch = async function(params={}, method='GET', timeoutMs=12000){
-        const ctl = new AbortController(); const t = setTimeout(()=>ctl.abort(), timeoutMs);
-        try{
-          const headers = {'User-Agent':'KM-Dashboard/1.0'};
-          if (API_KEY) headers['X-API-Key'] = API_KEY;
-          const u = new URL(GAS_URL);
-          Object.entries(params||{}).forEach(([k,v])=>u.searchParams.set(k,v));
-          if (method === 'GET'){
-            const res = await fetch(u.toString(), {headers, signal: ctl.signal, cache:'no-store'});
-            if (!res.ok) throw new Error('HTTP '+res.status);
-            return await res.json();
-          } else {
-            headers['Content-Type'] = 'application/json';
-            const res = await fetch(GAS_URL,{method:'POST',headers,body:JSON.stringify(params),signal:ctl.signal});
-            if (!res.ok) throw new Error('HTTP '+res.status);
-            return await res.json();
-          }
-        }catch(e){
-          return {error:"JSON error", msg:e.message};
-        }finally{ clearTimeout(t); }
-      };
-    }
-  })();
-  </script>
 </head>
 <body>
-  <div class="banner"><b id="ai-status">loading…</b></div>
-  <div class="wrap">
-    <h1>KnowingMind Dashboard</h1>
-    <p>ผลลัพธ์จาก GAS (health + dashboard)</p>
-    <pre id="out">Loading…</pre>
-  </div>
+  <header class="topbar">
+    <div class="brand">KnowingMind Dashboard</div>
+    <nav class="tabs" id="tabs">
+      <a href="#/general">General</a>
+      <a href="#/admin">Admin</a>
+      <a href="#/dev">Dev</a>
+      <a href="#/analytics">Analytics</a>
+      <a href="#/checklist">Checklist</a>
+    </nav>
+  </header>
+
+  <main id="app" class="container">Loading...</main>
+  <footer class="foot">Build: OSPW — Public: Landing/Overview/Analytics • Private: Logs/Error/Secrets</footer>
 
   <script>
-  (async()=>{
-    const el=document.getElementById('out');
-    const banner=document.getElementById('ai-status');
-    try{
-      const h=await KMS.gasFetch({action:'health',source:'pages'},'GET');
-      let txt="health: "+(h&&(h.ping||h.ok));
-      try{
-        const d=await KMS.gasFetch({action:'dashboard'},'GET');
-        el.textContent=JSON.stringify({health:h,dashboard:d},null,2);
-        txt+=" | dashboard: ok";
-      }catch(e){
-        el.textContent=JSON.stringify({health:h,dashboard_error:e.message},null,2);
-        txt+=" | dashboard: "+e.message;
-      }
-      banner.textContent=txt+" @ "+new Date().toLocaleString("th-TH",{hour12:false});
-    }catch(e){
-      banner.textContent="Load failed: "+e.message;
-      el.textContent="ERR: "+e.message;
-    }
-  })();
+  // ---------- OSPW: data (mock) ----------
+  const DATA = {
+    projects: [
+      { name: "Alpha", progress: 62, value_m: 12.5 },
+      { name: "Beta",  progress: 35, value_m: 7.3  },
+      { name: "Gamma", progress: 82, value_m: 18.9 }
+    ],
+    analytics: { completion: 72, retention7: 48, dau: 320, wau: 1500, nps: 32 },
+    dev: { deploys_today: 2, errors_today: 0 },
+    checklist_today: [
+      { text: "DNS → GitHub Pages สำเร็จ", done: true },
+      { text: "ตั้ง HTTPS แล้ว", done: true },
+      { text: "ต่อ Analytics mock", done: false }
+    ]
+  };
+
+  // ---------- tiny helpers ----------
+  const el=(tag,cls,html)=>{const x=document.createElement(tag); if(cls) x.className=cls; if(html!=null) x.innerHTML=html; return x;};
+  const progressBar=(p)=>{const w=el('div','progress'); const i=el('i'); i.style.width=(Math.max(0,Math.min(100,Number(p)||0))+'%'); w.appendChild(i); return w;};
+
+  function barChartSVG(values, labels){
+    const w=600,h=180,pad=24, innerW=w-pad*2, innerH=h-pad*2;
+    const vs=values.map(v=>Number(v)||0); const max=Math.max(1,...vs);
+    const step=innerW/Math.max(1,vs.length), barGap=12, barW=Math.max(4,step-barGap);
+    let bars='';
+    vs.forEach((v,i)=>{
+      const x=pad+i*step+(step-barW)/2;
+      const bh=innerH*(v/max);
+      const y=h-pad-bh;
+      const lx=pad+i*step+step/2, ly=h-6;
+      bars+=`<rect x="${x}" y="${y}" width="${barW}" height="${bh}" rx="6" ry="6" fill="#80C2FF"></rect>
+             <text x="${lx}" y="${ly}" text-anchor="middle" font-size="11" fill="#555">${labels[i]??''}</text>`;
+    });
+    return `<svg class="svgchart" viewBox="0 0 ${w} ${h}" role="img" aria-label="bar chart">
+      <line x1="${pad}" y1="${h-pad}" x2="${w-pad}" y2="${h-pad}" stroke="#ccc"/>
+      <g>${bars}</g>
+    </svg>`;
+  }
+
+  // ---------- views ----------
+  function viewGeneral(){
+    const root=el('div');
+    root.appendChild(el('div','card',`
+      <h3>นักธรรมตรี</h3>
+      <div class="kv"><span>Offline exam</span><span class="ok">✓ ready</span></div>
+      <div class="kv"><span>เฉลย/แบบฝึก</span><span>มีให้ใช้งาน</span></div>
+    `));
+    return root;
+  }
+
+  function viewAdmin(d){
+    const root=el('div'); const row=el('div','row'); root.appendChild(row);
+
+    const proj=el('div','card'); proj.innerHTML='<h3>Project Progress</h3>';
+    (d.projects||[]).forEach(p=>{
+      const name=p?.name??'', pr=Number(p?.progress)||0;
+      const item=el('div'); item.innerHTML=`<div class="kv"><b>${name}</b><span>${pr}%</span></div>`;
+      item.appendChild(progressBar(pr)); proj.appendChild(item);
+    });
+    row.appendChild(proj);
+
+    const val=el('div','card'); val.innerHTML='<h3>Valuation (Mock, M฿)</h3>';
+    const labels=(d.projects||[]).map(p=>p?.name??'');
+    const vals=(d.projects||[]).map(p=>Number(p?.value_m)||0);
+    val.innerHTML += barChartSVG(vals,labels);
+    row.appendChild(val);
+
+    const kpi=el('div','card');
+    const A=d.analytics||{};
+    kpi.innerHTML=`
+      <h3>KPIs</h3>
+      <div class="kv"><span>DAU</span><b>${A.dau||0}</b></div>
+      <div class="kv"><span>WAU</span><b>${A.wau||0}</b></div>
+      <div class="kv"><span>7-day Retention</span><b>${A.retention7||0}%</b></div>
+      <div class="kv"><span>Completion</span><b>${A.completion||0}%</b></div>
+      <div class="kv"><span>NPS</span><b>${A.nps||0}</b></div>
+    `;
+    row.appendChild(kpi);
+
+    return root;
+  }
+
+  function viewDev(d){
+    const root=el('div');
+    const E=d?.dev?.errors_today||0, D=d?.dev?.deploys_today||0;
+    root.appendChild(el('div','card',`
+      <h3>Dev / Observer</h3>
+      <div class="kv"><span>Deploys today</span><b>${D}</b></div>
+      <div class="kv"><span>Errors today</span><b class="${E?'bad':'ok'}">${E}</b></div>
+      <div class="small">* Logs/Errors/Secrets เป็น private</div>
+    `));
+    return root;
+  }
+
+  function viewAnalytics(d){
+    const root=el('div'), row=el('div','row'); root.appendChild(row);
+    const A=d.analytics||{};
+    const comp=el('div','card'); comp.innerHTML='<h3>Completion</h3>'; comp.appendChild(progressBar(A.completion||0)); row.appendChild(comp);
+    const ret =el('div','card'); ret .innerHTML='<h3>7-day Retention</h3>'; ret .appendChild(progressBar(A.retention7||0)); row.appendChild(ret);
+    const dau =el('div','card'); dau.innerHTML='<h3>DAU vs WAU</h3>'; dau.innerHTML+=barChartSVG([A.dau||0,A.wau||0],['DAU','WAU']); row.appendChild(dau);
+    return root;
+  }
+
+  function viewChecklist(d){
+    const root=el('div'); const card=el('div','card'); card.innerHTML='<h3>Checklist วันนี้</h3>';
+    (d.checklist_today||[]).forEach(i=>{
+      const done=!!i?.done, text=i?.text??'';
+      const line=el('div','kv'); line.innerHTML=`<span>${done?'✓':'⏳'}</span><span class="${done?'ok':''}">${text}</span>`;
+      card.appendChild(line);
+    });
+    root.appendChild(card); return root;
+  }
+
+  // ---------- router & render ----------
+  function setActiveTab(hash){
+    document.querySelectorAll('#tabs a').forEach(a=>{
+      a.classList.toggle('active', a.getAttribute('href')===hash);
+    });
+  }
+
+  async function render(route){
+    const host=document.getElementById('app');
+    host.textContent='Loading...';
+    const data=DATA; // ใช้ mock ในไฟล์นี้
+
+    let view=viewGeneral();
+    if(route==='#/admin')      view=viewAdmin(data);
+    else if(route==='#/dev')   view=viewDev(data);
+    else if(route==='#/analytics') view=viewAnalytics(data);
+    else if(route==='#/checklist') view=viewChecklist(data);
+
+    setActiveTab(route);
+    host.replaceChildren(view);
+  }
+
+  addEventListener('hashchange',()=>render(location.hash));
+  render(location.hash||'#/general');
   </script>
 </body>
 </html>

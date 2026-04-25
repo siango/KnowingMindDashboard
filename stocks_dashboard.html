@@ -1,0 +1,93 @@
+# === OSPW9: One-Shot Build & Deploy KnowingMindDashboard ===
+$ErrorActionPreference = "Stop"
+
+# Path repo
+$repo = "C:\AndroidProjects\KnowingMindSuite\KnowingMindDashboard"
+Set-Location $repo
+
+# --- index.html ---
+@'
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>KnowingMind Dashboard</title>
+  <link rel="stylesheet" href="style.css?v={0}">
+  <script src="app.js?v={0}" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">KnowingMind Dashboard</div>
+    <nav id="tabs" class="tabs">
+      <a href="#/general">General</a>
+      <a href="#/admin">Admin</a>
+      <a href="#/dev">Dev</a>
+      <a href="#/analytics">Analytics</a>
+      <a href="#/checklist">Checklist</a>
+    </nav>
+  </header>
+  <main id="app" class="container">Loading...</main>
+  <footer class="foot">
+    Build: {0} — Public: Landing/Overview/Analytics • Private: Logs/Error/Secrets
+  </footer>
+</body>
+</html>
+'@ -f (Get-Date -Format yyyyMMddHHmmss) | Out-File "$repo\index.html" -Encoding UTF8
+
+# --- style.css ---
+@'
+body{margin:0;font-family:system-ui,Arial,sans-serif;background:#f7f5f0;color:#222}
+.topbar{background:#2D2A32;color:#fff;padding:10px 16px;display:flex;align-items:center}
+.brand{font-weight:bold;margin-right:20px}
+.tabs a{color:#fff;margin-right:12px;text-decoration:none}
+.tabs a.active{border-bottom:2px solid #F2C94C}
+.container{padding:16px}
+.card{background:#fff;border-radius:12px;padding:16px;margin:8px;box-shadow:0 2px 6px rgba(0,0,0,.1)}
+.row{display:flex;flex-wrap:wrap;gap:12px}
+.kv{display:flex;justify-content:space-between;margin:4px 0}
+.progress{background:#eee;border-radius:8px;overflow:hidden;height:12px}
+.progress i{display:block;background:#80C2FF;height:100%}
+.svgchart{width:100%;max-width:600px;height:auto}
+.foot{padding:10px 16px;color:#666;font-size:12px}
+.ok{color:green}
+'@ | Out-File "$repo\style.css" -Encoding UTF8
+
+# --- app.js ---
+@'
+const el=(h,cls,html)=>{const x=document.createElement(h);if(cls)x.className=cls;if(html!=null)x.innerHTML=html;return x;}
+async function fetchData(){try{const r=await fetch("data.json?v="+Date.now());return await r.json()}catch(e){return null}}
+
+function progressBar(p){const w=el("div","progress");const i=el("i");i.style.width=(Math.max(0,Math.min(100,p)))+"%";w.appendChild(i);return w}
+
+function viewGeneral(){const r=el("div");r.appendChild(el("div","card","<h3>นักธรรมตรี</h3><div class='kv'><span>Offline exam</span><span class='ok'>✓ ready</span></div>"));return r}
+
+function viewAdmin(d){const r=el("div"),row=el("div","row");r.appendChild(row);const proj=el("div","card");proj.innerHTML="<h3>Project Progress</h3>";
+d.projects.forEach(p=>{const item=el("div");item.innerHTML=`<div class='kv'><b>${p.name}</b><span>${p.progress}%</span></div>`;item.appendChild(progressBar(p.progress));proj.appendChild(item)});row.appendChild(proj);return r}
+
+function viewDev(){const r=el("div");r.appendChild(el("div","card","<h3>Dev / Observer</h3><div class='kv'><span>Deploys today</span><b>0</b></div><div class='kv'><span>Errors today</span><b class='err'>0</b></div>"));return r}
+
+function viewAnalytics(d){const r=el("div"),row=el("div","row");r.appendChild(row);const comp=el("div","card");comp.innerHTML="<h3>Completion</h3>";comp.appendChild(progressBar(d.analytics.completion||0));row.appendChild(comp);return r}
+
+function viewChecklist(d){const r=el("div"),c=el("div","card");c.innerHTML="<h3>Checklist วันนี้</h3>";d.checklist_today.forEach(i=>{const line=el("div","kv");line.innerHTML=`<span>${i.task}</span><span>${i.status}</span>`;c.appendChild(line)});r.appendChild(c);return r}
+
+async function render(route){const host=document.getElementById("app");host.textContent="Loading...";const d=await fetchData()||{projects:[],analytics:{},checklist_today:[]};let view=viewGeneral();
+if(route==="#/admin")view=viewAdmin(d);else if(route==="#/dev")view=viewDev(d);else if(route==="#/analytics")view=viewAnalytics(d);else if(route==="#/checklist")view=viewChecklist(d);host.replaceChildren(view)}
+addEventListener("hashchange",()=>render(location.hash));render(location.hash||"#/general");
+'@ | Out-File "$repo\app.js" -Encoding UTF8
+
+# --- data.json (mock) ---
+@'
+{
+  "projects":[{"name":"KMA","progress":60,"value_m":120},{"name":"ArunRoo","progress":50,"value_m":80}],
+  "analytics":{"completion":55,"retention7":22,"dau":120,"wau":300},
+  "checklist_today":[{"task":"Deploy","status":"done"},{"task":"Backup","status":"pending"}]
+}
+'@ | Out-File "$repo\data.json" -Encoding UTF8
+
+# --- Git push ---
+git add .
+git commit -m "OSPW9 auto build $(Get-Date -Format u)" --allow-empty
+git push origin gh-pages
+
+Write-Host "`n[✓] OSPW9 finished. Reload https://knowingmindproject.website" -ForegroundColor Green

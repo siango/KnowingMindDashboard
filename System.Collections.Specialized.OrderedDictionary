@@ -1,0 +1,10 @@
+﻿{
+    "DEVICE_ID":  "notebook-ausvivo15_aa",
+    "DEVICE_NAME":  "AUSVIVO15_AA",
+    "OS":  "Windows",
+    "TZ":  "SE Asia Standard Time",
+    "HB_FORWARD":  true,
+    "CDH_SNAPSHOT_URL":  "REPLACE_ME_SNAPSHOT_URL",
+    "CDH_SUBMIT_URL":  "REPLACE_ME_SUBMIT_URL",
+    "CDH_TOKEN":  "REPLACE_ME_TOKEN"
+}

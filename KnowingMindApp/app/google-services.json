@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "112616524192",
+    "project_id": "knowingmindapp",
+    "storage_bucket": "knowingmindapp.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:112616524192:android:de76b7abbc46cd584cfcc5",
+        "android_client_info": {
+          "package_name": "com.knowingmind.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCMEO2-om0aTNKt9TrCVm3CTN9E8AsOJFA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
