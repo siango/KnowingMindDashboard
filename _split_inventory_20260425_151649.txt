@@ -1,0 +1,8 @@
+./.gitignore
+./_split_inventory_20260425_151649.txt
+./public/index.html
+./server.js
+./theme.css
+./ui.css
+./web_exec_vx/kms_exec_dashboard_vx.html
+./worker.js

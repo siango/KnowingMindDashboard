@@ -1,0 +1,779 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <title>KnowingMindSuite · Executive vX</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --bg: #050816;
+      --bg-alt: #0b1020;
+      --card: #111827;
+      --card-alt: #020617;
+      --accent: #38bdf8;
+      --accent-soft: rgba(56,189,248,0.12);
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --danger: #f97373;
+      --success: #4ade80;
+      --border: #1f2937;
+      --radius-lg: 18px;
+    }
+    * { box-sizing:border-box; }
+    body {
+      margin:0;
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      background: radial-gradient(circle at top, #0b1120 0, var(--bg) 45%);
+      color:var(--text);
+    }
+    .layout {
+      display:flex;
+      min-height:100vh;
+    }
+    .sidebar {
+      width:270px;
+      max-width:70vw;
+      padding:16px 10px 16px 16px;
+      background:linear-gradient(180deg,#020617,#030712 60%,#020617);
+      border-right:1px solid var(--border);
+    }
+    .brand {
+      padding:8px 10px 16px 4px;
+    }
+    .brand-title {
+      font-size:18px;
+      font-weight:600;
+      line-height:1.3;
+    }
+    .brand-sub {
+      font-size:11px;
+      color:var(--muted);
+      margin-top:2px;
+    }
+    .badge {
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:3px 7px;
+      border-radius:999px;
+      background:var(--card);
+      border:1px solid var(--border);
+      font-size:10px;
+      margin-top:6px;
+      color:var(--muted);
+    }
+    .badge-dot {
+      width:7px;
+      height:7px;
+      border-radius:999px;
+      background:var(--success);
+      box-shadow:0 0 12px rgba(74,222,128,0.8);
+    }
+
+    .section-list {
+      margin-top:16px;
+      padding:6px;
+      background:rgba(15,23,42,0.9);
+      border-radius:var(--radius-lg);
+      border:1px solid var(--border);
+    }
+    .section-title {
+      font-size:11px;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      color:var(--muted);
+      padding:0 8px 6px;
+    }
+    .section-item {
+      display:flex;
+      align-items:center;
+      gap:8px;
+      padding:7px 9px;
+      font-size:13px;
+      border-radius:999px;
+      cursor:pointer;
+      margin-bottom:3px;
+      color:var(--muted);
+      transition:background .12s,color .12s,transform .07s;
+    }
+    .section-item:hover {
+      background:rgba(15,118,210,0.25);
+      color:var(--text);
+      transform:translateY(-1px);
+    }
+    .section-item.active {
+      background:var(--accent-soft);
+      color:var(--accent);
+      border:1px solid rgba(56,189,248,0.6);
+      box-shadow:0 0 0 1px rgba(15,23,42,0.9),0 0 40px rgba(56,189,248,0.3);
+    }
+    .section-icon {
+      width:18px;height:18px;
+      border-radius:999px;
+      background:rgba(15,23,42,0.9);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:11px;
+    }
+    .section-label { flex:1; }
+
+    .footer {
+      margin-top:18px;
+      padding:6px 10px;
+      font-size:10px;
+      color:var(--muted);
+      border-top:1px dashed #111827;
+    }
+
+    .main {
+      flex:1;
+      padding:14px 14px 18px;
+      overflow:auto;
+    }
+    .main-inner {
+      max-width:1120px;
+      margin:0 auto;
+    }
+    .top-row {
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:center;
+      margin-bottom:10px;
+    }
+    .pill {
+      font-size:11px;
+      padding:4px 10px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:rgba(15,23,42,0.9);
+      color:var(--muted);
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+    }
+    .pill strong { color:var(--text); }
+    .pill.green { border-color:rgba(74,222,128,0.5); color:var(--success); }
+    .pill.blue  { border-color:rgba(56,189,248,0.5); color:var(--accent); }
+
+    .page-title {
+      font-size:18px;
+      font-weight:600;
+      margin:2px 0 4px;
+    }
+    .page-sub {
+      font-size:12px;
+      color:var(--muted);
+    }
+
+    .cards-grid {
+      margin-top:12px;
+      display:grid;
+      grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+      gap:10px;
+    }
+    .card {
+      background:linear-gradient(145deg,var(--card),var(--card-alt));
+      border-radius:var(--radius-lg);
+      border:1px solid var(--border);
+      padding:10px 11px;
+      box-shadow:0 12px 35px rgba(15,23,42,0.7);
+    }
+    .card-header {
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      margin-bottom:6px;
+    }
+    .card-title {
+      font-size:13px;
+      font-weight:500;
+    }
+    .card-sub {
+      font-size:11px;
+      color:var(--muted);
+    }
+    .metric {
+      margin-top:4px;
+      font-size:12px;
+      display:flex;
+      justify-content:space-between;
+      color:var(--muted);
+    }
+    .metric strong { color:var(--text); }
+
+    table {
+      width:100%;
+      border-collapse:collapse;
+      font-size:11px;
+      margin-top:4px;
+    }
+    th, td {
+      text-align:left;
+      padding:4px 6px;
+      border-bottom:1px solid #111827;
+    }
+    th { color:var(--muted); font-weight:500; }
+    tr:last-child td { border-bottom:none; }
+
+    .code-box {
+      margin-top:6px;
+      padding:8px;
+      border-radius:var(--radius-lg);
+      background:#020617;
+      border:1px solid #0f172a;
+      font-family:SFMono-Regular,Menlo,monospace;
+      font-size:11px;
+      max-height:360px;
+      overflow:auto;
+      white-space:pre;
+    }
+
+    .status-dot {
+      width:8px;height:8px;border-radius:50%;
+    }
+    .status-online { background:var(--success); box-shadow:0 0 12px rgba(74,222,128,0.8);}
+    .status-offline { background:var(--danger); box-shadow:0 0 10px rgba(248,113,113,0.8);}
+    .muted { color:var(--muted); font-size:11px; }
+
+    @media (max-width:768px){
+      .layout { flex-direction:column; }
+      .sidebar { width:100%; max-width:none; border-right:none;border-bottom:1px solid var(--border); }
+      .main { padding:10px; }
+    }
+  </style>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-title">KnowingMindSuite</div>
+      <div class="brand-sub">Executive Dashboard · Enterprise vX</div>
+      <div class="badge">
+        <span class="badge-dot"></span>
+        <span>Online &amp; healthy · GCS / CDH only</span>
+      </div>
+    </div>
+    <div class="section-list">
+      <div class="section-title">Sections</div>
+      <div id="section-list-body"></div>
+    </div>
+    <div class="footer">
+      Snapshot source:<br>
+      <span id="snapshot-source" class="muted"></span>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="main-inner">
+      <div class="top-row">
+        <div>
+          <div class="page-title" id="page-title">Executive vX</div>
+          <div class="page-sub" id="page-sub">Loading enterprise snapshot from GCS / CDH…</div>
+        </div>
+        <div style="flex:1"></div>
+        <div class="pill blue"><strong>Engine</strong> ENTERPRISE vX_full</div>
+        <div class="pill green"><strong>Storage</strong> GCS / CDH only</div>
+      </div>
+
+      <div id="content"></div>
+    </div>
+  </main>
+</div>
+
+<script>
+  const CONFIG_URL = "https://storage.googleapis.com/kms-core-snapshots/kms_exec_vx_dashboard_latest.json";
+
+  const iconMap = {
+    overview:"📊",
+    tasks:"📆",
+    keys:"🔐",
+    wrench:"🛠",
+    robot:"🤖",
+    trade:"📈",
+    cpu:"💻",
+    database:"🗄",
+    shield:"🛡",
+    heartbeat:"💓"
+  };
+
+  let dashboardConfig = null;
+
+  async function loadConfig(){
+    const res = await fetch(CONFIG_URL + "?_=" + Date.now());
+    if(!res.ok) throw new Error("Cannot load config");
+    const json = await res.json();
+    dashboardConfig = json;
+    initUI(json);
+  }
+
+  function initUI(cfg){
+    document.getElementById("snapshot-source").textContent = CONFIG_URL;
+    document.getElementById("page-title").textContent = cfg.title || "Executive vX";
+    document.getElementById("page-sub").textContent =
+      "Project: " + (cfg.project || "unknown") +
+      " · Region: " + (cfg.region || "-") +
+      " · Updated: " + (cfg.updated_at || "-");
+
+    const listBody = document.getElementById("section-list-body");
+    listBody.innerHTML = "";
+    (cfg.sections || []).forEach((s, idx) => {
+      const btn = document.createElement("div");
+      btn.className = "section-item" + (idx===0 ? " active":"");
+      btn.dataset.sectionId = s.id;
+      const icon = document.createElement("div");
+      icon.className = "section-icon";
+      icon.textContent = iconMap[s.icon] || "●";
+      const label = document.createElement("div");
+      label.className = "section-label";
+      label.textContent = s.label || s.id;
+      btn.appendChild(icon);
+      btn.appendChild(label);
+      btn.addEventListener("click", () => selectSection(s.id));
+      listBody.appendChild(btn);
+    });
+
+    if(cfg.sections && cfg.sections.length){
+      selectSection(cfg.sections[0].id);
+    }
+  }
+
+  function selectSection(id){
+    const cfg = dashboardConfig;
+    const section = (cfg.sections || []).find(s => s.id === id);
+    if(!section) return;
+
+    document.querySelectorAll(".section-item").forEach(el=>{
+      el.classList.toggle("active", el.dataset.sectionId === id);
+    });
+
+    const content = document.getElementById("content");
+    content.innerHTML = "";
+
+    // Title card
+    const headerCard = document.createElement("div");
+    headerCard.className = "card";
+    const h = document.createElement("div");
+    h.className = "card-header";
+    const t = document.createElement("div");
+    t.innerHTML = `<div class="card-title">${section.label}</div>
+                   <div class="card-sub">Source: ${section.source || "-"}</div>`;
+    const tag = document.createElement("div");
+    tag.className = "pill";
+    tag.innerHTML = `<strong>ID</strong> ${section.id}`;
+    h.appendChild(t); h.appendChild(tag);
+    headerCard.appendChild(h);
+    content.appendChild(headerCard);
+
+    // Body per section
+    if(id === "system_overview"){
+      renderSystemOverview(content, section.payload || {});
+    } else if(id === "work_status"){
+      renderTasks(content, section.payload || {});
+    } else if(id === "keys_secrets"){
+      renderKeys(content, section.payload || {});
+    } else if(id === "infra_services"){
+      renderInfra(content, section.payload || {});
+    } else if(id === "projects_ai"){
+      renderProjectsAI(content, section.payload || {});
+    } else if(id === "ai_trader_board"){
+      renderTrader(content, section.payload || {});
+    } else if(id === "ai_fleet"){
+      renderAIFleet(content, section.payload || {});
+    } else if(id === "cdh_storage"){
+      renderGenericJSON(content, "CDH / Storage Snapshot", section.payload || {});
+    } else if(id === "security_audit"){
+      renderGenericJSON(content, "Security / GCS Audit", section.payload || {});
+    } else if(id === "health_fourtruth"){
+      renderGenericJSON(content, "Health / FourTruth", section.payload || {});
+    } else {
+      renderGenericJSON(content, "Raw section payload", section.payload || {});
+    }
+  }
+
+  function createCard(title, subtitle){
+    const card = document.createElement("div");
+    card.className = "card";
+    const header = document.createElement("div");
+    header.className = "card-header";
+    const t = document.createElement("div");
+    t.className = "card-title";
+    t.textContent = title;
+    const s = document.createElement("div");
+    s.className = "card-sub";
+    s.textContent = subtitle || "";
+    header.appendChild(t);
+    header.appendChild(s);
+    card.appendChild(header);
+    return card;
+  }
+
+  function renderSystemOverview(root, payload){
+    const card = createCard("System Overview", "Buckets · Cloud Run · Service Accounts · Firestore");
+    const buckets = payload.buckets || [];
+    const services = payload.cloud_run || payload.services || [];
+    const sa = payload.service_accounts || [];
+    const region = payload.region || "-";
+
+    const m1 = document.createElement("div");
+    m1.className = "metric";
+    m1.innerHTML = `<span>Buckets</span><strong>${buckets.length}</strong>`;
+    const m2 = document.createElement("div");
+    m2.className = "metric";
+    m2.innerHTML = `<span>Cloud Run services</span><strong>${services.length}</strong>`;
+    const m3 = document.createElement("div");
+    m3.className = "metric";
+    m3.innerHTML = `<span>Service accounts</span><strong>${sa.length}</strong>`;
+    const m4 = document.createElement("div");
+    m4.className = "metric";
+    m4.innerHTML = `<span>Region</span><strong>${region}</strong>`;
+
+    card.appendChild(m1); card.appendChild(m2);
+    card.appendChild(m3); card.appendChild(m4);
+
+    root.appendChild(card);
+  }
+
+  function renderTasks(root, payload){
+    const card = createCard("Work Status (Past / Present / Future)", "Tasks snapshot");
+    const past = payload.past || [];
+    const present = payload.present || [];
+    const future = payload.future || [];
+
+    const m1 = document.createElement("div");
+    m1.className = "metric";
+    m1.innerHTML = `<span>Past</span><strong>${past.length}</strong>`;
+    const m2 = document.createElement("div");
+    m2.className = "metric";
+    m2.innerHTML = `<span>Present</span><strong>${present.length}</strong>`;
+    const m3 = document.createElement("div");
+    m3.className = "metric";
+    m3.innerHTML = `<span>Future</span><strong>${future.length}</strong>`;
+
+    card.appendChild(m1); card.appendChild(m2); card.appendChild(m3);
+
+    const all = [...past.map(t=>({...t, _bucket:"Past"})),
+                 ...present.map(t=>({...t, _bucket:"Present"})),
+                 ...future.map(t=>({...t, _bucket:"Future"}))];
+
+    if(all.length){
+      const table = document.createElement("table");
+      table.innerHTML = `
+        <thead>
+          <tr><th>When</th><th>Bucket</th><th>Project</th><th>Title</th><th>Status</th></tr>
+        </thead>
+        <tbody></tbody>`;
+      const tbody = table.querySelector("tbody");
+      all.slice(0,50).forEach(t=>{
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${t.when || t.time || "-"}</td>
+                        <td>${t._bucket}</td>
+                        <td>${t.project || "-"}</td>
+                        <td>${t.title || t.name || "-"}</td>
+                        <td>${t.status || "-"}</td>`;
+        tbody.appendChild(tr);
+      });
+      card.appendChild(table);
+    } else {
+      const span = document.createElement("div");
+      span.className = "muted";
+      span.textContent = "ยังไม่มีข้อมูลงานใน snapshot ล่าสุด";
+      card.appendChild(span);
+    }
+
+    root.appendChild(card);
+  }
+
+  function renderKeys(root, payload){
+    const card = createCard("Keys & Secrets (Meta only)", "ไม่แสดงค่า key จริง · metadata เท่านั้น");
+    const secrets = payload.secrets || [];
+    const m1 = document.createElement("div");
+    m1.className = "metric";
+    m1.innerHTML = `<span>จำนวน Secrets</span><strong>${secrets.length}</strong>`;
+    card.appendChild(m1);
+
+    if(secrets.length){
+      const table = document.createElement("table");
+      table.innerHTML = `<thead>
+          <tr><th>Name</th><th>Created</th><th>Scope</th></tr>
+        </thead><tbody></tbody>`;
+      const tbody = table.querySelector("tbody");
+      secrets.slice(0,80).forEach(s=>{
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${s.name || "-"}</td>
+                        <td>${s.created || "-"}</td>
+                        <td>${s.scope || "-"}</td>`;
+        tbody.appendChild(tr);
+      });
+      card.appendChild(table);
+    } else {
+      const span = document.createElement("div");
+      span.className = "muted";
+      span.textContent = "ไม่พบ metadata ของ Secrets ใน snapshot ล่าสุด";
+      card.appendChild(span);
+    }
+
+    root.appendChild(card);
+  }
+
+  function renderInfra(root, payload){
+    const card = createCard("Infra / Services", "Buckets · Cloud Run · Service Accounts");
+    const buckets = payload.buckets || [];
+    const services = payload.services || [];
+    const sa = payload.service_accounts || [];
+
+    const g = document.createElement("div");
+    g.className = "cards-grid";
+
+    const bCard = createCard("Buckets", `${buckets.length} buckets`);
+    if(buckets.length){
+      const table = document.createElement("table");
+      table.innerHTML = `<thead><tr><th>Name</th><th>Location</th></tr></thead><tbody></tbody>`;
+      const tbody = table.querySelector("tbody");
+      buckets.slice(0,30).forEach(b=>{
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${b.name || "-"}</td><td>${b.location || "-"}</td>`;
+        tbody.appendChild(tr);
+      });
+      bCard.appendChild(table);
+    }
+    g.appendChild(bCard);
+
+    const sCard = createCard("Cloud Run", `${services.length} services`);
+    if(services.length){
+      const table = document.createElement("table");
+      table.innerHTML = `<thead><tr><th>Service</th><th>URL</th><th>Region</th></tr></thead><tbody></tbody>`;
+      const tbody = table.querySelector("tbody");
+      services.slice(0,30).forEach(s=>{
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${s.name || "-"}</td><td>${s.url || "-"}</td><td>${s.region || "-"}</td>`;
+        tbody.appendChild(tr);
+      });
+      sCard.appendChild(table);
+    }
+    g.appendChild(sCard);
+
+    const saCard = createCard("Service Accounts", `${sa.length} accounts`);
+    if(sa.length){
+      const table = document.createElement("table");
+      table.innerHTML = `<thead><tr><th>Email</th><th>Display</th></tr></thead><tbody></tbody>`;
+      const tbody = table.querySelector("tbody");
+      sa.slice(0,40).forEach(a=>{
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${a.email || "-"}</td><td>${a.display_name || "-"}</td>`;
+        tbody.appendChild(tr);
+      });
+      saCard.appendChild(table);
+    }
+    g.appendChild(saCard);
+
+    card.appendChild(g);
+    root.appendChild(card);
+  }
+
+  function renderProjectsAI(root, payload){
+    const projects = payload.projects || [];
+    const ai = payload.ai || [];
+    const aiIndex = payload.ai_index || {};
+
+    const grid = document.createElement("div");
+    grid.className = "cards-grid";
+
+    const pCard = createCard("Projects", `${projects.length} projects`);
+    if(projects.length){
+      const table = document.createElement("table");
+      table.innerHTML = `<thead><tr><th>Code</th><th>Name</th><th>Status</th><th>Progress</th></tr></thead><tbody></tbody>`;
+      const tbody = table.querySelector("tbody");
+      projects.slice(0,40).forEach(p=>{
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${p.code || "-"}</td>
+                        <td>${p.name || "-"}</td>
+                        <td>${p.status || "-"}</td>
+                        <td>${p.progress != null ? p.progress + "%" : "-"}</td>`;
+        tbody.appendChild(tr);
+      });
+      pCard.appendChild(table);
+    } else {
+      const span = document.createElement("div");
+      span.className = "muted";
+      span.textContent = "ยังไม่มีรายการโปรเจกต์ใน snapshot นี้";
+      pCard.appendChild(span);
+    }
+    grid.appendChild(pCard);
+
+    const aCard = createCard("AI Agents / Engines", `${ai.length} entries`);
+    if(ai.length){
+      const table = document.createElement("table");
+      table.innerHTML = `<thead><tr><th>Code</th><th>Layer</th><th>Role</th><th>IQ</th><th>Status</th></tr></thead><tbody></tbody>`;
+      const tbody = table.querySelector("tbody");
+      ai.slice(0,60).forEach(a=>{
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${a.code || "-"}</td>
+                        <td>${a.layer || "-"}</td>
+                        <td>${a.role || "-"}</td>
+                        <td>${a.iq != null ? a.iq : "-"}</td>
+                        <td>${a.status || "-"}</td>`;
+        tbody.appendChild(tr);
+      });
+      aCard.appendChild(table);
+    } else {
+      const span = document.createElement("div");
+      span.className = "muted";
+      span.textContent = "ยังไม่มีข้อมูล AI agents ใน canonical snapshot";
+      aCard.appendChild(span);
+    }
+    grid.appendChild(aCard);
+
+    const idxCard = createCard("AI Projects Index (raw)", "สำหรับนักพัฒนาตรวจสอบสคีมา");
+    const code = document.createElement("div");
+    code.className = "code-box";
+    code.textContent = JSON.stringify(aiIndex, null, 2);
+    idxCard.appendChild(code);
+    grid.appendChild(idxCard);
+
+    root.appendChild(grid);
+  }
+
+  function renderTrader(root, payload){
+    const trader = payload.trader || {};
+    const portfolio = payload.portfolio || {};
+    const orders = payload.orders || {};
+    const signals = payload.signals || {};
+    const recent = payload.recent || {};
+    const engineMeta = payload.engine_meta || {};
+
+    const grid = document.createElement("div");
+    grid.className = "cards-grid";
+
+    // Status card
+    const sCard = createCard("AI Trader · Status", "Mode & watch list");
+    const status = trader.status || "offline";
+    const mode = (trader.mode || trader.config && trader.config.mode) || "-";
+    const watch = (trader.watch_list || []).join(", ");
+    const row = document.createElement("div");
+    row.className = "metric";
+    const dot = document.createElement("span");
+    dot.className = "status-dot " + (status === "online" ? "status-online" : "status-offline");
+    const label = document.createElement("span");
+    label.textContent = "Status";
+    const left = document.createElement("span");
+    left.style.display = "flex"; left.style.alignItems="center"; left.style.gap="6px";
+    left.appendChild(dot); left.appendChild(label);
+    const right = document.createElement("strong");
+    right.textContent = status;
+    row.innerHTML = "";
+    row.appendChild(left); row.appendChild(right);
+    sCard.appendChild(row);
+
+    const m1 = document.createElement("div");
+    m1.className = "metric";
+    m1.innerHTML = `<span>Mode</span><strong>${mode}</strong>`;
+    sCard.appendChild(m1);
+
+    const m2 = document.createElement("div");
+    m2.className = "metric";
+    m2.innerHTML = `<span>Watch list</span><strong>${watch || "-"}</strong>`;
+    sCard.appendChild(m2);
+
+    grid.appendChild(sCard);
+
+    // Portfolio card (summary)
+    const pCard = createCard("Portfolio · Coins", "snapshot view only");
+    const coins = portfolio.coins || portfolio.list || [];
+    if(coins.length){
+      const table = document.createElement("table");
+      table.innerHTML = `<thead><tr><th>Symbol</th><th>Value (THB)</th><th>Alloc</th></tr></thead><tbody></tbody>`;
+      const tbody = table.querySelector("tbody");
+      coins.slice(0,50).forEach(c=>{
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${c.symbol || "-"}</td>
+                        <td>${c.value_thb != null ? c.value_thb : (c.value || "-")}</td>
+                        <td>${c.alloc_pct != null ? c.alloc_pct + "%" : (c.allocation || "-")}</td>`;
+        tbody.appendChild(tr);
+      });
+      pCard.appendChild(table);
+    } else {
+      const span = document.createElement("div");
+      span.className = "muted";
+      span.textContent = "ยังไม่มี snapshot พอร์ตในไฟล์นี้";
+      pCard.appendChild(span);
+    }
+    grid.appendChild(pCard);
+
+    // Orders / Signals (raw counts)
+    const oCard = createCard("Orders / Signals / Events", "snapshot-only");
+    const openOrders = (orders.orders || []).length;
+    const sigCount = (signals.signals || []).length;
+    const evtCount = (recent.events || []).length;
+    const m3 = document.createElement("div");
+    m3.className = "metric";
+    m3.innerHTML = `<span>Orders</span><strong>${openOrders}</strong>`;
+    const m4 = document.createElement("div");
+    m4.className = "metric";
+    m4.innerHTML = `<span>Signals</span><strong>${sigCount}</strong>`;
+    const m5 = document.createElement("div");
+    m5.className = "metric";
+    m5.innerHTML = `<span>Recent events</span><strong>${evtCount}</strong>`;
+    oCard.appendChild(m3); oCard.appendChild(m4); oCard.appendChild(m5);
+
+    const metaBox = document.createElement("div");
+    metaBox.className = "code-box";
+    metaBox.textContent = JSON.stringify(engineMeta,null,2);
+    oCard.appendChild(metaBox);
+
+    grid.appendChild(oCard);
+
+    root.appendChild(grid);
+  }
+
+  function renderAIFleet(root, payload){
+    const engines = payload.engines || [];
+    const card = createCard("AI Fleet / Engines", `${engines.length} engines`);
+    if(engines.length){
+      const table = document.createElement("table");
+      table.innerHTML = `<thead>
+        <tr><th>Code</th><th>Type</th><th>Scope</th><th>Status</th></tr>
+      </thead><tbody></tbody>`;
+      const tbody = table.querySelector("tbody");
+      engines.slice(0,80).forEach(e=>{
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${e.code || "-"}</td>
+                        <td>${e.type || "-"}</td>
+                        <td>${e.scope || "-"}</td>
+                        <td>${e.status || "-"}</td>`;
+        tbody.appendChild(tr);
+      });
+      card.appendChild(table);
+    } else {
+      const span = document.createElement("div");
+      span.className = "muted";
+      span.textContent = "ยังไม่มี metadata ของ AI engines ใน snapshot นี้";
+      card.appendChild(span);
+    }
+    root.appendChild(card);
+  }
+
+  function renderGenericJSON(root, title, payload){
+    const card = createCard(title, "Raw view · สำหรับนักพัฒนาตรวจสอบข้อมูล");
+    const box = document.createElement("div");
+    box.className = "code-box";
+    box.textContent = JSON.stringify(payload, null, 2);
+    card.appendChild(box);
+    root.appendChild(card);
+  }
+
+  // bootstrap
+  loadConfig().catch(err=>{
+    const c = document.getElementById("content");
+    c.innerHTML = "";
+    const card = createCard("Error loading snapshot", "");
+    const msg = document.createElement("div");
+    msg.className = "muted";
+    msg.textContent = err.message || String(err);
+    card.appendChild(msg);
+    c.appendChild(card);
+  });
+</script>
+</body>
+</html>
