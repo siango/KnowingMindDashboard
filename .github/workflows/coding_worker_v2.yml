@@ -1,0 +1,28 @@
+name: coding-worker-v2
+
+on:
+  push:
+    paths:
+      - 'av15/coding_worker_v2/**'
+      - '.github/workflows/coding_worker_v2.yml'
+  pull_request:
+    paths:
+      - 'av15/coding_worker_v2/**'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile all modules
+        run: python3 -m compileall -q av15/coding_worker_v2
+      - name: Unit + e2e tests (stdlib unittest)
+        run: cd av15 && python3 -m unittest discover -s coding_worker_v2/tests -t .
+      - name: Shell syntax (wrappers only, existing files untouched)
+        run: bash -n av15/coding_worker.sh
+      - name: Benchmark harness dry run (no live models)
+        run: cd av15 && python3 -m coding_worker_v2.benchmark
