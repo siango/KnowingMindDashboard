@@ -597,4 +597,3 @@ def generate_with_fallback(messages: list[dict], chain: list[BaseProvider],
         return gen, trace
     reasons = "; ".join(f"{t.provider}={t.reason}" for t in trace)
     raise ProviderError("ALL_PROVIDERS_FAILED", reasons)
-
