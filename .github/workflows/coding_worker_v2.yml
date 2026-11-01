@@ -20,6 +20,19 @@ jobs:
           python-version: '3.12'
       - name: Compile all modules
         run: python3 -m compileall -q av15/coding_worker_v2
+      - name: Validate n8n workflow JSON
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          files = sorted(Path("av15/coding_worker_v2/agent/n8n").glob("*.json"))
+          if not files:
+              raise SystemExit("No n8n workflow definitions found")
+          for path in files:
+              with path.open(encoding="utf-8") as source:
+                  json.load(source)
+          print(f"Validated {len(files)} n8n workflow definitions")
+          PY
       - name: Unit + e2e tests (stdlib unittest)
         run: cd av15 && python3 -m unittest discover -s coding_worker_v2/tests -t .
       - name: Shell syntax (tracked wrappers only)

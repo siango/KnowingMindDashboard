@@ -83,9 +83,16 @@ def execute_plan(plan: Plan, config: WorkerConfig, store: QueueStore,
         else:
             report["skipped"] += 1
             failed_ids.add(planned.task_id)
-    report["status"] = "DONE" if report["failed"] == 0 else "PARTIAL"
-    report["next_action"] = ("REVIEW_RECEIPTS" if report["failed"] == 0
-                             else "ESCALATE_FAILED_TASKS")
+    completed = report["done"] + report["reused"]
+    if report["failed"]:
+        report["status"] = "PARTIAL" if completed else "FAILED"
+        report["next_action"] = "ESCALATE_FAILED_TASKS"
+    elif report["skipped"]:
+        report["status"] = "PARTIAL" if completed else "BLOCKED"
+        report["next_action"] = "RESOLVE_BLOCKED_TASKS"
+    else:
+        report["status"] = "DONE"
+        report["next_action"] = "REVIEW_RECEIPTS"
     return report
 
 

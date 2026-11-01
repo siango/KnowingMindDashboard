@@ -18,6 +18,7 @@ BASE = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE.parent))
 
 from coding_worker_v2.config import WorkerConfig  # noqa: E402
+from coding_worker_v2.agent.sandbox import scrubbed_env  # noqa: E402
 from coding_worker_v2.pipeline import (PipelineError, bounded_edit,  # noqa: E402
                                        coding_messages, inspect_repo, list_files,
                                        make_patch, parse_edits, run_tests,
@@ -101,8 +102,9 @@ def run_task(task: Task, store: QueueStore, config: WorkerConfig,
             repairs_used = round_no + 1
             continue
         try:
-            test_result = run_tests(task.task_input.repo, task.task_input.test_command,
-                                    config.test_timeout_s)
+            test_result = run_tests(
+                task.task_input.repo, task.task_input.test_command,
+                config.test_timeout_s, env=scrubbed_env())
         except PipelineError as exc:
             return _fail(task, exc.failure_class, f"FIX_{exc.failure_class}")
         task.evidence.append({"event": "tests_run", "tests": {

@@ -162,9 +162,18 @@ def search_code(repo: str, pattern: str, max_matches: int = 30) -> list[dict]:
     rg = shutil.which("rg")
     if rg:
         try:
+            file_list = subprocess.run(
+                [rg, "--files", "-g", "!.git/**"], cwd=repo,
+                capture_output=True, text=True, timeout=30, check=False)
+            if file_list.returncode not in (0, 1):
+                raise ToolError("TOOL_SEARCH_FAIL", "file inventory failed")
+            files = sorted((file_list.stdout or "").splitlines())[:200]
+            if not files:
+                return out
             proc = subprocess.run(
-                [rg, "--no-heading", "--line-number", "--max-count", "5",
-                 "--max-files", "200", pattern, "."],
+                [rg, "--no-heading", "--with-filename", "--line-number",
+                 "--max-count", "5",
+                 "-e", pattern, "--", *files],
                 cwd=repo, capture_output=True, text=True, timeout=30, check=False)
         except (OSError, subprocess.TimeoutExpired):
             raise ToolError("TOOL_SEARCH_FAIL") from None
