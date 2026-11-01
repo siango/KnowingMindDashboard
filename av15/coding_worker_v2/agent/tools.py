@@ -340,7 +340,7 @@ def _git_push(args: dict) -> dict:
 
 def _pr_create(args: dict) -> dict:
     repo = _repo(args)
-    argv = ["gh", "pr", "create", "--title", args["title"]]
+    argv = ["gh", "pr", "create", "--draft", "--title", args["title"]]
     if args.get("body"):
         argv += ["--body", args["body"][:4000]]
     if args.get("base"):

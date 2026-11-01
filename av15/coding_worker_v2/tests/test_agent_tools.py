@@ -111,6 +111,7 @@ class TestRegistry(unittest.TestCase):
                            "title": "x; rm -rf /"}, ctx)
         argv = run.call_args.args[0]
         self.assertIsInstance(argv, list)
+        self.assertIn("--draft", argv)
         self.assertIn("x; rm -rf /", argv)  # single argv element, never parsed
 
     def test_ollama_inventory_honest(self):
