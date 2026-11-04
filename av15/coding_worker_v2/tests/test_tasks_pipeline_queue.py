@@ -1,5 +1,7 @@
 """Phase 2/3 tests: tasks, pipeline, queue, receipts."""
 import json
+import hashlib
+import multiprocessing
 import os
 import sys
 import tempfile
@@ -14,7 +16,7 @@ from coding_worker_v2.pipeline import (PipelineError, bounded_edit,  # noqa: E40
                                        coding_messages, inspect_repo, list_files,
                                        make_patch, parse_edits, run_tests,
                                        syntax_check)
-from coding_worker_v2.queue_store import QueueStore  # noqa: E402
+from coding_worker_v2.queue_store import QueueLeaseError, QueueStore  # noqa: E402
 from coding_worker_v2.receipts import read_receipt, write_receipt  # noqa: E402
 from coding_worker_v2.tasks import Task, TaskInput, TaskValidationError, admit  # noqa: E402
 
@@ -24,6 +26,11 @@ def make_task(**over):
             "input": {"repo": "/tmp", "goal": "do thing"}}
     data.update(over)
     return Task.from_dict(data)
+
+
+def _claim_in_process(base: str, results) -> None:
+    task = QueueStore(Path(base)).claim()
+    results.put(task.task_id if task else "")
 
 
 class TestTasks(unittest.TestCase):
@@ -73,6 +80,14 @@ class TestPipeline(unittest.TestCase):
                                self.config)
         self.assertEqual(changed, ["a.py"])
         self.assertIn("X = 2", (self.repo / "a.py").read_text())
+
+    def test_bounded_edit_rejects_path_outside_allowlist(self):
+        with self.assertRaises(PipelineError) as ctx:
+            bounded_edit(str(self.repo),
+                         [{"path": "new.py", "content": "x = 1\n"}],
+                         self.config, allowed_paths=["a.py"])
+        self.assertEqual(ctx.exception.failure_class, "POLICY_DENY")
+        self.assertFalse((self.repo / "new.py").exists())
 
     def test_edit_escape_denied(self):
         with self.assertRaises(PipelineError) as ctx:
@@ -126,13 +141,30 @@ class TestQueue(unittest.TestCase):
         self.assertEqual(task_id, task_id2)
         self.assertEqual(self.store.health()["inbox"], 1)
 
+    def test_stale_lease_token_is_fenced_after_recovery(self):
+        self.store.enqueue(make_task())
+        stale = self.store.claim()
+        assert stale is not None
+        lease = self.store.doing / f"{stale.task_id}.lease.json"
+        data = json.loads(lease.read_text())
+        data["expires_at"] = time.time() - 1
+        lease.write_text(json.dumps(data))
+        self.store.recover()
+        current = self.store.claim()
+        assert current is not None
+        self.assertNotEqual(stale.lease_token, current.lease_token)
+        self.assertFalse(self.store.heartbeat(stale.task_id, stale.lease_token))
+        with self.assertRaises(QueueLeaseError):
+            self.store.complete(stale)
+        self.store.complete(current)
+
     def test_claim_heartbeat_complete(self):
         self.store.enqueue(make_task())
         task = self.store.claim()
         self.assertIsNotNone(task)
         assert task is not None
         self.assertTrue(self.store.lease_valid(task.task_id))
-        self.assertTrue(self.store.heartbeat(task.task_id))
+        self.assertTrue(self.store.heartbeat(task.task_id, task.lease_token))
         self.store.complete(task)
         health = self.store.health()
         self.assertEqual(health["done"], 1)
@@ -144,6 +176,21 @@ class TestQueue(unittest.TestCase):
         self.assertIsNotNone(first)
         self.assertIsNone(self.store.claim())
 
+    def test_concurrent_process_claim_has_one_owner(self):
+        self.store.enqueue(make_task())
+        results = multiprocessing.Queue()
+        workers = [multiprocessing.Process(
+            target=_claim_in_process, args=(str(self.store.base), results))
+                   for _ in range(8)]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(timeout=10)
+            self.assertEqual(worker.exitcode, 0)
+        claims = [results.get(timeout=2) for _ in workers]
+        self.assertEqual(claims.count("t1"), 1)
+        self.assertEqual(claims.count(""), len(workers) - 1)
+
     def test_expired_lease_recovers(self):
         self.store.enqueue(make_task())
         task = self.store.claim()
@@ -152,7 +199,7 @@ class TestQueue(unittest.TestCase):
         data = json.loads(lease.read_text())
         data["expires_at"] = time.time() - 1
         lease.write_text(json.dumps(data))
-        self.assertFalse(self.store.heartbeat(task.task_id))
+        self.assertFalse(self.store.heartbeat(task.task_id, task.lease_token))
         recovered = self.store.recover()
         self.assertEqual(recovered["recovered"], [task.task_id])
         self.assertEqual(self.store.health()["inbox"], 1)
@@ -191,6 +238,15 @@ class TestReceipts(unittest.TestCase):
             from pathlib import Path as _P
             self.assertTrue((_P(tmp) / "coding_worker_v2_last.json").exists())
             self.assertEqual(back["task_id"], "t1")
+            first_digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            task.status = "FAILED"
+            with mock.patch.dict(os.environ, {"KMW2_STATE_DIR": tmp}):
+                second_path = write_receipt(Path(tmp) / "receipts", task)
+            second = read_receipt(second_path)
+            self.assertEqual(second["receipt_version"], 2)
+            self.assertEqual(second["previous_receipt_sha256"], first_digest)
+            self.assertEqual(read_receipt(path)["status"], "DONE")
+            self.assertNotEqual(path, second_path)
             for key in ("mission_id", "task_id", "owner_node", "input", "output",
                         "status", "evidence", "next_action"):
                 self.assertIn(key, back)
@@ -220,7 +276,7 @@ class TestFileListAndPatch(unittest.TestCase):
         msgs = coding_messages("fix", {"files": 2}, "", files=["calc.py"])
         user = json.loads(msgs[1]["content"])
         self.assertEqual(user["files"], ["calc.py"])
-        self.assertIn("ONLY files", msgs[0]["content"])
+        self.assertIn("approved file list", msgs[0]["content"])
 
     def test_coding_messages_no_files_ok(self):
         msgs = coding_messages("fix", {"files": 2})

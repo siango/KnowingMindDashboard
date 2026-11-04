@@ -62,6 +62,7 @@ class Task:
     max_attempts: int = 3
     created_at: str = ""
     updated_at: str = ""
+    lease_token: str = field(default="", repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if not self.idempotency_key:

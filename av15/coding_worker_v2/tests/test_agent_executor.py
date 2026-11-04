@@ -1,6 +1,7 @@
 """V3 executor tests: dedup-aware plan execution over a fake backend."""
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -25,6 +26,13 @@ def fixture_repo(root: Path) -> str:
         "import unittest\nfrom calc import add\n\n"
         "class T(unittest.TestCase):\n def test_add(self):\n"
         "  self.assertEqual(add(2, 3), 5)\n")
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=repo,
+                   check=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=repo,
+                   check=True)
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "fixture"], cwd=repo, check=True)
     return str(repo)
 
 
@@ -41,13 +49,31 @@ def config_for(port: int) -> WorkerConfig:
 
 
 def simple_plan_for(command: str) -> planner.Plan:
-    return planner.simple_plan(command, "KM-TEST", "ptest")
+    plan = planner.simple_plan(command, "KM-TEST", "ptest")
+    plan.tasks[0].allowed_paths = ["calc.py"]
+    return plan
 
 
 class TestExecutor(FakeBackend):
     def setUp(self):
         FakeState.chat_queue = []
         FakeState.chat_content = FIX
+        self.audit_stages = []
+
+        def audit(stage, _context):
+            self.audit_stages.append(stage)
+            return {"stage": stage, "gate_passed": True}
+
+        audit_patch = mock.patch.object(executor, "run_mission_audit",
+                                        side_effect=audit)
+        audit_patch.start()
+        self.addCleanup(audit_patch.stop)
+        qc_patch = mock.patch(
+            "coding_worker_v2.agent.qc.run_qc",
+            return_value={"passed": True, "independent_verified": True,
+                          "checks": []})
+        qc_patch.start()
+        self.addCleanup(qc_patch.stop)
 
     def test_qwen_chain_muse_free(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -80,14 +106,92 @@ class TestExecutor(FakeBackend):
             self.assertEqual(report["status"], "DONE")
             self.assertEqual(report["tasks"][0]["decision"], "NEW")
             self.assertEqual(report["tasks"][0]["status"], "DONE")
-            self.assertTrue((root / "receipts").glob("*.json"))
+            receipts = list((root / "receipts").glob("*.json"))
+            self.assertEqual(len(receipts), 1)
+            self.assertEqual(self.audit_stages,
+                             ["ADMIT", "BEFORE_MUTATION", "AFTER_TEST",
+                              "BEFORE_CLOSE"])
+
+    def test_auditor_unavailable_blocks_before_any_queue_or_repo_change(self):
+        from coding_worker_v2.agent.auditor import MissionAuditorError
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = fixture_repo(root)
+            config = config_for(self.port)
+            store = QueueStore(root / "q")
+            with mock.patch.object(
+                    executor, "run_mission_audit",
+                    side_effect=MissionAuditorError("AUDITOR_UNAVAILABLE")):
+                report = executor.execute_plan(
+                    simple_plan_for("fix add() so 2+3==5"), config, store,
+                    root / "receipts", root / "state", repo,
+                    use_worktree=False)
+            self.assertEqual(report["status"], "BLOCKED")
+            self.assertEqual(report["next_action"], "AUDITOR_UNAVAILABLE")
+            self.assertEqual(store.health()["inbox"], 0)
+            self.assertEqual(store.health()["doing"], 0)
+            self.assertEqual(store.health()["done"], 0)
+
+    def test_missing_approved_file_list_blocks_before_enqueue(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = fixture_repo(root)
+            config = config_for(self.port)
+            store = QueueStore(root / "q")
+            plan = simple_plan_for("fix add() so 2+3==5")
+            plan.tasks[0].allowed_paths = []
+            report = executor.execute_plan(
+                plan, config, store, root / "receipts", root / "state", repo,
+                use_worktree=False)
+            self.assertEqual(report["status"], "BLOCKED")
+            self.assertEqual(report["tasks"][0]["reason"],
+                             "APPROVED_FILE_ALLOWLIST_REQUIRED")
+            self.assertEqual(store.health()["inbox"], 0)
+            self.assertEqual(store.health()["doing"], 0)
+
+    def test_qc_failure_never_completes_queue_task(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = fixture_repo(root)
+            config = config_for(self.port)
+            store = QueueStore(root / "q")
+            qc_calls = []
+            with mock.patch.dict(os.environ, {"KMW2_STATE_DIR": tmp}):
+                report = executor.execute_plan(
+                    simple_plan_for("fix add() so 2+3==5"), config, store,
+                    root / "receipts", root / "state", repo, use_worktree=False,
+                    qc_fn=lambda _task, _ctx: qc_calls.append(True) or {
+                        "passed": False, "failed": ["independent_check"]},
+                    sleep_fn=lambda s: None)
+            self.assertTrue(qc_calls, report)
+            self.assertEqual(report["status"], "FAILED")
+            self.assertEqual(store.health()["done"], 0)
+            self.assertEqual(store.health()["failed"], 1)
+
+    def test_qc_without_independent_verifier_never_completes_queue_task(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = fixture_repo(root)
+            config = config_for(self.port)
+            store = QueueStore(root / "q")
+            with mock.patch.dict(os.environ, {"KMW2_STATE_DIR": tmp}):
+                report = executor.execute_plan(
+                    simple_plan_for("fix add() so 2+3==5"), config, store,
+                    root / "receipts", root / "state", repo, use_worktree=False,
+                    qc_fn=lambda _task, _ctx: {
+                        "passed": True, "checks": []},
+                    sleep_fn=lambda s: None)
+            self.assertEqual(report["status"], "FAILED")
+            self.assertEqual(store.health()["done"], 0)
+            self.assertEqual(store.health()["failed"], 1)
 
     def test_reuse_skips_execution(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             repo = fixture_repo(root)
             config = config_for(self.port)
-            qc = {"passed": True, "checks": []}
+            qc = {"passed": True, "independent_verified": True, "checks": []}
             with mock.patch.dict(os.environ, {"KMW2_STATE_DIR": tmp}):
                 first = executor.execute_plan(
                     simple_plan_for("fix add() so 2+3==5"), config,
@@ -180,7 +284,20 @@ class TestExecutor(FakeBackend):
             task = Task.from_dict({
                 "mission_id": "M", "task_id": "h1", "owner_node": "AV15",
                 "input": {"repo": repo, "goal": "fix add()",
-                          "test_command": "python3 -m unittest"}})
+                          "test_command": "python3 -m unittest",
+                          "hints": {
+                              "plan_id": "h1",
+                              "base_commit": "",
+                              "acceptance": ["task goal implemented"],
+                              "approved_scope": {
+                                  "mission_id": "M", "plan_id": "h1",
+                                  "revision": 1, "owner_node": "AV15",
+                                  "queue_task_id": "h1",
+                                  "source_command": "fix add()",
+                                  "task_id": "h1", "goal": "fix add()",
+                                  "acceptance": ["task goal implemented"],
+                                  "base_commit": "",
+                                  "allowed_paths": ["calc.py"]}}}})
             store.enqueue(task)
             claimed = store.claim()
             assert claimed is not None

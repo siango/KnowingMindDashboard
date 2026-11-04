@@ -105,7 +105,8 @@ class TestRegistry(unittest.TestCase):
     def test_pr_create_never_shell(self):
         with mock.patch("coding_worker_v2.agent.tools._run",
                         return_value=(0, "https://pr/1")) as run:
-            ctx = {**self.ctx, "authorize_destructive": True}
+            ctx = {**self.ctx, "authorize_destructive": True,
+                   "allow_new_pr": True}
             self.reg.call("pr_create",
                           {"repo": str(self.root / "repo"),
                            "title": "x; rm -rf /"}, ctx)
@@ -113,6 +114,29 @@ class TestRegistry(unittest.TestCase):
         self.assertIsInstance(argv, list)
         self.assertIn("--draft", argv)
         self.assertIn("x; rm -rf /", argv)  # single argv element, never parsed
+
+    def test_pr_create_requires_separate_approval(self):
+        ctx = {**self.ctx, "authorize_destructive": True}
+        with mock.patch("coding_worker_v2.agent.tools._run",
+                        return_value=(0, "https://pr/1")) as run:
+            with self.assertRaises(ToolError) as error:
+                self.reg.call("pr_create",
+                              {"repo": str(self.root / "repo"),
+                               "title": "new PR"}, ctx)
+        self.assertEqual(error.exception.reason, "PR_CREATE_NOT_APPROVED")
+        run.assert_not_called()
+
+    def test_git_push_refuses_to_create_a_remote_branch(self):
+        ctx = {**self.ctx, "authorize_destructive": True}
+        with mock.patch("coding_worker_v2.agent.tools._run",
+                        side_effect=[(0, ""), (0, "origin"), (0, "")]) as run:
+            with self.assertRaises(ToolError) as error:
+                self.reg.call("git_push",
+                              {"repo": str(self.root / "repo"),
+                               "branch": "new-branch"}, ctx)
+        self.assertEqual(error.exception.reason,
+                         "BRANCH_CREATE_NOT_APPROVED")
+        self.assertEqual(run.call_count, 3)
 
     def test_ollama_inventory_honest(self):
         out = self.reg.call("ollama_inventory", {}, self.ctx)

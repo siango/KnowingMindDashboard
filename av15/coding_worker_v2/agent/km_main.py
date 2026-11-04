@@ -191,8 +191,12 @@ def cmd_qc(args, ctx) -> int:
     task_path = ctx["store"].done / args.done / "task.json"
     task = Task.from_dict(json.loads(task_path.read_text(encoding="utf-8")))
     repo = task.task_input.repo
+    receipt_path = ctx["receipts_dir"] / f"{task.task_id}.json"
     report = agent_qc.run_qc(task, {"config": ctx["config"], "store": ctx["store"],
-                                    "workspace": ctx["workspace"], "repo": repo})
+                                    "workspace": ctx["workspace"], "repo": repo,
+                                    "receipt_path": str(receipt_path),
+                                    "executor_id": task.owner_node,
+                                    "executor_runner_id": "km-qc-cli"})
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if report["passed"] else 1
 

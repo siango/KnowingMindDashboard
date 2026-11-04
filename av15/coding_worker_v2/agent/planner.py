@@ -9,6 +9,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import PurePosixPath
 
 SCHEMA = "KM_TASK_PLAN_V1"
 COMPLEXITIES = {"S", "M", "L"}
@@ -32,6 +33,7 @@ class PlannedTask:
     priority: int = 2
     complexity: str = "M"
     acceptance: list[str] = field(default_factory=list)
+    allowed_paths: list[str] = field(default_factory=list)
     tools: list[str] = field(default_factory=list)
     model: str = "qwen-local"
     max_repairs: int = 2
@@ -39,7 +41,8 @@ class PlannedTask:
     def to_dict(self) -> dict:
         return {"task_id": self.task_id, "goal": self.goal, "deps": self.deps,
                 "priority": self.priority, "complexity": self.complexity,
-                "acceptance": self.acceptance, "tools": self.tools,
+                "acceptance": self.acceptance,
+                "allowed_paths": self.allowed_paths, "tools": self.tools,
                 "model": self.model, "max_repairs": self.max_repairs}
 
 
@@ -109,6 +112,18 @@ def validate_plan_dict(data: dict, allowed_tools: list[str] | None = None) -> Pl
         if not isinstance(acceptance, list) or not acceptance or \
                 any(not isinstance(a, str) or not a.strip() for a in acceptance):
             raise PlanError("PLAN_ACCEPTANCE_INVALID", task_id)
+        allowed_paths = item.get("allowed_paths", [])
+        if (not isinstance(allowed_paths, list)
+                or any(not isinstance(path, str) for path in allowed_paths)):
+            raise PlanError("PLAN_SCOPE_PATHS_INVALID", task_id)
+        if len(set(allowed_paths)) != len(allowed_paths):
+            raise PlanError("PLAN_SCOPE_PATHS_INVALID", "duplicate path")
+        for path in allowed_paths:
+            parts = path.split("/")
+            if (not path or len(path) > 300 or "\\" in path
+                    or PurePosixPath(path).is_absolute()
+                    or any(part in ("", ".", "..") for part in parts)):
+                raise PlanError("PLAN_SCOPE_PATHS_INVALID", task_id)
         tools = item.get("tools", [])
         if not isinstance(tools, list) or any(not isinstance(t, str) for t in tools):
             raise PlanError("PLAN_TOOLS_INVALID", task_id)
@@ -116,15 +131,20 @@ def validate_plan_dict(data: dict, allowed_tools: list[str] | None = None) -> Pl
             unknown = [t for t in tools if t not in allowed_tools]
             if unknown:
                 raise PlanError("PLAN_TOOL_UNKNOWN", ",".join(unknown)[:200])
+        if tools:
+            raise PlanError("PLAN_TOOL_UNSUPPORTED", ",".join(tools)[:200])
         model = str(item.get("model", "qwen-local") or "qwen-local")
         if len(model) > 80:
             raise PlanError("PLAN_MODEL_INVALID", task_id)
+        if model != "qwen-local":
+            raise PlanError("PLAN_MODEL_UNSUPPORTED", model[:80])
         max_repairs = item.get("max_repairs", 2)
         if not isinstance(max_repairs, int) or not 0 <= max_repairs <= 5:
             raise PlanError("PLAN_MAX_REPAIRS_INVALID", task_id)
         tasks.append(PlannedTask(task_id=task_id, goal=goal, deps=deps,
                                  priority=priority, complexity=complexity,
                                  acceptance=[a.strip() for a in acceptance],
+                                 allowed_paths=allowed_paths,
                                  tools=tools, model=model, max_repairs=max_repairs))
     names = {t.task_id for t in tasks}
     for task in tasks:
@@ -181,6 +201,9 @@ def preview(plan: Plan) -> str:
                      f"{task.model}{deps}")
         lines.append(f"   goal: {task.goal[:160]}")
         lines.append(f"   accept: {'; '.join(task.acceptance)[:200]}")
+        lines.append("   approved files: " + (
+            ", ".join(task.allowed_paths)[:200]
+            if task.allowed_paths else "[MISSING - must approve before run]"))
         if task.tools:
             lines.append(f"   tools: {','.join(task.tools)}")
     return "\n".join(lines)
@@ -192,11 +215,15 @@ PLANNER_SYSTEM = (
     "{\"schema\":\"KM_TASK_PLAN_V1\",\"mission_id\":\"...\",\"plan_id\":\"...\","
     "\"owner_node\":\"AV15\",\"source_command\":\"...\","
     "\"tasks\":[{\"task_id\":\"t1\",\"goal\":\"...\",\"deps\":[],\"priority\":2,"
-    "\"complexity\":\"M\",\"acceptance\":[\"...\"],\"tools\":[],"
+    "\"complexity\":\"M\",\"acceptance\":[\"...\"],"
+    "\"allowed_paths\":[\"path/to/existing_file\"],\"tools\":[],"
     "\"model\":\"qwen-local\",\"max_repairs\":2}]}. "
     "Rules: 1-20 tasks; deps reference task_ids; priority 1=first..3=last; "
-    "complexity S/M/L; every task needs >=1 acceptance criterion; tools only "
-    "from the allowed list; model is qwen-local unless told otherwise. "
+    "complexity S/M/L; every task needs >=1 acceptance criterion and a non-empty "
+    "allowed_paths list chosen from the supplied repo files; the plan is not "
+    "executable until an owner reviews that list; tools must be empty because "
+    "the executor does not dispatch plan tools; model must be "
+    "qwen-local because that is the only executor model. "
     "Smallest plan that satisfies the command. No shell, no prose.")
 
 

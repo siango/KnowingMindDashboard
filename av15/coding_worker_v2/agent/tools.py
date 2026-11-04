@@ -113,6 +113,9 @@ class ToolRegistry:
         spec = self._specs.get(name)
         if spec is None:
             raise ToolError("TOOL_UNKNOWN", name[:80])
+        if name == "pr_create" and ctx.get("allow_new_pr") is not True:
+            raise ToolError("PR_CREATE_NOT_APPROVED",
+                            "new pull requests require separate owner approval")
         if not isinstance(args, dict):
             raise ToolError("TOOL_ARGS_INVALID", name)
         for key in args:
@@ -331,8 +334,27 @@ def _git_commit(args: dict) -> dict:
 
 def _git_push(args: dict) -> dict:
     repo = _repo(args)
-    rc, out = _run(["git", "-C", repo, "push", args.get("remote", "origin"),
-                    args["branch"]], repo, timeout=120)
+    remote = args.get("remote", "origin")
+    branch = args["branch"]
+    if not remote or remote.startswith("-") or not branch or branch.startswith("-"):
+        raise ToolError("TOOL_PUSH_REF_INVALID")
+    rc, out = _run(["git", "-C", repo, "check-ref-format", "--branch", branch],
+                   repo)
+    if rc != 0:
+        raise ToolError("TOOL_PUSH_REF_INVALID", out)
+    rc, remotes = _run(["git", "-C", repo, "remote"], repo)
+    if rc != 0:
+        raise ToolError("TOOL_GIT_FAIL", remotes)
+    if remote not in remotes.splitlines():
+        raise ToolError("TOOL_REMOTE_NOT_APPROVED", remote[:120])
+    rc, out = _run(["git", "-C", repo, "ls-remote", "--heads", "--",
+                    remote, f"refs/heads/{branch}"], repo, timeout=60)
+    if rc != 0:
+        raise ToolError("TOOL_GIT_FAIL", out)
+    if not out.strip():
+        raise ToolError("BRANCH_CREATE_NOT_APPROVED", branch)
+    rc, out = _run(["git", "-C", repo, "push", "--", remote, branch],
+                   repo, timeout=120)
     if rc != 0:
         raise ToolError("TOOL_GIT_FAIL", out)
     return {"rc": rc, "output": out[:2000]}
