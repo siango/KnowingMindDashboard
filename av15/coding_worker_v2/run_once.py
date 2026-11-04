@@ -20,6 +20,7 @@ sys.path.insert(0, str(BASE.parent))
 
 from coding_worker_v2.config import WorkerConfig  # noqa: E402
 from coding_worker_v2.agent.sandbox import scrubbed_env  # noqa: E402
+from coding_worker_v2.agent.auditor import SCOPE_DIGEST  # noqa: E402
 from coding_worker_v2.pipeline import (PipelineError, bounded_edit,  # noqa: E402
                                        coding_messages, inspect_repo, list_files,
                                        make_patch, parse_edits, run_tests,
@@ -34,10 +35,11 @@ from coding_worker_v2.tasks import Task  # noqa: E402
 def run_task(task: Task, store: QueueStore, config: WorkerConfig,
              ledger_path: Path | None = None,
              chain: list | None = None,
-             history: list[dict] | None = None) -> Task:
+             history: list[dict] | None = None,
+             before_mutation_fn=None) -> Task:
     with store.keepalive(task) as lease_lost:
         result = _run_task_inner(task, store, config, ledger_path, chain,
-                                 history, lease_lost)
+                                 history, lease_lost, before_mutation_fn)
     if lease_lost.is_set() and result.status == "DONE":
         return _fail(result, "LEASE_LOST", "RECONCILE_LEASE")
     return result
@@ -45,7 +47,8 @@ def run_task(task: Task, store: QueueStore, config: WorkerConfig,
 
 def _run_task_inner(task: Task, store: QueueStore, config: WorkerConfig,
                     ledger_path: Path | None, chain: list | None,
-                    history: list[dict] | None, lease_lost) -> Task:
+                    history: list[dict] | None, lease_lost,
+                    before_mutation_fn=None) -> Task:
     """Execute one task. Optional chain/history are V3 agent injections.
 
     chain=None preserves V2 routing; history=None preserves V2 prompts.
@@ -74,6 +77,9 @@ def _run_task_inner(task: Task, store: QueueStore, config: WorkerConfig,
         and scope.get("owner_node") == task.owner_node
         and scope.get("goal") == task.task_input.goal
         and scope.get("plan_id") == (task.task_input.hints or {}).get("plan_id")
+        and scope.get("plan_digest")
+        == (task.task_input.hints or {}).get("plan_digest")
+        and scope.get("scope_digest") == SCOPE_DIGEST
         and scope.get("acceptance")
         == (task.task_input.hints or {}).get("acceptance")
         and scope.get("base_commit")
@@ -129,6 +135,13 @@ def _run_task_inner(task: Task, store: QueueStore, config: WorkerConfig,
                                          "ok": t.ok, "reason": t.reason} for t in trace]})
         try:
             edits = parse_edits(gen.text)
+            if before_mutation_fn is not None:
+                audit = before_mutation_fn(task)
+                task.evidence.append({"event": "mission_audit",
+                                      "stage": "BEFORE_MUTATION",
+                                      "result": audit})
+                if not isinstance(audit, dict) or audit.get("gate_passed") is not True:
+                    return _fail(task, "POLICY_DENY", "AUDIT_GATE_BLOCKED")
             changed = bounded_edit(task.task_input.repo, edits, config,
                                    allowed_paths=allowed_paths)
         except PipelineError as exc:

@@ -19,6 +19,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from coding_worker_v2.config import WorkerConfig  # noqa: E402
 from coding_worker_v2.queue_store import QueueStore  # noqa: E402
+from coding_worker_v2.agent.auditor import SCOPE_DIGEST  # noqa: E402
 from coding_worker_v2.providers import Generation  # noqa: E402
 from coding_worker_v2.receipts import read_receipt, write_receipt  # noqa: E402
 from coding_worker_v2 import run_once  # noqa: E402
@@ -54,6 +55,8 @@ def direct_scope(task_id: str, mission_id: str, goal: str,
     acceptance = ["task goal implemented and tests pass"]
     return {
         "plan_id": plan_id,
+        "plan_digest": "0" * 64,
+        "scope_digest": SCOPE_DIGEST,
         "base_commit": "",
         "acceptance": acceptance,
         "approved_scope": {
@@ -63,6 +66,8 @@ def direct_scope(task_id: str, mission_id: str, goal: str,
             "owner_node": "AV15",
             "queue_task_id": task_id,
             "source_command": goal,
+            "plan_digest": "0" * 64,
+            "scope_digest": SCOPE_DIGEST,
             "task_id": task_id,
             "goal": goal,
             "acceptance": acceptance,

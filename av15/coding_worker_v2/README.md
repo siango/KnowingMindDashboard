@@ -54,6 +54,7 @@ execution before queue admission, and the editor cannot change other files.
 | `KMW2_ALLOW_ECHO_FALLBACK` | 0 | deterministic offline tests only |
 | `KMW2_MAX_REPAIR_ATTEMPTS` | 2 | bounded repair loop |
 | `KMW2_TASK_TIMEOUT_S` / `KMW2_TEST_TIMEOUT_S` | 600 / 300 | resource limits |
+| `KMW2_INDEPENDENT_VERIFIER_PUBLIC_KEY` | unset | PEM public key for external-verifier readback |
 
 ## SSOT / monitoring integration (no new control plane)
 
@@ -64,6 +65,24 @@ execution before queue admission, and the editor cannot change other files.
 - Health: `run_once --health` emits queue counts. Runtime heartbeat integration
   is not present in this source checkpoint.
 - CI: `.github/workflows/coding_worker_v2.yml` (new file; `pages.yml` untouched).
+
+## Independent verifier handoff
+
+Before queue completion the worker writes a versioned request under
+`state/verifier_handoff/` binding the task, plan/scope digests, source SHA,
+patch digest, provisional receipt digest/version, and lease-token digest.
+An independent verifier must return a sibling `.proof.json` signed with
+OpenSSL SHA-256 using a private key unavailable to the worker. The worker
+verifies it with `KMW2_INDEPENDENT_VERIFIER_PUBLIC_KEY`, checks distinct
+verifier/runner identities and a 15-minute validity window, and reads back
+the exact pinned artifacts. Missing or invalid proof leaves the task
+uncompleted; this file handoff does not claim a live verifier transport.
+Requests use `<task>.v<receipt-version>.request.json`; the verifier returns
+`<task>.v<receipt-version>.proof.json` with `payload` and Base64 `signature`.
+The signature is over UTF-8 canonical JSON (`sort_keys`, compact separators)
+of the payload, which must echo the request bindings and add PASS status,
+distinct `verifier_id`/`runner_id`, evidence references, and `issued_at` /
+`expires_at`.
 
 ## Engineering architecture checklist (Five-Khandha analogy)
 

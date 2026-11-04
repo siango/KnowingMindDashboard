@@ -9,11 +9,14 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import json
+import hashlib
 from pathlib import Path
 
 from ..pipeline import syntax_check
 from ..providers import http_json, require_loopback
 from .sandbox import run_isolated
+from .verification import SCHEMA as VERIFICATION_SCHEMA
 
 SCHEMA = "KM_QC_REPORT_V1"
 SECRET_ASSIGN_RE = re.compile(
@@ -245,10 +248,18 @@ def check_receipt_readback(task, ctx: dict) -> dict:
         return _check("receipt_readback", False, "durable receipt unreadable")
     expected_source = (task.task_input.hints or {}).get("base_commit", "")
     expected_patch = (task.output or {}).get("patch_digest", "")
+    expected_plan = (task.task_input.hints or {}).get("plan_digest", "")
+    expected_scope = (task.task_input.hints or {}).get("scope_digest", "")
+    lease_digest = (hashlib.sha256(task.lease_token.encode("utf-8")).hexdigest()
+                    if task.lease_token else "")
     if (receipt.get("task_id") != task.task_id
             or receipt.get("source_sha", "") != expected_source
+            or receipt.get("plan_digest", "") != expected_plan
+            or receipt.get("scope_digest", "") != expected_scope
             or receipt.get("output", {}).get("patch_digest") != expected_patch
-            or not isinstance(receipt.get("receipt_version"), int)):
+            or receipt.get("status") not in {"DONE", "QC_PENDING"}
+            or not isinstance(receipt.get("receipt_version"), int)
+            or receipt.get("lease_token_sha256") != lease_digest):
         return _check("receipt_readback", False,
                       "receipt identity, SHA, patch, or version mismatch")
     return _check("receipt_readback", True,
@@ -291,13 +302,38 @@ def check_independent_verification(task, ctx: dict) -> dict:
     if proof.get("status") != "PASS":
         return _check("independent_verification", False,
                       "verifier did not report PASS")
+    if (proof.get("authenticated") is not True
+            or proof.get("schema") != VERIFICATION_SCHEMA
+            or not re.fullmatch(r"[0-9a-f]{64}",
+                                str(proof.get("signature_sha256", "")))):
+        return _check("independent_verification", False,
+                      "authenticated verifier signature missing")
     expected_sha = ((task.task_input.hints or {}).get("base_commit")
                     or (ctx.get("source_sha") or ""))
     source_sha = str(proof.get("source_sha") or "")
     patch_digest = str((task.output or {}).get("patch_digest") or "")
+    hints = task.task_input.hints or {}
+    approved_scope = hints.get("approved_scope", {})
+    receipt_path = Path(str(ctx.get("receipt_path") or ""))
+    try:
+        receipt_raw = receipt_path.read_bytes()
+        receipt = json.loads(receipt_raw)
+    except (OSError, ValueError):
+        return _check("independent_verification", False,
+                      "provisional receipt readback missing")
     if (not re.fullmatch(r"[0-9a-fA-F]{40}", source_sha)
             or (expected_sha and source_sha != expected_sha)
             or not patch_digest or proof.get("patch_digest") != patch_digest
+            or proof.get("task_id") != task.task_id
+            or proof.get("mission_id") != task.mission_id
+            or proof.get("plan_id") != hints.get("plan_id")
+            or proof.get("plan_digest") != hints.get("plan_digest")
+            or proof.get("scope_digest") != hints.get("scope_digest")
+            or not isinstance(approved_scope, dict)
+            or proof.get("allowed_paths") != approved_scope.get("allowed_paths")
+            or proof.get("receipt_sha256") != hashlib.sha256(receipt_raw).hexdigest()
+            or proof.get("receipt_version") != receipt.get("receipt_version")
+            or proof.get("lease_token_sha256") != receipt.get("lease_token_sha256")
             or not proof.get("evidence_refs")):
         return _check("independent_verification", False,
                       "source, patch, or evidence reference mismatch")

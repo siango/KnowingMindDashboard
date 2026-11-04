@@ -9,6 +9,7 @@ only, no shell=True anywhere in this module).
 """
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import time
@@ -362,7 +363,26 @@ def _git_push(args: dict) -> dict:
 
 def _pr_create(args: dict) -> dict:
     repo = _repo(args)
-    argv = ["gh", "pr", "create", "--draft", "--title", args["title"]]
+    rc, branch = _run(["git", "-C", repo, "branch", "--show-current"], repo)
+    branch = branch.strip()
+    if rc != 0 or not branch:
+        raise ToolError("PR_HEAD_UNAVAILABLE", branch[:300])
+    rc, existing = _run(["gh", "pr", "list", "--state", "all", "--head",
+                         branch, "--limit", "1000", "--json",
+                         "number,headRefName"], repo, timeout=60)
+    if rc != 0:
+        raise ToolError("TOOL_GH_FAIL", existing)
+    try:
+        rows = json.loads(existing)
+    except ValueError:
+        raise ToolError("TOOL_GH_INVALID_RESPONSE") from None
+    if (not isinstance(rows, list)
+            or any(not isinstance(row, dict) for row in rows)):
+        raise ToolError("TOOL_GH_INVALID_RESPONSE")
+    if any(row.get("headRefName") == branch for row in rows):
+        raise ToolError("PR_ALREADY_EXISTS", branch[:120])
+    argv = ["gh", "pr", "create", "--draft", "--head", branch,
+            "--title", args["title"]]
     if args.get("body"):
         argv += ["--body", args["body"][:4000]]
     if args.get("base"):

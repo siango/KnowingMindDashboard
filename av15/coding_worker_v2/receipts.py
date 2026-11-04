@@ -36,8 +36,11 @@ def build_receipt(task: Task, extra: dict | None = None) -> dict:
         "task_id": task.task_id,
         "owner_node": task.owner_node,
         "source_sha": hints.get("base_commit", ""),
+        "plan_digest": hints.get("plan_digest", ""),
         "scope_digest": hints.get("scope_digest", ""),
-        "lease_token": task.lease_token,
+        "lease_token_sha256": hashlib.sha256(
+            task.lease_token.encode("utf-8")).hexdigest()
+            if task.lease_token else "",
         "input": task.to_dict()["input"],
         "output": task.output,
         "status": task.status,

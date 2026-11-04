@@ -111,6 +111,16 @@ class TestQC(unittest.TestCase):
         report = qc.run_qc(task, ctx, only=["independent_verification"])
         self.assertFalse(report["passed"])
 
+    def test_independent_verification_requires_authenticated_proof(self):
+        task = done_task(str(self.repo))
+        proof = {**self.ctx["independent_verification"],
+                 "authenticated": False, "signature_sha256": "a" * 64}
+        report = qc.run_qc(
+            task, {**self.ctx, "independent_verification": proof},
+            only=["independent_verification"])
+        self.assertFalse(report["passed"])
+        self.assertIn("authenticated", report["checks"][0]["detail"])
+
     def test_mission_auditor_unavailable_is_a_qc_failure(self):
         from coding_worker_v2.agent.auditor import MissionAuditorError
 
@@ -177,7 +187,8 @@ class TestQC(unittest.TestCase):
             calls.append(summary)
             return t  # repair changes nothing: still failing
 
-        report = qc.qc_repair_cycle(task, self.ctx, repair_fn, max_repairs=1)
+        with mock.patch.object(qc, "select_checks", return_value=["unit_tests"]):
+            report = qc.qc_repair_cycle(task, self.ctx, repair_fn, max_repairs=1)
         self.assertFalse(report["passed"])
         self.assertTrue(report["escalated"])
         self.assertEqual(len(calls), 1)
@@ -192,8 +203,8 @@ class TestQC(unittest.TestCase):
                                      "duration_ms": 5, "output_tail": "ok"}}]
             return t
 
-        with mock.patch.object(qc, "run_qc",
-                               wraps=qc.run_qc) as spy:
+        with mock.patch.object(qc, "select_checks", return_value=["unit_tests"]), \
+                mock.patch.object(qc, "run_qc", wraps=qc.run_qc) as spy:
             report = qc.qc_repair_cycle(task, {**self.ctx}, repair_fn,
                                         max_repairs=1)
         self.assertTrue(report["passed"])

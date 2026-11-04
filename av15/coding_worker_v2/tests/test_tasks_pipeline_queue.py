@@ -229,12 +229,16 @@ class TestReceipts(unittest.TestCase):
             task = make_task()
             task.status = "DONE"
             task.output = {"changed": ["a.py"]}
+            task.lease_token = "lease-secret-token"
             with mock.patch.dict(os.environ, {"KMW2_STATE_DIR": tmp, "KMW2_DEEPSEEK_API_KEY": "sk-live-secret-9"}):
                 task.evidence.append({"note": "used sk-live-secret-9"})
                 path = write_receipt(Path(tmp) / "receipts", task)
             raw = path.read_text()
             self.assertNotIn("sk-live-secret-9", raw)
+            self.assertNotIn("lease-secret-token", raw)
             back = read_receipt(path)
+            self.assertEqual(back["lease_token_sha256"],
+                             hashlib.sha256(b"lease-secret-token").hexdigest())
             from pathlib import Path as _P
             self.assertTrue((_P(tmp) / "coding_worker_v2_last.json").exists())
             self.assertEqual(back["task_id"], "t1")

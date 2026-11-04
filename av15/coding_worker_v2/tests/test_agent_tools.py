@@ -104,7 +104,8 @@ class TestRegistry(unittest.TestCase):
 
     def test_pr_create_never_shell(self):
         with mock.patch("coding_worker_v2.agent.tools._run",
-                        return_value=(0, "https://pr/1")) as run:
+                        side_effect=[(0, "feature"), (0, "[]"),
+                                     (0, "https://pr/1")]) as run:
             ctx = {**self.ctx, "authorize_destructive": True,
                    "allow_new_pr": True}
             self.reg.call("pr_create",
@@ -113,7 +114,18 @@ class TestRegistry(unittest.TestCase):
         argv = run.call_args.args[0]
         self.assertIsInstance(argv, list)
         self.assertIn("--draft", argv)
+        self.assertIn("--head", argv)
         self.assertIn("x; rm -rf /", argv)  # single argv element, never parsed
+
+    def test_pr_create_refuses_duplicate_head_branch(self):
+        with mock.patch("coding_worker_v2.agent.tools._run",
+                        side_effect=[(0, "feature"),
+                                     (0, '[{"number":7,"headRefName":"feature"}]')]) as run:
+            with self.assertRaises(ToolError) as error:
+                tools._pr_create({"repo": str(self.root / "repo"),
+                                  "title": "duplicate"})
+        self.assertEqual(error.exception.reason, "PR_ALREADY_EXISTS")
+        self.assertEqual(run.call_count, 2)
 
     def test_pr_create_requires_separate_approval(self):
         ctx = {**self.ctx, "authorize_destructive": True}
