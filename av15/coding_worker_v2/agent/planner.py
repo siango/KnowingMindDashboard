@@ -227,6 +227,34 @@ PLANNER_SYSTEM = (
     "Smallest plan that satisfies the command. No shell, no prose.")
 
 
+PLAN_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["schema", "mission_id", "plan_id", "owner_node", "source_command", "tasks"],
+    "properties": {
+        "schema": {"const": SCHEMA},
+        **{key: {"type": "string"} for key in
+           ("mission_id", "plan_id", "owner_node", "source_command")},
+        "tasks": {"type": "array", "minItems": 1, "maxItems": MAX_TASKS,
+                  "items": {"type": "object", "required": ["task_id", "goal", "acceptance", "tools"],
+                            "properties": {
+                                "task_id": {"type": "string"}, "goal": {"type": "string"},
+                                "acceptance": {"type": "array", "minItems": 1,
+                                               "items": {"type": "string", "minLength": 1}},
+                                "tools": {"type": "array", "items": {"type": "string"}},
+                                "deps": {"type": "array", "items": {"type": "string"}},
+                                "priority": {"enum": [1, 2, 3]},
+                                "complexity": {"enum": ["S", "M", "L"]},
+                                "model": {"type": "string"},
+                                "max_repairs": {"type": "integer", "minimum": 0, "maximum": 5}},
+                            "additionalProperties": False}}},
+    "additionalProperties": False}
+
+
+PLAN_OUTPUT_SCHEMA["properties"]["tasks"]["items"]["properties"]["allowed_paths"] = {
+    "type": "array", "items": {"type": "string"}}
+PLAN_OUTPUT_SCHEMA["properties"]["tasks"]["items"]["properties"]["tools"]["maxItems"] = 0
+PLAN_OUTPUT_SCHEMA["properties"]["tasks"]["items"]["properties"]["model"] = {"const": "qwen-local"}
+
 def plan_messages(command: str, repo_info: dict, allowed_tools: list[str],
                   history: list[dict] | None = None,
                   files: list[str] | None = None) -> list[dict]:
@@ -242,23 +270,34 @@ def plan_messages(command: str, repo_info: dict, allowed_tools: list[str],
 
 
 def parse_plan(text: str) -> dict:
+    # Qwen may wrap the final JSON in a completed thinking block or a fence.
+    stripped = re.sub(r"^\s*<think>.*?</think>\s*", "", text, flags=re.S).strip()
+    if stripped.startswith("```"):
+        match = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", stripped, re.S | re.I)
+        if not match:
+            raise PlanError("PLAN_PARSE_FAIL", "invalid JSON fence")
+        stripped = match.group(1)
     try:
-        data = json.loads(text)
+        data = json.loads(stripped)
     except ValueError:
-        stripped = text.strip()
-        if stripped.startswith("```"):
-            stripped = stripped.strip("`").strip()
-            if stripped.lower().startswith("json"):
-                stripped = stripped[4:].strip()
-            try:
-                data = json.loads(stripped)
-            except ValueError:
-                raise PlanError("PLAN_PARSE_FAIL", "model output not JSON") from None
-        else:
-            raise PlanError("PLAN_PARSE_FAIL", "model output not JSON") from None
+        raise PlanError("PLAN_PARSE_FAIL", "model output not JSON") from None
     if not isinstance(data, dict):
         raise PlanError("PLAN_PARSE_FAIL", "top level not object")
     return data
+
+def is_read_only(command: str) -> bool:
+    return bool(re.search(r"read[- ]only|without (?:modifying|changing|editing)(?: files)?|do not (?:modify|edit|change) (?:any files|files|the repository|repository|the repo|repo|anything|code)(?:\b|$)", command, re.I))
+
+
+def enforce_intent(plan: Plan) -> Plan:
+    if is_read_only(plan.source_command):
+        # The audited executor cannot yet dispatch inspection tools. Preserve
+        # intent, grant no mutation paths, and block execution explicitly.
+        plan.tasks = [PlannedTask(task_id="t1", goal=plan.source_command,
+            priority=1, complexity="S", allowed_paths=[], tools=[], max_repairs=0,
+            acceptance=["Repository inspection results are recorded",
+                        "No repository files are modified"])]
+    return plan
 
 
 def estimate_complexity(goal: str) -> str:
@@ -275,7 +314,7 @@ def simple_plan(command: str, mission_id: str, plan_id: str,
     """Deterministic single-task fallback. Honestly labeled, always valid."""
     if not command or not command.strip():
         raise PlanError("PLAN_COMMAND_EMPTY")
-    return validate_plan_dict({
+    return enforce_intent(validate_plan_dict({
         "schema": SCHEMA, "mission_id": mission_id, "plan_id": plan_id,
         "owner_node": owner_node, "source_command": command.strip()[:2000],
         "engine": "deterministic-fallback", "revision": 1,
@@ -283,4 +322,4 @@ def simple_plan(command: str, mission_id: str, plan_id: str,
                    "deps": [], "priority": 1,
                    "complexity": estimate_complexity(command),
                    "acceptance": ["task goal implemented and tests pass"],
-                   "tools": [], "model": "qwen-local", "max_repairs": 2}]})
+                   "tools": [], "model": "qwen-local", "max_repairs": 2}]}))

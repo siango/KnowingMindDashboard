@@ -49,6 +49,10 @@ def redact(text: str) -> str:
     key = os.environ.get("KMW2_DEEPSEEK_API_KEY", "").strip()
     if key and len(key) >= 8:
         red = red.replace(key, "[REDACTED]")
+    red = re.sub(r"(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]{12,})", "[REDACTED]", red)
+    for name, value in os.environ.items():
+        if re.search(r"TOKEN|SECRET|PASSWORD|API_KEY", name, re.I) and len(value) >= 8:
+            red = red.replace(value, "[REDACTED]")
     return red[:2000]
 
 
@@ -117,6 +121,7 @@ class Generation:
     tokens_in: int | None = None
     tokens_out: int | None = None
     latency_ms: int = 0
+    execution: dict = field(default_factory=dict)
 
 
 class BaseProvider:
@@ -182,12 +187,13 @@ class OllamaProvider(BaseProvider):
                             f"{len(names)} models, no match")
 
     def _chat(self, model: str, messages: list[dict], max_tokens: int,
-              timeout: int) -> Generation:
+              timeout: int, structured: bool | dict = False) -> Generation:
         started = time.monotonic()
         data = http_json(self.base_url() + "/api/chat", {
             "model": model, "stream": False, "think": False,
             "keep_alive": OLLAMA_KEEP_ALIVE,
             "messages": messages,
+            **({"format": structured if isinstance(structured, dict) else "json"} if structured else {}),
             "options": {"num_predict": max_tokens},
         }, timeout=timeout)
         try:
@@ -265,6 +271,16 @@ class QwenProvider(OllamaProvider):
             raise ProviderError("MODEL_NOT_IN_INVENTORY", self.config.qwen_model)
         return Capabilities(provider=self.name, model=models[0][0], local=True,
                             version=models[0][1])
+
+    def generate_plan(self, messages: list[dict], max_tokens: int = 4096,
+                      timeout: int = 120, response_schema: dict | None = None) -> Generation:
+        errors = []
+        for model, _ in self._candidates():
+            try:
+                return self._chat(model, messages, max_tokens, timeout, structured=response_schema or True)
+            except ProviderError as exc:
+                errors.append(f"{model}={exc.reason}")
+        raise ProviderError("ALL_QWEN_MODELS_FAILED", "; ".join(errors))
 
     def generate(self, messages: list[dict], max_tokens: int = 1024,
                  timeout: int = 120) -> Generation:

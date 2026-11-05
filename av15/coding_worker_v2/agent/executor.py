@@ -22,7 +22,7 @@ from ..tasks import Task
 from .auditor import (MissionAuditorError, SCOPE_DIGEST, context_digest,
                      run_mission_audit)
 from .memory import classify, current_base_commit, fingerprint_for
-from .planner import Plan, order_tasks
+from .planner import Plan, order_tasks, is_read_only
 from .verification import VerificationError, create_handoff, read_signed_proof
 from .worktree import WorktreeRegistry
 
@@ -58,8 +58,18 @@ def execute_plan(plan: Plan, config: WorkerConfig, store: QueueStore,
                  use_worktree: bool = True,
                  qc_fn=None, sleep_fn=time.sleep,
                  ledger_path: Path | None = None,
-                 audit_fn=None) -> dict:
+                 audit_fn=None, progress=None) -> dict:
     """Execute all planned tasks in dependency order. Returns a report."""
+    progress = progress or (lambda **kw: None)
+    progress(phase="ADMISSION_AUDIT", state="RUNNING", total=len(plan.tasks), done=0, unit="tasks")
+    if is_read_only(plan.source_command):
+        reason = "READ_ONLY_TOOL_RUNTIME_NOT_RECONCILED"
+        progress(phase="ADMISSION", state="BLOCKED", reason=reason)
+        return {"plan_id": plan.plan_id, "revision": plan.revision,
+                "tasks": [{"task_id": t.task_id, "ns_id": namespaced_id(plan,t.task_id),
+                           "status": "SKIPPED", "decision": "BLOCKED", "reason": reason} for t in plan.tasks],
+                "done": 0, "reused": 0, "failed": 0, "skipped": len(plan.tasks),
+                "status": "BLOCKED", "next_action": reason}
     if plan.owner_node != config.owner_node:
         raise AgentError("OWNER_MISMATCH",
                          f"plan={plan.owner_node} runtime={config.owner_node}")
@@ -100,6 +110,7 @@ def execute_plan(plan: Plan, config: WorkerConfig, store: QueueStore,
                     "skipped": 0}
     failed_ids: set[str] = set()
     for planned in ordered:
+        progress(phase="TASK", task=namespaced_id(plan,planned.task_id), state="RUNNING", provider="qwen-local", qc="NOT_RUN", receipt="PENDING")
         entry: dict = {"task_id": planned.task_id,
                        "ns_id": namespaced_id(plan, planned.task_id)}
         if any(dep in failed_ids for dep in planned.deps):
@@ -112,7 +123,7 @@ def execute_plan(plan: Plan, config: WorkerConfig, store: QueueStore,
         entry.update(_execute_one(planned, entry["ns_id"], plan, config, store,
                                   receipts_dir, state_dir, registry, workspace,
                                   history, qc_fn, sleep_fn, ledger_path,
-                                  audit_fn, plan_scope))
+                                  audit_fn, plan_scope, progress))
         report["tasks"].append(entry)
         if entry.get("decision") == "REUSE":
             report["reused"] += 1
@@ -124,6 +135,12 @@ def execute_plan(plan: Plan, config: WorkerConfig, store: QueueStore,
         else:
             report["skipped"] += 1
             failed_ids.add(planned.task_id)
+        progress(phase="TASK_COMPLETE", done=report["done"]+report["reused"],
+                 state="DONE" if entry.get("status") == "DONE" else "BLOCKED",
+                 reason=entry.get("next_action",entry.get("reason","-")),
+                 qc="PASSED" if entry.get("qc_passed") else "NOT_VERIFIED",
+                 receipt="AVAILABLE" if entry.get("receipt") or entry.get("reused_receipt") else "PENDING",
+                 reference=entry.get("receipt") or entry.get("reused_receipt") or "-")
     completed = report["done"] + report["reused"]
     if report["failed"]:
         report["status"] = "PARTIAL" if completed else "FAILED"
@@ -141,7 +158,7 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
                  store: QueueStore, receipts_dir: Path, state_dir: Path,
                  registry: WorktreeRegistry | None, workspace: str,
                  history: list[dict], qc_fn, sleep_fn,
-                 ledger_path: Path | None, audit_fn, plan_scope: dict) -> dict:
+                 ledger_path: Path | None, audit_fn, plan_scope: dict, progress) -> dict:
     if planned.model != "qwen-local":
         return {"decision": "BLOCKED", "status": "SKIPPED",
                 "reason": "UNSUPPORTED_MODEL_ROUTE"}
@@ -253,7 +270,7 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
             return entry
         result = run_task(claimed, store, config, ledger_path, chain=chain,
                           history=history,
-                          before_mutation_fn=before_mutation)
+                          before_mutation_fn=before_mutation, progress=progress)
         if result.status == "DONE":
             break
         if result.failure_class == "LEASE_LOST" or not store.lease_valid(
@@ -274,6 +291,7 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
     qc_report = None
     receipt = None
     if result.status == "DONE":
+        progress(phase="QC_AND_INDEPENDENT_VERIFICATION", state="RUNNING", qc="RUNNING", model="-", tool="-")
         if qc_fn is None:
             from .qc import run_qc
 
@@ -340,7 +358,7 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
                 "executor_id": result.owner_node,
                 "executor_runner_id": f"kmcw:{ns_id}",
                 "source_sha": base_commit,
-                "independent_verification": proof,
+                "independent_verification": proof, "progress": progress,
             })
             result.evidence.append({"event": "qc_checked", "qc": qc_report})
             result.status = "QC_PENDING"
@@ -388,6 +406,7 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
         if result.status == "FAILED" and result.failure_class != "LEASE_LOST":
             result.evidence.append({"event": "queue_outcome", "status": "BLOCKED",
                                     "next_action": result.next_action})
+    progress(phase="RECEIPT", state="RUNNING", tool="-", model="-")
     if receipt is None:
         receipt = write_receipt(receipts_dir, result)
     history.append({"role": "assistant",

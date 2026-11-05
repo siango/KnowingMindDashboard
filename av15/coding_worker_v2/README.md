@@ -60,8 +60,10 @@ execution before queue admission, and the editor cannot change other files.
 
 - Receipts land in `coding_worker_v2/receipts/<task>.json` with immutable local
   history under `receipts/history/`.
-- A latest pointer is written to `av15/state/coding_worker_v2_last.json`;
-  whether AV15 reconcile or a central SSOT consumes it has not been verified.
+- Runtime SSOT owner is AV15: the local `coding_worker_v2/queue/` authority,
+  JSON receipts/history and `av15/state/coding_worker_v2_last.json` index
+  (`KMW2_STATE_DIR` can override the index directory). P02, PAD5 and GitHub
+  are not runtime execution/recovery authorities.
 - Health: `run_once --health` emits queue counts. Runtime heartbeat integration
   is not present in this source checkpoint.
 - CI: `.github/workflows/coding_worker_v2.yml` (new file; `pages.yml` untouched).

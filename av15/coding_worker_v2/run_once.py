@@ -36,10 +36,10 @@ def run_task(task: Task, store: QueueStore, config: WorkerConfig,
              ledger_path: Path | None = None,
              chain: list | None = None,
              history: list[dict] | None = None,
-             before_mutation_fn=None) -> Task:
+             before_mutation_fn=None, progress=None) -> Task:
     with store.keepalive(task) as lease_lost:
         result = _run_task_inner(task, store, config, ledger_path, chain,
-                                 history, lease_lost, before_mutation_fn)
+                                 history, lease_lost, before_mutation_fn, progress)
     if lease_lost.is_set() and result.status == "DONE":
         return _fail(result, "LEASE_LOST", "RECONCILE_LEASE")
     return result
@@ -48,11 +48,13 @@ def run_task(task: Task, store: QueueStore, config: WorkerConfig,
 def _run_task_inner(task: Task, store: QueueStore, config: WorkerConfig,
                     ledger_path: Path | None, chain: list | None,
                     history: list[dict] | None, lease_lost,
-                    before_mutation_fn=None) -> Task:
+                    before_mutation_fn=None, progress=None) -> Task:
     """Execute one task. Optional chain/history are V3 agent injections.
 
     chain=None preserves V2 routing; history=None preserves V2 prompts.
     """
+    progress = progress or (lambda **kw: None)
+    progress(phase="INSPECT", state="RUNNING", tool="repo_inspect", model="-")
     started = time.monotonic()
     if not task.lease_token or not store.heartbeat(task.task_id, task.lease_token):
         return _fail(task, "LEASE_LOST", "RECONCILE_LEASE")
@@ -118,6 +120,7 @@ def _run_task_inner(task: Task, store: QueueStore, config: WorkerConfig,
         prompt = ([base_prompt[0]] + clipped_history + base_prompt[1:]
                   if clipped_history else base_prompt)
         try:
+            progress(phase="QWEN_EXECUTE", state="WAITING", provider="qwen-local", model=config.qwen_model or "qwen-auto", tool="-", timeout=config.task_timeout_s, waiting_for="Qwen")
             gen, trace = generate_with_fallback(
                 prompt, chain, max_tokens=2048, timeout=config.task_timeout_s)
         except ProviderError as exc:
@@ -126,6 +129,7 @@ def _run_task_inner(task: Task, store: QueueStore, config: WorkerConfig,
         if lease_lost.is_set() or not store.lease_valid(
                 task.task_id, task.lease_token):
             return _fail(task, "LEASE_LOST", "RECONCILE_LEASE")
+        progress(phase="BEFORE_MUTATION_AUDIT", state="RUNNING", model=gen.model, timeout=None)
         task.evidence.append({"event": "model_generated",
                               "provider": gen.provider, "model": gen.model,
                               "version": gen.version, "latency_ms": gen.latency_ms,
@@ -163,6 +167,7 @@ def _run_task_inner(task: Task, store: QueueStore, config: WorkerConfig,
             repairs_used = round_no + 1
             continue
         try:
+            progress(phase="TEST", state="RUNNING", tool="test_run")
             test_result = run_tests(
                 task.task_input.repo, task.task_input.test_command,
                 config.test_timeout_s, env=scrubbed_env())

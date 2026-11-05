@@ -23,11 +23,11 @@ from coding_worker_v2.agent import memory as agent_memory  # noqa: E402
 from coding_worker_v2.agent import monitor as agent_monitor  # noqa: E402
 from coding_worker_v2.agent import planner as agent_planner  # noqa: E402
 from coding_worker_v2.agent import qc as agent_qc  # noqa: E402
+from coding_worker_v2.agent.progress import LiveProgress
 from coding_worker_v2.agent import tools as agent_tools  # noqa: E402
 from coding_worker_v2.config import WorkerConfig  # noqa: E402
 from coding_worker_v2.pipeline import inspect_repo, list_files  # noqa: E402
-from coding_worker_v2.providers import (ProviderError,  # noqa: E402
-                                        generate_with_fallback)
+from coding_worker_v2.providers import ProviderError  # noqa: E402
 from coding_worker_v2.queue_store import QueueStore  # noqa: E402
 from coding_worker_v2.receipts import read_receipt  # noqa: E402
 from coding_worker_v2.tasks import Task  # noqa: E402
@@ -49,8 +49,11 @@ def _ctx(args) -> dict:
 
 
 def cmd_plan(args, ctx) -> int:
+    progress = ctx.get("progress", lambda **kw: None)
+    progress(phase="INSPECT", tool="repo_inspect", total=4)
     workspace = ctx["workspace"]
     repo_info = inspect_repo(workspace)
+    progress(done=1, tool="-", phase="PREPARE_PLAN")
     registry = agent_tools.build_default_registry()
     allowed = registry.names()
     history: list[dict] = []
@@ -66,17 +69,25 @@ def cmd_plan(args, ctx) -> int:
     command = args.command
     if args.revise and not command:
         command = prior.get("source_command", "")
+    progress(task=plan_id)
     plan = None
     engine = "qwen-local"
     if not args.simple:
+        progress(phase="QWEN_DISCOVERY", state="WAITING",
+                 model=ctx["config"].qwen_model or "qwen-auto", timeout=10)
         chain = agent_exec.qwen_chain(ctx["config"])
         if chain:
             try:
-                gen, _ = generate_with_fallback(
+                progress(phase="QWEN_PLAN", state="WAITING", timeout=ctx["config"].task_timeout_s)
+                gen = chain[0].generate_plan(
                     agent_planner.plan_messages(command, repo_info, allowed,
                                                 history,
                                                 list_files(workspace)),
-                    chain, max_tokens=2048, timeout=ctx["config"].task_timeout_s)
+                    max_tokens=4096, timeout=ctx["config"].task_timeout_s,
+                    response_schema=agent_planner.PLAN_OUTPUT_SCHEMA)
+                print(json.dumps({"planner_provider": gen.provider, "planner_model": gen.model,
+                                  "structured_output": True, "latency_ms": gen.latency_ms}))
+                progress(phase="VALIDATE", state="RUNNING", done=2, model=gen.model, timeout=None)
                 data = agent_planner.parse_plan(gen.text)
                 # CLI-owned identity wins over model output (deterministic).
                 data["mission_id"] = args.mission or MISSION_DEFAULT
@@ -84,25 +95,38 @@ def cmd_plan(args, ctx) -> int:
                 data["owner_node"] = ctx["owner_node"]
                 data["source_command"] = command
                 data["revision"] = revision
-                plan = agent_planner.validate_plan_dict(data, allowed)
+                data["engine"] = gen.provider
+                data["created_at"] = ""
+                plan = agent_planner.enforce_intent(agent_planner.validate_plan_dict(data, allowed))
             except (ProviderError, agent_planner.PlanError) as exc:
                 print(json.dumps({"warning": f"model plan failed: {exc}",
                                   "fallback": "deterministic"}))
     if plan is None:
+        progress(phase="FALLBACK", state="RUNNING", model="deterministic", timeout=None)
         engine = "deterministic-fallback"
         plan = agent_planner.simple_plan(
             command, args.mission or MISSION_DEFAULT, plan_id, ctx["owner_node"])
         plan.revision = revision
         plan.engine = engine
+        progress(done=2)
+    progress(phase="SAVE_PLAN", state="RUNNING", done=3)
     path = ctx["state_dir"] / "plans" / f"{plan.plan_id}.json"
     path.write_text(json.dumps(plan.to_dict(), ensure_ascii=False, indent=2),
                     encoding="utf-8")
+    progress(phase="PLAN_COMPLETE", state="DONE", done=4,
+             receipt="NOT_APPLICABLE", reference=str(path), result="SAVED")
     print(agent_planner.preview(plan))
     print(f"saved: {path}")
     return 0
 
 
 def cmd_run(args, ctx) -> int:
+    progress = ctx.get("progress", lambda **kw: None)
+    progress(phase="LOAD_PLAN")
+    if args.provider not in ("", "auto", "qwen-local"):
+        progress(state="BLOCKED", phase="PROVIDER_GATE", reason="AUDITED_PROVIDER_ROUTING_NOT_RECONCILED", result="BLOCKED")
+        print(json.dumps({"status": "BLOCKED", "reason": "AUDITED_PROVIDER_ROUTING_NOT_RECONCILED", "provider": args.provider}))
+        return 1
     plan_path = Path(args.plan)
     if not plan_path.is_file():
         plan_path = ctx["state_dir"] / "plans" / f"{args.plan}.json"
@@ -112,17 +136,25 @@ def cmd_run(args, ctx) -> int:
 
     def qc_fn(result, qctx):
         full = {"config": ctx["config"], "store": ctx["store"],
-                "workspace": ctx["workspace"], **qctx}
+                "workspace": ctx["workspace"], "progress": progress, **qctx}
         return agent_qc.run_qc(result, full)
 
     report = agent_exec.execute_plan(
         plan, ctx["config"], ctx["store"], ctx["receipts_dir"],
         ctx["state_dir"], ctx["workspace"],
         use_worktree=not args.no_worktree, qc_fn=qc_fn,
-        ledger_path=BASE / "state" / "spend_ledger.json")
+        ledger_path=BASE / "state" / "spend_ledger.json",
+        progress=progress)
     last = ctx["state_dir"] / "agent_last.json"
     last.write_text(json.dumps(report, ensure_ascii=False, indent=2),
                     encoding="utf-8")
+    refs = [t.get("receipt") or t.get("reused_receipt") for t in report["tasks"]]
+    progress(phase="RUN_COMPLETE", state="DONE" if report["status"] == "DONE" else "BLOCKED",
+             reference=",".join(str(r) for r in refs if r) or "-",
+             result=report["status"],
+             qc="FAILED" if any(t.get("qc_passed") is False for t in report["tasks"]) else
+                "PASSED" if all(t.get("qc_passed") or t.get("decision") == "REUSE" for t in report["tasks"]) else "NOT_RUN",
+             receipt="AVAILABLE" if all(refs) else "INCOMPLETE")
     print(json.dumps(report, ensure_ascii=False, indent=2))
     print("---")
     print(json.dumps(agent_monitor.agent_status({
@@ -130,7 +162,7 @@ def cmd_run(args, ctx) -> int:
         "store": ctx["store"], "receipts_dir": ctx["receipts_dir"],
         "progress": {"done": report["done"] + report["reused"],
                      "total": len(report["tasks"])},
-        "active_model": ctx["config"].qwen_model or "qwen-auto",
+        "active_model": ",".join(sorted({t.get("provider", "") for t in report["tasks"] if t.get("provider")})),
         "current_step": "RUN_COMPLETE", "qc_status": report["status"],
         "next_action": report["next_action"],
         "evidence": [t.get("receipt", "") for t in report["tasks"] if t.get("receipt")]},
@@ -234,6 +266,15 @@ def build_parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run", help="execute a saved plan")
     run.add_argument("plan")
     run.add_argument("--no-worktree", action="store_true")
+    run.add_argument("--provider", choices=["auto", "qwen-local", "codex-cli", "copilot-cli", "copilot-cloud"], default="")
+    run.add_argument("--allow-external", action="store_true", help="authorize one existing-subscription dispatch per task")
+    run.add_argument("--billing-mode", choices=["existing-subscription"], default="")
+    run.add_argument("--test-command", default="")
+    run.add_argument("--remote-repo", default="")
+    run.add_argument("--remote-head", default="")
+    run.add_argument("--remote-base", default="")
+    run.add_argument("--remote-task-id", default="", help="reconcile an existing task without submitting a new prompt")
+    run.add_argument("--remote-write", action="store_true", help="authorize remote coding on the existing branch")
     run.set_defaults(func=cmd_run)
     status = sub.add_parser("status", help="monitor view")
     status.set_defaults(func=cmd_status)
@@ -260,6 +301,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     ctx = _ctx(args)
     try:
+        if args.cmd in ("plan", "run"):
+            with LiveProgress(args.cmd) as display:
+                ctx["progress"] = display.update
+                return args.func(args, ctx)
         return args.func(args, ctx)
     except (ProviderError, agent_planner.PlanError, agent_tools.ToolError,
             agent_exec.AgentError, agent_qc.QCError, FileNotFoundError,

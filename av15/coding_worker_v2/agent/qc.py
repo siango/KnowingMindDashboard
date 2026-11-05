@@ -359,7 +359,9 @@ def run_qc(task, ctx: dict, only: list[str] | None = None) -> dict:
     score = risk_score(task, changed)
     selected = only or select_checks(score)
     results = []
+    progress = ctx.get("progress", lambda **kw: None)
     for name in selected:
+        progress(phase=f"QC:{name}", state="RUNNING", tool=name)
         fn = CHECKS.get(name)
         if fn is None:
             results.append(_check(name, SKIPPED, "unknown check"))

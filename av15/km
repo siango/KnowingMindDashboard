@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# km — KM Intelligent Coding Agent V3 entry. Non-interactive subcommands.
+set -u
+BASE="$(cd "$(dirname "$0")" && pwd)"
+export PYTHONUTF8=1
+export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+PY="$BASE/.venv/bin/python"
+[ -x "$PY" ] || PY="python3"
+if [ -f "$BASE/coding_worker_v2/.env" ]; then
+  set -a; . "$BASE/coding_worker_v2/.env"; set +a
+fi
+cd "$BASE" && exec "$PY" -m coding_worker_v2.agent.km_main "$@"

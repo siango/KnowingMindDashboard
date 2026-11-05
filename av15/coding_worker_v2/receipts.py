@@ -1,7 +1,8 @@
 """Phase 2/5: evidence envelopes + durable local receipts.
 
-Receipts are the offline-safe record. A latest-receipt pointer is also
-written locally; central SSOT transport is not verified by this module.
+AV15 owns the local QueueStore, receipt history and latest-receipt pointer.
+Optional announcements are projections only; neither P02 nor PAD5 is required
+for AV15 task execution, recovery or local readback. GitHub holds source code.
 """
 from __future__ import annotations
 
