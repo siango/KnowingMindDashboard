@@ -8,6 +8,8 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+from .memory import _iter_receipts, terminal_conflicts
+
 
 def agent_status(ctx: dict) -> dict:
     """Build the agent status view. Never raises on missing pieces."""
@@ -35,7 +37,14 @@ def agent_status(ctx: dict) -> dict:
     evidence = ctx.get("evidence", []) or []
     if not isinstance(evidence, list):
         evidence = []
-    return {
+    conflicts = []
+    if store is not None and receipts_dir is not None:
+        try:
+            for receipt_path, receipt in _iter_receipts(Path(receipts_dir)) or ():
+                conflicts.extend(terminal_conflicts(store, receipt))
+        except OSError:
+            conflicts.append({"reason": "TERMINAL_RECONCILIATION_READ_FAILED"})
+    view = {
         "MISSION": ctx.get("mission_id", "KM-INTELLIGENT-CODING-AGENT-V3"),
         "TASK": ctx.get("active_task", ""),
         "OWNER_NODE": ctx.get("owner_node", "AV15"),
@@ -52,3 +61,9 @@ def agent_status(ctx: dict) -> dict:
         "last_receipt": last_receipt,
         "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
+    if conflicts:
+        view["PROGRESS_PERCENT"] = None
+        view["QC_STATUS"] = "BLOCKED"
+        view["NEXT_ACTION"] = "RECONCILE_QUEUE_RECEIPT_CONFLICT"
+    view["reconciliation_conflicts"] = conflicts
+    return view

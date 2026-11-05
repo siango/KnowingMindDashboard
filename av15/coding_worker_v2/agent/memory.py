@@ -16,6 +16,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..tasks import ID_RE
+
 DECISIONS = {"NEW", "REUSE", "RESUME", "REVERIFY", "REPAIR", "MONITOR", "BLOCKED"}
 WS_RE = re.compile(r"\s+")
 DEFAULT_FRESHNESS_TTL_S = 86400
@@ -72,6 +74,41 @@ def _iter_receipts(receipts_dir: Path):
             continue
         if isinstance(data, dict) and data.get("schema") == "KM_CODING_RECEIPT_V1":
             yield path, data
+
+
+def terminal_conflicts(store, receipt: dict) -> list[dict]:
+    """Report immutable terminal queue/receipt disagreement; never pick a winner."""
+    task_id = receipt.get("task_id")
+    if not isinstance(task_id, str) or not ID_RE.fullmatch(task_id):
+        return [{"reason": "INVALID_RECEIPT_TASK_ID"}]
+    conflicts = []
+    for folder_name, folder in (("done", store.done), ("failed", store.failed)):
+        path = folder / task_id / "task.json"
+        if not path.exists():
+            continue
+        try:
+            archived = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            conflicts.append({"task_id": task_id, "queue_ref": f"queue:{folder_name}/{task_id}",
+                              "reason": "TERMINAL_RECORD_UNREADABLE"})
+            continue
+        if not isinstance(archived, dict):
+            conflicts.append({"task_id": task_id, "queue_ref": f"queue:{folder_name}/{task_id}",
+                              "reason": "TERMINAL_RECORD_UNREADABLE"})
+            continue
+        fields = [key for key in ("task_id", "mission_id", "owner_node", "input",
+                                  "status", "attempts")
+                  if archived.get(key) != receipt.get(key)]
+        if folder_name != "done" and receipt.get("status") == "DONE":
+            fields.append("terminal_location")
+        if fields:
+            conflicts.append({"task_id": task_id,
+                              "queue_ref": f"queue:{folder_name}/{task_id}",
+                              "reason": "QUEUE_RECEIPT_CONFLICT",
+                              "fields": sorted(set(fields)),
+                              "queue_status": archived.get("status"),
+                              "receipt_status": receipt.get("status")})
+    return conflicts
 
 
 def canonical_repo(task_input: dict) -> str:
@@ -157,6 +194,11 @@ def classify(goal: str, repo: str, base_commit: str, store,
         if receipt_key != want_key:
             continue
         ref = f"receipt:{path.name}"
+        conflicts = terminal_conflicts(store, receipt)
+        if conflicts:
+            refs = (ref, *(item.get("queue_ref", "") for item in conflicts))
+            reason = conflicts[0].get("reason", "QUEUE_RECEIPT_CONFLICT")
+            return Classification("BLOCKED", reason, fingerprint, refs)
         if receipt.get("status") == "DONE":
             age = now - path.stat().st_mtime
             if receipt_base != base_commit:

@@ -169,7 +169,6 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
         result = run_task(claimed, store, config, ledger_path, chain=chain,
                           history=history)
         if result.status == "DONE":
-            store.complete(result)
             break
         outcome = store.fail(result, result.failure_class or "UNKNOWN",
                              result.next_action)
@@ -190,6 +189,16 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
             result.failure_class = "TEST_FAIL"
             result.next_action = "QC_ESCALATE"
     receipt = write_receipt(receipts_dir, result)
+    # QC and receipt durability precede terminal queue archival. A failed QC
+    # must remain failed evidence and must never be requeued as a repair here.
+    if result.status == "DONE":
+        store.complete(result)
+    elif qc_report is not None:
+        failed = store.failed / result.task_id
+        failed.mkdir(parents=True, exist_ok=True)
+        store._write_json(failed / "task.json", result.to_dict())
+        (store.doing / f"{result.task_id}.json").unlink(missing_ok=True)
+        (store.doing / f"{result.task_id}.lease.json").unlink(missing_ok=True)
     history.append({"role": "assistant",
                     "content": f"{result.status} {ns_id} "
                                f"{result.failure_class}"[:2000]})
