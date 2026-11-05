@@ -8,7 +8,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from .memory import _iter_receipts, terminal_conflicts
+from .memory import _iter_receipts, _iter_terminal_archives, terminal_conflicts
 
 
 def agent_status(ctx: dict) -> dict:
@@ -38,10 +38,27 @@ def agent_status(ctx: dict) -> dict:
     if not isinstance(evidence, list):
         evidence = []
     conflicts = []
+    known_receipts = set()
     if store is not None and receipts_dir is not None:
         try:
             for receipt_path, receipt in _iter_receipts(Path(receipts_dir)) or ():
-                conflicts.extend(terminal_conflicts(store, receipt))
+                if receipt is None:
+                    conflicts.append({"reason": "RECEIPT_HISTORY_UNREADABLE",
+                                      "receipt_ref": str(receipt_path)})
+                else:
+                    known_receipts.add(receipt.get("task_id"))
+                    conflicts.extend(terminal_conflicts(store, receipt))
+        except OSError:
+            conflicts.append({"reason": "TERMINAL_RECONCILIATION_READ_FAILED"})
+    if store is not None:
+        try:
+            for folder_name, path, archived in _iter_terminal_archives(store):
+                if archived is None:
+                    conflicts.append({"reason": "TERMINAL_RECORD_UNREADABLE",
+                                      "queue_ref": f"queue:{folder_name}/{path.parent.name}"})
+                elif archived.get("task_id") not in known_receipts:
+                    conflicts.append({"reason": "TERMINAL_RECEIPT_MISSING",
+                                      "queue_ref": f"queue:{folder_name}/{path.parent.name}"})
         except OSError:
             conflicts.append({"reason": "TERMINAL_RECONCILIATION_READ_FAILED"})
     view = {

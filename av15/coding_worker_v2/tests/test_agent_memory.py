@@ -1,4 +1,5 @@
 """V3 memory tests: fingerprints and dedup classification."""
+import hashlib
 import json
 import os
 import sys
@@ -51,6 +52,13 @@ class TestClassify(unittest.TestCase):
         self._patch.stop()
         self.tmp.cleanup()
 
+    def _archive_terminal(self, task, folder):
+        task.lease_token = "memory-test-lease"
+        record = task.to_dict()
+        record["lease_token_sha256"] = hashlib.sha256(
+            task.lease_token.encode()).hexdigest()
+        self.store._write_json(folder / task.task_id / "task.json", record)
+
     def test_new(self):
         out = memory.classify("do work", str(self.root / "repo"), "c1",
                               self.store, self.receipts)
@@ -91,6 +99,7 @@ class TestClassify(unittest.TestCase):
         if qc_pass:
             task.evidence.append({"event": "qc_checked",
                                   "qc": {"passed": True}})
+        self._archive_terminal(task, self.store.done)
         return write_receipt(self.receipts, task)
 
     def test_reuse_exact_match(self):
@@ -125,6 +134,7 @@ class TestClassify(unittest.TestCase):
         task.status = "FAILED"
         task.failure_class = "TEST_FAIL"
         task.attempts = 1
+        self._archive_terminal(task, self.store.failed)
         write_receipt(self.receipts, task)
         out = memory.classify("flaky", str(self.root / "repo"), "c1",
                               self.store, self.receipts, max_attempts=3)
@@ -136,6 +146,7 @@ class TestClassify(unittest.TestCase):
         task.status = "DONE"
         task.output = {"changed": ["a.py"]}
         task.evidence.append({"event": "qc_checked", "qc": {"passed": True}})
+        self._archive_terminal(task, self.store.done)
         write_receipt(self.receipts, task)
         out = memory.classify("wt work", str(self.root / "repo"), "c1",
                               self.store, self.receipts)
@@ -146,6 +157,7 @@ class TestClassify(unittest.TestCase):
         task.status = "FAILED"
         task.failure_class = "TEST_FAIL"
         task.attempts = 5
+        self._archive_terminal(task, self.store.failed)
         write_receipt(self.receipts, task)
         out = memory.classify("hopeless", str(self.root / "repo"), "c1",
                               self.store, self.receipts, max_attempts=3)

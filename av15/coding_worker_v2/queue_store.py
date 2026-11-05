@@ -14,6 +14,7 @@ lease without reconciliation (expired leases requeue).
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import threading
@@ -193,13 +194,21 @@ class QueueStore:
             return True
 
     # -- completion -----------------------------------------------------------
+    @staticmethod
+    def _terminal_record(task: Task) -> dict:
+        record = task.to_dict()
+        if task.lease_token:
+            record["lease_token_sha256"] = hashlib.sha256(
+                task.lease_token.encode("utf-8")).hexdigest()
+        return record
+
     def complete(self, task: Task) -> None:
         with self._locked():
             self._assert_lease(task.task_id, task.lease_token)
             task.status = "DONE"
             dest = self.done / task.task_id
             dest.mkdir(parents=True, exist_ok=True)
-            self._write_json(dest / "task.json", task.to_dict())
+            self._write_json(dest / "task.json", self._terminal_record(task))
             (self.doing / f"{task.task_id}.json").unlink(missing_ok=True)
             (self.doing / f"{task.task_id}.lease.json").unlink(missing_ok=True)
             (self.checkpoints / f"{task.task_id}.json").unlink(missing_ok=True)
@@ -220,7 +229,7 @@ class QueueStore:
             task.status = "FAILED"
             dest = self.failed / task.task_id
             dest.mkdir(parents=True, exist_ok=True)
-            self._write_json(dest / "task.json", task.to_dict())
+            self._write_json(dest / "task.json", self._terminal_record(task))
             (self.doing / f"{task.task_id}.json").unlink(missing_ok=True)
             return "failed"
 

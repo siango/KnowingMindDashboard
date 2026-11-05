@@ -16,6 +16,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..receipts import _scrub
 from ..tasks import ID_RE
 
 DECISIONS = {"NEW", "REUSE", "RESUME", "REVERIFY", "REPAIR", "MONITOR", "BLOCKED"}
@@ -76,20 +77,45 @@ def _iter_receipts(receipts_dir: Path):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
+            yield path, None
             continue
         if (isinstance(data, dict)
                 and data.get("schema") == "KM_CODING_RECEIPT_V1"
                 and data.get("task_id") == task_id):
             yield path, data
+        else:
+            yield path, None
     for path in sorted(receipts_dir.glob("*.json")):
+        if path.stem in versioned_tasks:
+            continue
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
+            yield path, None
             continue
         if (isinstance(data, dict)
                 and data.get("schema") == "KM_CODING_RECEIPT_V1"
                 and data.get("task_id") not in versioned_tasks):
             yield path, data
+        else:
+            yield path, None
+
+
+def _iter_terminal_archives(store):
+    for folder_name, folder in (("done", store.done), ("failed", store.failed)):
+        for task_dir in sorted(folder.iterdir()):
+            if not task_dir.is_dir():
+                continue
+            path = task_dir / "task.json"
+            try:
+                archived = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                yield folder_name, path, None
+                continue
+            if not isinstance(archived, dict) or archived.get("task_id") != task_dir.name:
+                yield folder_name, path, None
+            else:
+                yield folder_name, path, archived
 
 
 def terminal_conflicts(store, receipt: dict) -> list[dict]:
@@ -98,6 +124,17 @@ def terminal_conflicts(store, receipt: dict) -> list[dict]:
     if not isinstance(task_id, str) or not ID_RE.fullmatch(task_id):
         return [{"reason": "INVALID_RECEIPT_TASK_ID"}]
     conflicts = []
+    expected_folder = {"DONE": "done", "FAILED": "failed"}.get(
+        receipt.get("status"))
+    expected_path = (getattr(store, expected_folder) / task_id / "task.json"
+                     if expected_folder else None)
+    any_archive = any((folder / task_id / "task.json").exists()
+                      for folder in (store.done, store.failed))
+    if (expected_path is not None and not expected_path.is_file()
+            and not any_archive):
+        conflicts.append({"task_id": task_id,
+                          "queue_ref": f"queue:{expected_folder}/{task_id}",
+                          "reason": "TERMINAL_ARCHIVE_MISSING"})
     for folder_name, folder in (("done", store.done), ("failed", store.failed)):
         path = folder / task_id / "task.json"
         if not path.exists():
@@ -115,10 +152,15 @@ def terminal_conflicts(store, receipt: dict) -> list[dict]:
                               "reason": "TERMINAL_RECORD_UNREADABLE"})
             continue
         fields = [key for key in ("task_id", "mission_id", "owner_node", "input",
-                                  "status", "attempts")
-                  if archived.get(key) != receipt.get(key)]
-        if folder_name != "done" and receipt.get("status") == "DONE":
+                                  "output", "evidence", "status", "next_action",
+                                  "failure_class", "attempts")
+                  if _scrub(archived.get(key)) != receipt.get(key)]
+        expected_status = "DONE" if folder_name == "done" else "FAILED"
+        if (folder_name != expected_folder or archived.get("status") != expected_status
+                or receipt.get("status") != expected_status):
             fields.append("terminal_location")
+        if archived.get("lease_token_sha256") != receipt.get("lease_token_sha256"):
+            fields.append("lease_token_sha256")
         if fields:
             conflicts.append({"task_id": task_id,
                               "queue_ref": f"queue:{folder_name}/{task_id}",
@@ -201,8 +243,28 @@ def classify(goal: str, repo: str, base_commit: str, store,
                 "MONITOR", f"QUEUED task={entry['task_id']}", fingerprint,
                 (f"queue:inbox/{entry['task_id']}",))
 
+    matching_archives = []
+    for folder_name, path, archived in _iter_terminal_archives(store):
+        if archived is None:
+            return Classification("BLOCKED", "TERMINAL_RECORD_UNREADABLE",
+                                  fingerprint,
+                                  (f"queue:{folder_name}/{path.parent.name}",))
+        archived_input = archived.get("input", {})
+        if not isinstance(archived_input, dict):
+            return Classification("BLOCKED", "TERMINAL_RECORD_UNREADABLE",
+                                  fingerprint,
+                                  (f"queue:{folder_name}/{path.parent.name}",))
+        archive_key = (normalize_goal(str(archived_input.get("goal", ""))),
+                       canonical_repo(archived_input))
+        if archive_key == (normalize_goal(goal), repo or ""):
+            matching_archives.append((folder_name, path))
+
     want_key = (normalize_goal(goal), repo or "")
     for path, receipt in _iter_receipts(receipts_dir):
+        if receipt is None:
+            return Classification("BLOCKED", "RECEIPT_HISTORY_UNREADABLE",
+                                  fingerprint,
+                                  (f"receipt:{path.relative_to(receipts_dir)}",))
         output = receipt.get("output", {})
         receipt_input = receipt.get("input", {}) or {}
         hints = receipt_input.get("hints", {})
@@ -217,6 +279,9 @@ def classify(goal: str, repo: str, base_commit: str, store,
             refs = (ref, *(item.get("queue_ref", "") for item in conflicts))
             reason = conflicts[0].get("reason", "QUEUE_RECEIPT_CONFLICT")
             return Classification("BLOCKED", reason, fingerprint, refs)
+        if receipt.get("status") in {"QC_PENDING", "VERIFY_PENDING"}:
+            return Classification("BLOCKED", "AWAIT_INDEPENDENT_VERIFICATION",
+                                  fingerprint, (ref,))
         if receipt.get("status") == "DONE":
             age = now - path.stat().st_mtime
             if receipt_base != base_commit:
@@ -237,6 +302,12 @@ def classify(goal: str, repo: str, base_commit: str, store,
                 "REPAIR", f"PRIOR_{receipt.get('failure_class', 'UNKNOWN')}",
                 fingerprint, (ref,))
         return Classification("BLOCKED", "RETRIES_EXHAUSTED", fingerprint, (ref,))
+
+    if matching_archives:
+        refs = tuple(f"queue:{folder}/{path.parent.name}"
+                     for folder, path in matching_archives)
+        return Classification("BLOCKED", "TERMINAL_RECEIPT_MISSING",
+                              fingerprint, refs)
 
     _ = task_id
     return Classification("NEW", "NO_PRIOR_RECORD", fingerprint)

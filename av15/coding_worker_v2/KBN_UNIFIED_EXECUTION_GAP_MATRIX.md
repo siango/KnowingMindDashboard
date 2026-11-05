@@ -3,14 +3,14 @@
 **Mission:** `KBN-UNIFIED-AI-EXECUTION`
 **Owner:** AV15 / GitHub Copilot Cloud
 **Assessment mode:** read-only inventory plus source-only reconciliation patch
-**Assessment baseline:** live AV15 source checkout `0953492a690d6426dd8126d6e355e17f4053f16b` (dirty, retained); existing KMCW source PR #1 now at `5db015af35be57ac8db1862ffc746c68df11b33d` at recheck.
+**Assessment baseline:** live AV15 source checkout `0953492a690d6426dd8126d6e355e17f4053f16b` (dirty, retained); source PR #1 was rechecked from `1135ff1c1690268e67726daec40a1648db9a2317` before this patch.
 **Runtime policy:** expired; not extended. Production bindings, scheduler, queue, central state and trading were not changed.
 
 ## Executive result
 
 The best-evidenced KMCW implementation remains the AV15 V2/V3/V3.1 filesystem runtime at `/mnt/c/AndroidProjects/KnowingMindSuite/av15/coding_worker_v2/`. It is a local JSON-file queue with terminal archives, leases, checkpoints and receipts. Its live checkout is dirty and behind the source PR; therefore the PR source must not be copied over it. The current PR source adds scrubbed subprocess environments, bounded file inventory/search, draft-only PR creation, valid inactive n8n definitions, honest blocked/partial plan status, bounded mission auditing, signed independent-verifier handoff and QC/receipt gates. These changes are present on PR #1 and were preserved.
 
-Current PR #1 source gates terminal DONE on QC, authenticated independent verification, lease validity, auditor approval and a durable final receipt. The patch accompanying this matrix adds detection of terminal queue/receipt disagreement, blocks reuse on such conflicts and surfaces them as blocked monitoring evidence. Existing `g4reuse-t1` runtime evidence is untouched and remains unresolved/BLOCKED. This is detection/prevention, not automatic historical reconciliation.
+Current PR #1 source gates terminal DONE on QC, authenticated independent verification, lease validity, auditor approval and a durable final receipt. The reconciliation patch detects terminal queue/receipt disagreement, blocks reuse and surfaces conflicts as blocked monitoring evidence. Follow-up hardening also blocks corrupt latest receipt history, terminal archives without receipts, mismatched terminal folder/status, mismatched output/evidence/lease digests, and pending independent QC/verification. Existing `g4reuse-t1` runtime evidence is untouched and remains unresolved/BLOCKED. This is detection/prevention, not automatic historical reconciliation.
 
 No qualified central lease/fencing/readback authority is currently evidenced. A real central mission E2E and independent acceptance therefore remain blocked. This report and tests do not qualify the runtime for unattended/autonomous execution.
 
@@ -86,6 +86,7 @@ Minimal safe progression:
 - Latest PR source at `5db015af…`: **173 tests, 171 passed, 2 skipped**. With the six reconciliation tests: **179 tests, 177 passed, 2 skipped, 0 failed** in `python3 -m unittest discover -s coding_worker_v2/tests -t . -v`.
 - Latest-head skipped cases are exactly `test_live_plan_validates` and `test_live_coding_task_passes` in `test_agent_integration.py`; both call `require_live()` and skip because `KMW2_LIVE != 1`. They were not enabled because runtime policy is expired and no live acceptance authorization/runtime evidence is established.
 - Latest source already tests receipt persistence/QC-before-completion, independent proof checks, duplicate intake/idempotency, stale fencing, queue recovery after lease expiry, heartbeat during slow inference and mocked Qwen E2E. These are synthetic/local tests, not an authorized central SSOT mission E2E.
+- Independent Copilot review of the preceding patch reported three defects: invalid newest history being masked by root receipt, FAILED/DONE folder mismatch not checked, and output/evidence mismatch not bound. Added fail-closed tests and reconciliation for all three. Final local suite for this patch: **185 tests, 183 passed, 2 skipped, 0 failed**. The live cases above remain skipped; no authenticated AV15 E2E was attempted.
 - Source PR #1 existing CI at preceding head `e13b5d8…`: owner-reported CI runs `41342490583` and `41342497025` passed, plus `133 passed / 2 skipped` local at that older head. These are historical evidence and do not include this patch.
 - No real AV15 mission E2E, central SSOT readback, live disconnect/timeout injection, independent QC acceptance, production acceptance, merge, or deployment is claimed.
 
