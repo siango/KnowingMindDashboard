@@ -9,6 +9,7 @@ only, no shell=True anywhere in this module).
 """
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import time
@@ -113,6 +114,9 @@ class ToolRegistry:
         spec = self._specs.get(name)
         if spec is None:
             raise ToolError("TOOL_UNKNOWN", name[:80])
+        if name == "pr_create" and ctx.get("allow_new_pr") is not True:
+            raise ToolError("PR_CREATE_NOT_APPROVED",
+                            "new pull requests require separate owner approval")
         if not isinstance(args, dict):
             raise ToolError("TOOL_ARGS_INVALID", name)
         for key in args:
@@ -331,8 +335,27 @@ def _git_commit(args: dict) -> dict:
 
 def _git_push(args: dict) -> dict:
     repo = _repo(args)
-    rc, out = _run(["git", "-C", repo, "push", args.get("remote", "origin"),
-                    args["branch"]], repo, timeout=120)
+    remote = args.get("remote", "origin")
+    branch = args["branch"]
+    if not remote or remote.startswith("-") or not branch or branch.startswith("-"):
+        raise ToolError("TOOL_PUSH_REF_INVALID")
+    rc, out = _run(["git", "-C", repo, "check-ref-format", "--branch", branch],
+                   repo)
+    if rc != 0:
+        raise ToolError("TOOL_PUSH_REF_INVALID", out)
+    rc, remotes = _run(["git", "-C", repo, "remote"], repo)
+    if rc != 0:
+        raise ToolError("TOOL_GIT_FAIL", remotes)
+    if remote not in remotes.splitlines():
+        raise ToolError("TOOL_REMOTE_NOT_APPROVED", remote[:120])
+    rc, out = _run(["git", "-C", repo, "ls-remote", "--heads", "--",
+                    remote, f"refs/heads/{branch}"], repo, timeout=60)
+    if rc != 0:
+        raise ToolError("TOOL_GIT_FAIL", out)
+    if not out.strip():
+        raise ToolError("BRANCH_CREATE_NOT_APPROVED", branch)
+    rc, out = _run(["git", "-C", repo, "push", "--", remote, branch],
+                   repo, timeout=120)
     if rc != 0:
         raise ToolError("TOOL_GIT_FAIL", out)
     return {"rc": rc, "output": out[:2000]}
@@ -340,7 +363,26 @@ def _git_push(args: dict) -> dict:
 
 def _pr_create(args: dict) -> dict:
     repo = _repo(args)
-    argv = ["gh", "pr", "create", "--draft", "--title", args["title"]]
+    rc, branch = _run(["git", "-C", repo, "branch", "--show-current"], repo)
+    branch = branch.strip()
+    if rc != 0 or not branch:
+        raise ToolError("PR_HEAD_UNAVAILABLE", branch[:300])
+    rc, existing = _run(["gh", "pr", "list", "--state", "all", "--head",
+                         branch, "--limit", "1000", "--json",
+                         "number,headRefName"], repo, timeout=60)
+    if rc != 0:
+        raise ToolError("TOOL_GH_FAIL", existing)
+    try:
+        rows = json.loads(existing)
+    except ValueError:
+        raise ToolError("TOOL_GH_INVALID_RESPONSE") from None
+    if (not isinstance(rows, list)
+            or any(not isinstance(row, dict) for row in rows)):
+        raise ToolError("TOOL_GH_INVALID_RESPONSE")
+    if any(row.get("headRefName") == branch for row in rows):
+        raise ToolError("PR_ALREADY_EXISTS", branch[:120])
+    argv = ["gh", "pr", "create", "--draft", "--head", branch,
+            "--title", args["title"]]
     if args.get("body"):
         argv += ["--body", args["body"][:4000]]
     if args.get("base"):

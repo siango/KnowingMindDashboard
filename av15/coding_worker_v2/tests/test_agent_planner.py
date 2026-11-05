@@ -15,7 +15,8 @@ def good_dict(**over):
             "owner_node": "AV15", "source_command": "fix it",
             "tasks": [{"task_id": "t1", "goal": "fix add()",
                        "deps": [], "priority": 1, "complexity": "S",
-                       "acceptance": ["2+3==5"], "tools": ["repo_inspect"],
+                       "acceptance": ["2+3==5"],
+                       "allowed_paths": ["calc.py"], "tools": [],
                        "model": "qwen-local", "max_repairs": 2}]}
     data.update(over)
     return data
@@ -47,6 +48,21 @@ class TestPlanValidation(unittest.TestCase):
             validate_plan_dict(data, ["repo_inspect"])
         self.assertEqual(ctx.exception.reason, "PLAN_TOOL_UNKNOWN")
 
+    def test_selected_tool_is_rejected_when_executor_does_not_dispatch(self):
+        data = good_dict()
+        data["tasks"][0]["tools"] = ["repo_inspect"]
+        with self.assertRaises(PlanError) as ctx:
+            validate_plan_dict(data, ["repo_inspect"])
+        self.assertEqual(ctx.exception.reason, "PLAN_TOOL_UNSUPPORTED")
+
+    def test_selected_model_is_rejected_when_executor_does_not_dispatch(self):
+        data = good_dict()
+        data["tasks"][0]["tools"] = []
+        data["tasks"][0]["model"] = "muse-cli"
+        with self.assertRaises(PlanError) as ctx:
+            validate_plan_dict(data)
+        self.assertEqual(ctx.exception.reason, "PLAN_MODEL_UNSUPPORTED")
+
     def test_unknown_dep_rejected(self):
         data = good_dict()
         data["tasks"][0]["deps"] = ["ghost"]
@@ -65,13 +81,21 @@ class TestPlanValidation(unittest.TestCase):
         with self.assertRaises(PlanError):
             validate_plan_dict(data)
 
+    def test_unsafe_approved_path_rejected(self):
+        data = good_dict()
+        data["tasks"][0]["allowed_paths"] = ["../outside.py"]
+        with self.assertRaises(PlanError) as ctx:
+            validate_plan_dict(data)
+        self.assertEqual(ctx.exception.reason, "PLAN_SCOPE_PATHS_INVALID")
+
 
 class TestPlanOrder(unittest.TestCase):
     def test_topo_order(self):
         data = good_dict(tasks=[
-            {"task_id": "a", "goal": "first", "acceptance": ["ok"]},
+            {"task_id": "a", "goal": "first", "acceptance": ["ok"],
+             "allowed_paths": ["a.py"]},
             {"task_id": "b", "goal": "second", "deps": ["a"],
-             "acceptance": ["ok"]}])
+             "acceptance": ["ok"], "allowed_paths": ["b.py"]}])
         plan = validate_plan_dict(data)
         self.assertEqual([t.task_id for t in order_tasks(plan)], ["a", "b"])
 

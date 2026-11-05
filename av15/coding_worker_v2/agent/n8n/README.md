@@ -1,8 +1,8 @@
 # KM n8n workflows (V3.1 Phase 1)
 
-Importable definitions only. No running instance is claimed: the owner
-imports these into the existing n8n instance (`n8n 1.109.1` binary
-verified on AV15; no WSL instance data exists yet).
+These are inactive, importable definitions only. No active n8n instance,
+authenticated intake, task delivery, or receipt-to-central-SSOT transport is
+verified in this source checkpoint.
 
 ## Files
 
@@ -20,9 +20,13 @@ verified on AV15; no WSL instance data exists yet).
 - `KM_INTAKE_URL`, `KM_STATUS_URL`, `KM_ALERT_URL`
 - `GH_REPO` (e.g. `siango/KnowingMindDashboard`), `GH_TOKEN`
 
+The intake webhook definition does not configure authentication. Do not
+activate it until authentication and receiver-side validation are implemented
+and verified.
+
 ## Authority
 
-n8n is an event/automation layer only. Task authority stays in the KM
-queue (`QueueStore` + idempotency keys) and evidence stays in SSOT
-receipts. n8n never invents task IDs: intake reuses the caller's ID or a
-single `ext-<timestamp>` fallback that the queue then owns.
+n8n is intended to be an event/automation layer only. Task authority stays in
+the KM queue (`QueueStore` + idempotency keys) and evidence is written to local
+receipts; central SSOT transport is unverified. Intake currently reuses the
+caller's task ID or creates an `ext-<timestamp>` fallback.

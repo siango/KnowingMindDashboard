@@ -40,7 +40,8 @@ class TestLivePlanner(unittest.TestCase):
             planner.plan_messages("fix add(a,b) so it returns a+b",
                                   {"files": 3, "git_branch": "main",
                                    "git_clean": True},
-                                  ["repo_inspect", "code_search"]),
+                                  ["repo_inspect", "code_search"],
+                                  files=["calc.py"]),
             chain, max_tokens=1024, timeout=config.task_timeout_s)
         data = planner.parse_plan(gen.text)
         data.setdefault("mission_id", "KM-LIVE")
@@ -49,6 +50,7 @@ class TestLivePlanner(unittest.TestCase):
         plan = planner.validate_plan_dict(
             data, ["repo_inspect", "code_search"])
         self.assertTrue(plan.tasks)
+        self.assertTrue(plan.tasks[0].allowed_paths)
         self.assertEqual(gen.provider, "qwen-local")
 
 
@@ -68,6 +70,7 @@ class TestLiveRun(unittest.TestCase):
                 "  self.assertEqual(add(2, 3), 5)\n")
             plan = planner.simple_plan("fix add() so 2+3==5", "KM-LIVE",
                                        "plive1")
+            plan.tasks[0].allowed_paths = ["calc.py"]
             with mock.patch.dict(os.environ, {"KMW2_STATE_DIR": tmp}):
                 report = executor.execute_plan(
                     plan, config, QueueStore(root / "q"), root / "receipts",

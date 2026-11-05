@@ -101,7 +101,7 @@ class WorktreeRegistry:
                 "files": files[:50]}
 
     def cleanup(self, task_id: str, allow_dirty: bool = False) -> dict:
-        """Remove worktree. Dirty trees need allow_dirty + retained patch."""
+        """Remove only clean worktrees; dirty tracked or untracked data is retained."""
         entry = self.get(task_id)
         if entry is None:
             raise WorktreeError("NOT_REGISTERED", task_id[:80])
@@ -112,14 +112,10 @@ class WorktreeRegistry:
                 and path.resolve() != self.roots.resolve():
             raise WorktreeError("OWNERSHIP_REFUSED", str(path)[:160])
         state = self.status(task_id)
-        retained = ""
-        if state.get("dirty") and not allow_dirty:
-            raise WorktreeError("DIRTY_REFUSED",
-                                f"{len(state.get('files', []))} uncommitted files")
         if state.get("dirty"):
-            rc, diff = _run(["git", "-C", str(path), "diff", "HEAD"], str(path))
-            retained = str(self.trash / f"{task_id}.patch")
-            Path(retained).write_text(diff[:500000], encoding="utf-8")
+            suffix = " (allow_dirty cannot authorize deleting work)" if allow_dirty else ""
+            raise WorktreeError("DIRTY_REFUSED",
+                                f"{len(state.get('files', []))} uncommitted files{suffix}")
         if path.is_dir():
             rc, out = _run(["git", "-C", entry["repo"], "worktree", "remove",
                             str(path), "--force"], entry["repo"], timeout=120)
@@ -127,7 +123,7 @@ class WorktreeRegistry:
                 raise WorktreeError("WORKTREE_REMOVE_FAIL", out)
         _run(["git", "-C", entry["repo"], "worktree", "prune"], entry["repo"])
         entry = {**entry, "status": "removed", "removed_at": _utcnow(),
-                 "retained_patch": retained}
+                 "retained_patch": ""}
         data = self._read()
         data[task_id] = entry
         self._write(data)

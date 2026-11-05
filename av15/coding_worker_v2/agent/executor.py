@@ -7,16 +7,23 @@ the Qwen provider; no paid calls; repair loops are bounded.
 from __future__ import annotations
 
 import time
+import hashlib
+import json
+import os
 from pathlib import Path
 
 from ..config import WorkerConfig
+from ..pipeline import list_files
 from ..providers import QwenProvider
 from ..queue_store import QueueStore
 from ..receipts import write_receipt
 from ..run_once import run_task
 from ..tasks import Task
+from .auditor import (MissionAuditorError, SCOPE_DIGEST, context_digest,
+                     run_mission_audit)
 from .memory import classify, current_base_commit, fingerprint_for
 from .planner import Plan, order_tasks
+from .verification import VerificationError, create_handoff, read_signed_proof
 from .worktree import WorktreeRegistry
 
 
@@ -50,8 +57,41 @@ def execute_plan(plan: Plan, config: WorkerConfig, store: QueueStore,
                  history: list[dict] | None = None,
                  use_worktree: bool = True,
                  qc_fn=None, sleep_fn=time.sleep,
-                 ledger_path: Path | None = None) -> dict:
+                 ledger_path: Path | None = None,
+                 audit_fn=None) -> dict:
     """Execute all planned tasks in dependency order. Returns a report."""
+    if plan.owner_node != config.owner_node:
+        raise AgentError("OWNER_MISMATCH",
+                         f"plan={plan.owner_node} runtime={config.owner_node}")
+    task_targets = [namespaced_id(plan, task.task_id) for task in plan.tasks]
+    if len(task_targets) != len(set(task_targets)):
+        blocked = [{"task_id": task.task_id, "decision": "BLOCKED",
+                    "status": "SKIPPED", "reason": "DUPLICATE_TASK_TARGET"}
+                   for task in plan.tasks]
+        return {"plan_id": plan.plan_id, "revision": plan.revision,
+                "tasks": blocked, "reused": 0, "done": 0, "failed": 0,
+                "skipped": len(blocked), "status": "BLOCKED",
+                "next_action": "RESOLVE_DUPLICATE_TARGETS"}
+    audit_fn = audit_fn or run_mission_audit
+    plan_scope = {"mission_id": plan.mission_id, "plan_id": plan.plan_id,
+                  "revision": plan.revision, "owner_node": plan.owner_node,
+                  "source_command": plan.source_command, "workspace": workspace,
+                  "source_sha": current_base_commit(workspace),
+                  "scope_digest": SCOPE_DIGEST, "plan_snapshot": plan.to_dict(),
+                  "tasks": [task.to_dict() for task in plan.tasks]}
+    plan_scope["plan_digest"] = hashlib.sha256(json.dumps(
+        plan.to_dict(), sort_keys=True, separators=(",", ":"),
+        ensure_ascii=False).encode("utf-8")).hexdigest()
+    admission = _audit(audit_fn, "ADMIT", plan_scope)
+    if admission.get("gate_passed") is not True:
+        blocked = [{"task_id": t.task_id, "decision": "BLOCKED",
+                    "status": "SKIPPED",
+                    "reason": admission.get("reason", "AUDIT_GATE_BLOCKED")}
+                   for t in plan.tasks]
+        return {"plan_id": plan.plan_id, "revision": plan.revision,
+                "tasks": blocked, "reused": 0, "done": 0, "failed": 0,
+                "skipped": len(blocked), "status": "BLOCKED",
+                "next_action": "AUDITOR_UNAVAILABLE"}
     history = history if history is not None else []
     ordered = order_tasks(plan)
     registry = WorktreeRegistry(state_dir) if use_worktree else None
@@ -71,7 +111,8 @@ def execute_plan(plan: Plan, config: WorkerConfig, store: QueueStore,
             continue
         entry.update(_execute_one(planned, entry["ns_id"], plan, config, store,
                                   receipts_dir, state_dir, registry, workspace,
-                                  history, qc_fn, sleep_fn, ledger_path))
+                                  history, qc_fn, sleep_fn, ledger_path,
+                                  audit_fn, plan_scope))
         report["tasks"].append(entry)
         if entry.get("decision") == "REUSE":
             report["reused"] += 1
@@ -100,7 +141,24 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
                  store: QueueStore, receipts_dir: Path, state_dir: Path,
                  registry: WorktreeRegistry | None, workspace: str,
                  history: list[dict], qc_fn, sleep_fn,
-                 ledger_path: Path | None) -> dict:
+                 ledger_path: Path | None, audit_fn, plan_scope: dict) -> dict:
+    if planned.model != "qwen-local":
+        return {"decision": "BLOCKED", "status": "SKIPPED",
+                "reason": "UNSUPPORTED_MODEL_ROUTE"}
+    if planned.tools:
+        return {"decision": "BLOCKED", "status": "SKIPPED",
+                "reason": "TOOL_DISPATCH_UNAVAILABLE"}
+    allowed_paths = list(planned.allowed_paths)
+    if not allowed_paths:
+        return {"decision": "BLOCKED", "status": "SKIPPED",
+                "reason": "APPROVED_FILE_ALLOWLIST_REQUIRED"}
+    workspace_files = set(list_files(workspace))
+    missing_paths = [path for path in allowed_paths
+                     if path not in workspace_files]
+    if missing_paths:
+        return {"decision": "BLOCKED", "status": "SKIPPED",
+                "reason": "APPROVED_PATH_NOT_FOUND",
+                "paths": missing_paths[:10]}
     base_commit = current_base_commit(workspace)
     fingerprint = fingerprint_for(planned.goal, workspace, base_commit)
     decision = classify(planned.goal, workspace, base_commit, store,
@@ -144,8 +202,24 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
                   "preferred_provider": "qwen-local",
                   "max_repairs": planned.max_repairs,
                   "hints": {"base_commit": base_commit, "plan_id": plan.plan_id,
+                            "plan_digest": plan_scope["plan_digest"],
+                            "scope_digest": SCOPE_DIGEST,
                             "fingerprint": fingerprint,
                             "workspace": workspace,
+                            "approved_scope": {
+                                "mission_id": plan.mission_id,
+                                "plan_id": plan.plan_id,
+                                "revision": plan.revision,
+                                "owner_node": plan.owner_node,
+                                "queue_task_id": ns_id,
+                                "source_command": plan.source_command,
+                                "plan_digest": plan_scope["plan_digest"],
+                                "scope_digest": SCOPE_DIGEST,
+                                "task_id": planned.task_id,
+                                "goal": planned.goal,
+                                "acceptance": list(planned.acceptance),
+                                "base_commit": base_commit,
+                                "allowed_paths": allowed_paths},
                             "acceptance": list(planned.acceptance),
                             "complexity": planned.complexity,
                             "prior": list(decision.evidence_refs)[:3]}}})
@@ -157,6 +231,17 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
 
     chain = qwen_chain(config)
     history.append({"role": "user", "content": planned.goal[:2000]})
+
+    def before_mutation(current_task):
+        context = {
+            **plan_scope, "task": planned.to_dict(),
+            "task_id": planned.task_id, "queue_task_id": ns_id,
+            "repo": current_task.task_input.repo, "source_sha": base_commit,
+            "allowed_paths": allowed_paths, "fingerprint": fingerprint,
+            "queue_store": store, "lease_token": current_task.lease_token,
+        }
+        return _audit(audit_fn, "BEFORE_MUTATION", context)
+
     result = None
     while True:
         store.recover()
@@ -167,11 +252,19 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
             entry.update({"status": "FAILED", "reason": "CLAIM_MISMATCH"})
             return entry
         result = run_task(claimed, store, config, ledger_path, chain=chain,
-                          history=history)
+                          history=history,
+                          before_mutation_fn=before_mutation)
         if result.status == "DONE":
             break
+        if result.failure_class == "LEASE_LOST" or not store.lease_valid(
+                result.task_id, result.lease_token):
+            entry.update({"status": "FAILED", "failure_class": "LEASE_LOST",
+                          "next_action": "RECONCILE_LEASE"})
+            return entry
         outcome = store.fail(result, result.failure_class or "UNKNOWN",
-                             result.next_action)
+                             result.next_action,
+                             retry=not (result.failure_class == "POLICY_DENY"
+                                       and result.next_action == "AUDIT_GATE_BLOCKED"))
         result.status = "FAILED"
         if outcome == "failed":
             break
@@ -179,26 +272,124 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
 
     assert result is not None
     qc_report = None
-    if qc_fn is not None and result.status == "DONE":
-        qc_report = qc_fn(result, {"config": config, "workspace": workspace,
-                                   "repo": repo, "store": store,
-                                   "receipts_dir": receipts_dir})
-        result.evidence.append({"event": "qc_checked", "qc": qc_report})
-        if not qc_report.get("passed"):
-            result.status = "FAILED"
-            result.failure_class = "TEST_FAIL"
-            result.next_action = "QC_ESCALATE"
-    receipt = write_receipt(receipts_dir, result)
-    # QC and receipt durability precede terminal queue archival. A failed QC
-    # must remain failed evidence and must never be requeued as a repair here.
+    receipt = None
     if result.status == "DONE":
-        store.complete(result)
-    elif qc_report is not None:
-        failed = store.failed / result.task_id
-        failed.mkdir(parents=True, exist_ok=True)
-        store._write_json(failed / "task.json", result.to_dict())
-        (store.doing / f"{result.task_id}.json").unlink(missing_ok=True)
-        (store.doing / f"{result.task_id}.lease.json").unlink(missing_ok=True)
+        if qc_fn is None:
+            from .qc import run_qc
+
+            qc_fn = run_qc
+        with store.keepalive(result) as lease_lost:
+            patch_digest = (result.output or {}).get("patch_digest", "")
+            test_evidence = list(result.evidence)
+            audit_after = _audit(audit_fn, "AFTER_TEST", {
+                **plan_scope, "task": planned.to_dict(),
+                "task_id": planned.task_id, "queue_task_id": ns_id,
+                "repo": repo, "source_sha": base_commit,
+                "allowed_paths": allowed_paths, "fingerprint": fingerprint,
+                "patch_digest": patch_digest, "test_evidence": test_evidence,
+                "queue_store": store, "lease_token": result.lease_token,
+            })
+            result.evidence.append({"event": "mission_audit",
+                                    "stage": "AFTER_TEST",
+                                    "result": audit_after})
+            if audit_after.get("gate_passed") is not True:
+                result.status = "FAILED"
+                result.failure_class = "POLICY_DENY"
+                result.next_action = "AUDIT_ESCALATE"
+                store.fail(result, result.failure_class, result.next_action,
+                           retry=False)
+                receipt = write_receipt(receipts_dir, result)
+                entry.update({"status": result.status,
+                              "failure_class": result.failure_class,
+                              "next_action": result.next_action,
+                              "receipt": str(receipt)})
+                return entry
+
+            result.status = "QC_PENDING"
+            request_dir = state_dir / "verifier_handoff"
+            candidate_receipt = write_receipt(receipts_dir, result)
+            try:
+                request_path, request = create_handoff(
+                    request_dir, result, candidate_receipt, plan_scope,
+                    result.owner_node, f"kmcw:{ns_id}")
+                proof_path = request_path.with_name(
+                    request_path.name.replace(".request.json", ".proof.json"))
+                public_key = Path(os.environ.get(
+                    "KMW2_INDEPENDENT_VERIFIER_PUBLIC_KEY", ""))
+                proof = read_signed_proof(request_path, proof_path, public_key)
+                result.evidence.append({
+                    "event": "independent_verification",
+                    "request_digest": request["request_digest"],
+                    "proof": proof,
+                })
+            except VerificationError as exc:
+                request_path = locals().get("request_path")
+                proof = None
+                result.evidence.append({
+                    "event": "verification_blocked", "reason": exc.reason,
+                    "request": str(request_path) if request_path else "",
+                })
+
+            result.status = "DONE"
+            result.next_action = "REVIEW_PATCH"
+            qc_report = qc_fn(result, {
+                "config": config, "workspace": workspace, "repo": repo,
+                "store": store, "receipts_dir": receipts_dir,
+                "receipt_path": str(candidate_receipt),
+                "mission_audit": audit_after,
+                "executor_id": result.owner_node,
+                "executor_runner_id": f"kmcw:{ns_id}",
+                "source_sha": base_commit,
+                "independent_verification": proof,
+            })
+            result.evidence.append({"event": "qc_checked", "qc": qc_report})
+            result.status = "QC_PENDING"
+            result.next_action = "BEFORE_CLOSE_AUDIT"
+            close_receipt = write_receipt(receipts_dir, result)
+            close_receipt_raw = close_receipt.read_bytes()
+            close_receipt_data = json.loads(close_receipt_raw)
+            audit_close = _audit(audit_fn, "BEFORE_CLOSE", {
+                **plan_scope, "task": planned.to_dict(),
+                "task_id": planned.task_id, "queue_task_id": ns_id,
+                "repo": repo, "source_sha": base_commit,
+                "allowed_paths": allowed_paths, "fingerprint": fingerprint,
+                "patch_digest": patch_digest, "test_evidence": test_evidence,
+                "queue_store": store, "lease_token": result.lease_token,
+                "receipt_path": str(close_receipt),
+                "receipt_sha256": hashlib.sha256(close_receipt_raw).hexdigest(),
+                "receipt_version": close_receipt_data.get("receipt_version"),
+                "qc_report": qc_report, "independent_verification": proof,
+            })
+            result.evidence.append({"event": "mission_audit",
+                                    "stage": "BEFORE_CLOSE",
+                                    "result": audit_close})
+            if lease_lost.is_set() or not store.lease_valid(
+                    result.task_id, result.lease_token):
+                result.status = "FAILED"
+                result.failure_class = "LEASE_LOST"
+                result.next_action = "RECONCILE_LEASE"
+            elif (audit_close.get("gate_passed") is True
+                  and qc_report.get("passed") is True
+                  and qc_report.get("independent_verified") is True
+                  and isinstance(proof, dict)
+                  and proof.get("authenticated") is True):
+                result.status = "DONE"
+                result.next_action = "REVIEW_PATCH"
+                receipt = write_receipt(receipts_dir, result)
+                store.complete(result)
+            else:
+                result.status = "FAILED"
+                result.failure_class = "POLICY_DENY"
+                result.next_action = (
+                    "AWAIT_INDEPENDENT_VERIFICATION" if proof is None
+                    else "QC_ESCALATE")
+                store.fail(result, result.failure_class, result.next_action,
+                           retry=False)
+        if result.status == "FAILED" and result.failure_class != "LEASE_LOST":
+            result.evidence.append({"event": "queue_outcome", "status": "BLOCKED",
+                                    "next_action": result.next_action})
+    if receipt is None:
+        receipt = write_receipt(receipts_dir, result)
     history.append({"role": "assistant",
                     "content": f"{result.status} {ns_id} "
                                f"{result.failure_class}"[:2000]})
@@ -208,6 +399,26 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
                   "receipt": str(receipt), "attempts": result.attempts,
                   "qc_passed": bool(qc_report.get("passed")) if qc_report else None})
     return entry
+
+
+def _audit(audit_fn, stage: str, context: dict) -> dict:
+    expected_binding = context_digest(stage, context)
+    try:
+        result = audit_fn(stage, context)
+    except MissionAuditorError as exc:
+        return {"stage": stage, "gate_passed": False,
+                "reason": exc.reason, "detail": exc.detail}
+    except Exception as exc:
+        return {"stage": stage, "gate_passed": False,
+                "reason": "AUDIT_ADAPTER_CRASH",
+                "detail": type(exc).__name__}
+    if not isinstance(result, dict):
+        return {"stage": stage, "gate_passed": False,
+                "reason": "AUDIT_RESULT_INVALID"}
+    if result.get("context_digest") != expected_binding:
+        return {"stage": stage, "gate_passed": False,
+                "reason": "AUDIT_CONTEXT_MISMATCH"}
+    return result
 
 
 def _test_command(workspace: str) -> str:

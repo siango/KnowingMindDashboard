@@ -3,14 +3,14 @@
 **Mission:** `KBN-UNIFIED-AI-EXECUTION`
 **Owner:** AV15 / GitHub Copilot Cloud
 **Assessment mode:** read-only inventory plus source-only reconciliation patch
-**Assessment baseline:** live AV15 source checkout `0953492a690d6426dd8126d6e355e17f4053f16b` (dirty, retained); existing KMCW source PR #1 branch head observed `e13b5d8d66ca2ed4ca2690ab999b531ab6210843`.
+**Assessment baseline:** live AV15 source checkout `0953492a690d6426dd8126d6e355e17f4053f16b` (dirty, retained); existing KMCW source PR #1 now at `5db015af35be57ac8db1862ffc746c68df11b33d` at recheck.
 **Runtime policy:** expired; not extended. Production bindings, scheduler, queue, central state and trading were not changed.
 
 ## Executive result
 
-The best-evidenced KMCW implementation remains the AV15 V2/V3/V3.1 filesystem runtime at `/mnt/c/AndroidProjects/KnowingMindSuite/av15/coding_worker_v2/`. It is a local JSON-file queue with terminal archives, leases, checkpoints and receipts. Its live checkout is dirty and behind the source PR; therefore the PR source must not be copied over it. The PR already contains newer source fixes for scrubbed subprocess environments, bounded file inventory/search, draft-only PR creation, valid inactive n8n definitions and honest blocked/partial plan status. Those were not duplicated here.
+The best-evidenced KMCW implementation remains the AV15 V2/V3/V3.1 filesystem runtime at `/mnt/c/AndroidProjects/KnowingMindSuite/av15/coding_worker_v2/`. It is a local JSON-file queue with terminal archives, leases, checkpoints and receipts. Its live checkout is dirty and behind the source PR; therefore the PR source must not be copied over it. The current PR source adds scrubbed subprocess environments, bounded file inventory/search, draft-only PR creation, valid inactive n8n definitions, honest blocked/partial plan status, bounded mission auditing, signed independent-verifier handoff and QC/receipt gates. These changes are present on PR #1 and were preserved.
 
-Two runtime correctness gaps are addressed by the patch accompanying this matrix: terminal queue/receipt disagreement now blocks reuse and is surfaced as blocked monitoring evidence; executor writes the receipt after QC and only then archives DONE, while failed QC is archived as FAILED without automatic requeue. Existing `g4reuse-t1` evidence is untouched and remains unresolved/BLOCKED. This is a detection and prevention fix, not an automatic historical reconciliation.
+Current PR #1 source gates terminal DONE on QC, authenticated independent verification, lease validity, auditor approval and a durable final receipt. The patch accompanying this matrix adds detection of terminal queue/receipt disagreement, blocks reuse on such conflicts and surfaces them as blocked monitoring evidence. Existing `g4reuse-t1` runtime evidence is untouched and remains unresolved/BLOCKED. This is detection/prevention, not automatic historical reconciliation.
 
 No qualified central lease/fencing/readback authority is currently evidenced. A real central mission E2E and independent acceptance therefore remain blocked. This report and tests do not qualify the runtime for unattended/autonomous execution.
 
@@ -80,12 +80,14 @@ Minimal safe progression:
 
 ## Patch and verification record
 
-- Source changes are limited to `agent/memory.py`, `agent/monitor.py`, `agent/executor.py` and `tests/test_ssot_reconciliation.py`.
+- Final source delta over current PR head adds only `agent/memory.py`, `agent/monitor.py`, `tests/test_ssot_reconciliation.py` and this matrix. The earlier local commit `917ae4f…` also reordered executor receipt/QC writes, but that executor change is superseded by newer PR commits `c2ea9b0e` and `5db015af`; merge resolution retains the newer signed-verification implementation, which already gates DONE on QC and receipt persistence.
 - New tests use temporary JSON stores and mocks; they do not read or write the live AV15 queue/receipt tree.
-- Targeted reconciliation tests: **10 passed / 10**.
-- Full KMCW Python discovery: **143 tests, 141 passed, 2 skipped, 0 failed** after running the repository's existing loopback HTTP fixture with the required permission. The two skips are the opt-in `KMW2_LIVE != 1` live integration tests; they were intentionally not enabled. An initial sandbox-restricted run was blocked at six fixture class setups by local TCP bind denial; it did not change source/runtime and the permitted rerun passed.
+- The user's reported source result at `e13b5d8…` plus the initial patch was reproduced: **143 tests, 141 passed, 2 skipped**. The skips are the two tests below.
+- Latest PR source at `5db015af…`: **173 tests, 171 passed, 2 skipped**. With the six reconciliation tests: **179 tests, 177 passed, 2 skipped, 0 failed** in `python3 -m unittest discover -s coding_worker_v2/tests -t . -v`.
+- Latest-head skipped cases are exactly `test_live_plan_validates` and `test_live_coding_task_passes` in `test_agent_integration.py`; both call `require_live()` and skip because `KMW2_LIVE != 1`. They were not enabled because runtime policy is expired and no live acceptance authorization/runtime evidence is established.
+- Latest source already tests receipt persistence/QC-before-completion, independent proof checks, duplicate intake/idempotency, stale fencing, queue recovery after lease expiry, heartbeat during slow inference and mocked Qwen E2E. These are synthetic/local tests, not an authorized central SSOT mission E2E.
 - Source PR #1 existing CI at preceding head `e13b5d8…`: owner-reported CI runs `41342490583` and `41342497025` passed, plus `133 passed / 2 skipped` local at that older head. These are historical evidence and do not include this patch.
-- No Browser E2E, central SSOT readback, live fault-injection mission, independent QC acceptance, production acceptance, merge, or deployment is claimed.
+- No real AV15 mission E2E, central SSOT readback, live disconnect/timeout injection, independent QC acceptance, production acceptance, merge, or deployment is claimed.
 
 ## Blockers / handoff
 
@@ -93,4 +95,4 @@ Minimal safe progression:
 2. **Runtime rollout:** AV15 live source is dirty and older than the source PR; routine policy expired. Owner must review and separately authorize a controlled runtime rollout/policy decision after independent acceptance.
 3. **Acceptance:** Independent QC and central readback are pending. Rewards, members, payouts, merge and deployment remain gated.
 
-**Decision:** Source patch may be reviewed on the existing source PR only. Runtime integration and mission acceptance remain **BLOCKED / NOT VERIFIED**.
+**Decision:** Source patch may be reviewed on existing KMCW PR #1 only. PR #275 is a different repository (`KnowingMindApp`) and its changed files are Admin V2/LINE Worker/auditor; it contains none of these KMCW modules. Do not mix this work into PR #275. Runtime integration and mission acceptance remain **BLOCKED / NOT VERIFIED**.

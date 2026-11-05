@@ -1,13 +1,15 @@
 """Phase 2/5: evidence envelopes + durable local receipts.
 
-Receipts are the offline-safe record. The latest receipt pointer mirrors
-into av15/state/ so the existing reconcile.sh flow can announce it via
-the P02 bridge without any new control plane or competing SSOT.
+Receipts are the offline-safe record. A latest-receipt pointer is also
+written locally; central SSOT transport is not verified by this module.
 """
 from __future__ import annotations
 
 import json
+import hashlib
 import os
+import fcntl
+import time
 from pathlib import Path
 
 from .providers import redact
@@ -27,11 +29,18 @@ def _scrub(value):
 
 
 def build_receipt(task: Task, extra: dict | None = None) -> dict:
+    hints = task.task_input.hints or {}
     body = {
         "schema": SCHEMA,
         "mission_id": task.mission_id,
         "task_id": task.task_id,
         "owner_node": task.owner_node,
+        "source_sha": hints.get("base_commit", ""),
+        "plan_digest": hints.get("plan_digest", ""),
+        "scope_digest": hints.get("scope_digest", ""),
+        "lease_token_sha256": hashlib.sha256(
+            task.lease_token.encode("utf-8")).hexdigest()
+            if task.lease_token else "",
         "input": task.to_dict()["input"],
         "output": task.output,
         "status": task.status,
@@ -47,11 +56,40 @@ def build_receipt(task: Task, extra: dict | None = None) -> dict:
 
 def write_receipt(receipts_dir: Path, task: Task, extra: dict | None = None) -> Path:
     receipts_dir.mkdir(parents=True, exist_ok=True)
-    receipt = build_receipt(task, extra)
-    path = receipts_dir / f"{task.task_id}.json"
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(receipt, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(path)
+    history_dir = receipts_dir / "history" / task.task_id
+    history_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = receipts_dir / ".receipt.lock"
+    with lock_path.open("a+") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        versions = sorted(history_dir.glob("v*.json"))
+        version = 1
+        previous_digest = ""
+        if versions:
+            latest = versions[-1]
+            try:
+                version = int(latest.stem[1:]) + 1
+                previous_digest = hashlib.sha256(
+                    latest.read_bytes()).hexdigest()
+            except (OSError, ValueError):
+                raise ValueError("receipt history is corrupt") from None
+        receipt = build_receipt(task, extra)
+        receipt["receipt_version"] = version
+        receipt["previous_receipt_sha256"] = previous_digest
+        body = json.dumps(receipt, ensure_ascii=False, indent=2) + "\n"
+        path = history_dir / f"v{version:06d}.json"
+        try:
+            with path.open("x", encoding="utf-8") as output:
+                output.write(body)
+                output.flush()
+                os.fsync(output.fileno())
+        except FileExistsError:
+            raise ValueError("receipt version collision") from None
+
+        latest_path = receipts_dir / f"{task.task_id}.json"
+        tmp = latest_path.with_suffix(f".{time.time_ns()}.tmp")
+        tmp.write_text(body, encoding="utf-8")
+        tmp.replace(latest_path)
+        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
     # Latest-pointer for existing AV15 state/reconcile pickup.
     # Overridable so unit tests never touch real AV15 state.
     try:

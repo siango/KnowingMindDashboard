@@ -67,12 +67,28 @@ def _receipt_qc_pass(receipt: dict) -> bool:
 def _iter_receipts(receipts_dir: Path):
     if not receipts_dir.is_dir():
         return
+    versioned_tasks = set()
+    for path in sorted(receipts_dir.glob("history/*/v*.json"), reverse=True):
+        task_id = path.parent.name
+        if task_id in versioned_tasks:
+            continue
+        versioned_tasks.add(task_id)
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if (isinstance(data, dict)
+                and data.get("schema") == "KM_CODING_RECEIPT_V1"
+                and data.get("task_id") == task_id):
+            yield path, data
     for path in sorted(receipts_dir.glob("*.json")):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        if isinstance(data, dict) and data.get("schema") == "KM_CODING_RECEIPT_V1":
+        if (isinstance(data, dict)
+                and data.get("schema") == "KM_CODING_RECEIPT_V1"
+                and data.get("task_id") not in versioned_tasks):
             yield path, data
 
 
@@ -89,11 +105,13 @@ def terminal_conflicts(store, receipt: dict) -> list[dict]:
         try:
             archived = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            conflicts.append({"task_id": task_id, "queue_ref": f"queue:{folder_name}/{task_id}",
+            conflicts.append({"task_id": task_id,
+                              "queue_ref": f"queue:{folder_name}/{task_id}",
                               "reason": "TERMINAL_RECORD_UNREADABLE"})
             continue
         if not isinstance(archived, dict):
-            conflicts.append({"task_id": task_id, "queue_ref": f"queue:{folder_name}/{task_id}",
+            conflicts.append({"task_id": task_id,
+                              "queue_ref": f"queue:{folder_name}/{task_id}",
                               "reason": "TERMINAL_RECORD_UNREADABLE"})
             continue
         fields = [key for key in ("task_id", "mission_id", "owner_node", "input",
@@ -193,7 +211,7 @@ def classify(goal: str, repo: str, base_commit: str, store,
                        canonical_repo(receipt_input))
         if receipt_key != want_key:
             continue
-        ref = f"receipt:{path.name}"
+        ref = f"receipt:{path.relative_to(receipts_dir)}"
         conflicts = terminal_conflicts(store, receipt)
         if conflicts:
             refs = (ref, *(item.get("queue_ref", "") for item in conflicts))

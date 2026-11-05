@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from coding_worker_v2.agent import sandbox  # noqa: E402
@@ -58,15 +59,20 @@ class TestWorktree(unittest.TestCase):
         (Path(entry["path"]) / "new.txt").write_text("work\n")
         self.assertFalse((Path(self.repo) / "new.txt").exists())
 
-    def test_dirty_refused_then_retained(self):
+    def test_dirty_cleanup_preserves_tracked_and_untracked_files(self):
         entry = self.reg.create(self.repo, "task1")
-        (Path(entry["path"]) / "f.txt").write_text("dirty\n")
+        worktree = Path(entry["path"])
+        (worktree / "f.txt").write_text("tracked-change\n")
+        (worktree / "new.txt").write_text("untracked-content\n")
         with self.assertRaises(WorktreeError) as ctx:
             self.reg.cleanup("task1")
         self.assertEqual(ctx.exception.reason, "DIRTY_REFUSED")
-        out = self.reg.cleanup("task1", allow_dirty=True)
-        self.assertTrue(out["removed"])
-        self.assertTrue(Path(out["retained_patch"]).is_file())
+        with self.assertRaises(WorktreeError) as ctx:
+            self.reg.cleanup("task1", allow_dirty=True)
+        self.assertEqual(ctx.exception.reason, "DIRTY_REFUSED")
+        self.assertTrue(worktree.is_dir())
+        self.assertEqual((worktree / "f.txt").read_text(), "tracked-change\n")
+        self.assertEqual((worktree / "new.txt").read_text(), "untracked-content\n")
 
     def test_clean_cleanup(self):
         self.reg.create(self.repo, "task1")
@@ -80,6 +86,19 @@ class TestWorktree(unittest.TestCase):
                         entry["path"]], check=True)
         result = self.reg.recover()
         self.assertIn("task1", result["orphaned"])
+
+    def test_restart_recovery_preserves_dirty_worktree_contents(self):
+        entry = self.reg.create(self.repo, "task1")
+        path = Path(entry["path"])
+        (path / "f.txt").write_text("tracked-after-crash\n")
+        (path / "recovered.txt").write_text("untracked-after-crash\n")
+        restarted = WorktreeRegistry(self.root / "state")
+        result = restarted.recover()
+        self.assertIn("task1", result["active"])
+        self.assertEqual((path / "f.txt").read_text(),
+                         "tracked-after-crash\n")
+        self.assertEqual((path / "recovered.txt").read_text(),
+                         "untracked-after-crash\n")
 
     def test_unknown_task(self):
         with self.assertRaises(WorktreeError):
@@ -107,7 +126,7 @@ class TestSandbox(unittest.TestCase):
     def test_scrubbed_env(self):
         env = dict(os.environ)
         env["KMW2_TEST_SECRET_TOKEN"] = "s3cret"
-        with unittest.mock.patch.dict(os.environ, env, clear=True):
+        with mock.patch.dict(os.environ, env, clear=True):
             clean = sandbox.scrubbed_env()
         self.assertNotIn("KMW2_TEST_SECRET_TOKEN", clean)
 

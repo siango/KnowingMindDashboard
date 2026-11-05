@@ -9,12 +9,14 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import json
+import hashlib
 from pathlib import Path
 
 from ..pipeline import syntax_check
 from ..providers import http_json, require_loopback
-from ..receipts import build_receipt
 from .sandbox import run_isolated
+from .verification import SCHEMA as VERIFICATION_SCHEMA
 
 SCHEMA = "KM_QC_REPORT_V1"
 SECRET_ASSIGN_RE = re.compile(
@@ -55,7 +57,8 @@ def risk_score(task, changed: list[str]) -> int:
 
 
 def select_checks(score: int) -> list[str]:
-    base = ["source_integrity", "requirements", "syntax", "security"]
+    base = ["source_integrity", "requirements", "syntax", "security",
+            "mission_audit", "independent_verification"]
     if score >= 3:
         return base + ["unit_tests", "integration_tests", "regression",
                        "runtime_health", "github_ci", "receipt_readback"]
@@ -70,7 +73,7 @@ def check_source_integrity(task, ctx: dict) -> dict:
     if not repo or not Path(repo).is_dir():
         return _check("source_integrity", False, "repo missing")
     if not shutil.which("git"):
-        return _check("source_integrity", True, "not a git checkout toolset")
+        return _check("source_integrity", SKIPPED, "git unavailable")
     try:
         proc = subprocess.run(["git", "-C", repo, "rev-parse", "HEAD"],
                               capture_output=True, text=True, timeout=15,
@@ -78,9 +81,11 @@ def check_source_integrity(task, ctx: dict) -> dict:
     except (OSError, subprocess.TimeoutExpired):
         return _check("source_integrity", SKIPPED, "git probe failed")
     if proc.returncode != 0:
-        return _check("source_integrity", True, "not a git checkout")
-    return _check("source_integrity", True,
-                  f"HEAD={(proc.stdout or '').strip()[:12]}")
+        return _check("source_integrity", SKIPPED, "git revision unavailable")
+    revision = (proc.stdout or "").strip()
+    if not re.fullmatch(r"[0-9a-fA-F]{40}", revision):
+        return _check("source_integrity", False, "invalid git revision")
+    return _check("source_integrity", True, f"HEAD={revision}")
 
 
 def check_requirements(task, ctx: dict) -> dict:
@@ -93,9 +98,15 @@ def check_requirements(task, ctx: dict) -> dict:
     if not acceptance:
         return _check("requirements", SKIPPED, "no acceptance criteria recorded")
     changed = (task.output or {}).get("changed", [])
+    test_runs = _task_tests(task)
+    if not any(r.get("tests", {}).get("ran") for r in test_runs) or any(
+            r.get("tests", {}).get("ran")
+            and r["tests"].get("rc") != 0 for r in test_runs):
+        return _check("requirements", False, "passing test evidence missing")
     if task.status == "DONE" and changed:
         return _check("requirements", True, f"{len(acceptance)} criteria, "
-                                            f"{len(changed)} files")
+                                            f"{len(changed)} files, "
+                                            f"{len(test_runs)} test runs")
     return _check("requirements", False,
                   f"status={task.status} changed={len(changed)}")
 
@@ -225,16 +236,109 @@ def check_github_ci(task, ctx: dict) -> dict:
 
 
 def check_receipt_readback(task, ctx: dict) -> dict:
-    _ = ctx
+    receipt_path = ctx.get("receipt_path")
+    if not receipt_path:
+        return _check("receipt_readback", SKIPPED,
+                      "durable receipt path unavailable")
     try:
-        receipt = build_receipt(task)
-    except Exception as exc:
-        return _check("receipt_readback", False, type(exc).__name__)
-    for key in ("schema", "mission_id", "task_id", "input", "output",
-                "status", "evidence", "next_action"):
-        if key not in receipt or receipt["schema"] != "KM_CODING_RECEIPT_V1":
-            return _check("receipt_readback", False, f"bad {key}")
-    return _check("receipt_readback", True, "envelope valid")
+        from ..receipts import read_receipt
+
+        receipt = read_receipt(Path(receipt_path))
+    except (OSError, ValueError):
+        return _check("receipt_readback", False, "durable receipt unreadable")
+    expected_source = (task.task_input.hints or {}).get("base_commit", "")
+    expected_patch = (task.output or {}).get("patch_digest", "")
+    expected_plan = (task.task_input.hints or {}).get("plan_digest", "")
+    expected_scope = (task.task_input.hints or {}).get("scope_digest", "")
+    lease_digest = (hashlib.sha256(task.lease_token.encode("utf-8")).hexdigest()
+                    if task.lease_token else "")
+    if (receipt.get("task_id") != task.task_id
+            or receipt.get("source_sha", "") != expected_source
+            or receipt.get("plan_digest", "") != expected_plan
+            or receipt.get("scope_digest", "") != expected_scope
+            or receipt.get("output", {}).get("patch_digest") != expected_patch
+            or receipt.get("status") not in {"DONE", "QC_PENDING"}
+            or not isinstance(receipt.get("receipt_version"), int)
+            or receipt.get("lease_token_sha256") != lease_digest):
+        return _check("receipt_readback", False,
+                      "receipt identity, SHA, patch, or version mismatch")
+    return _check("receipt_readback", True,
+                  f"version={receipt['receipt_version']}")
+
+
+def check_mission_audit(task, ctx: dict) -> dict:
+    _ = task
+    result = ctx.get("mission_audit")
+    if not isinstance(result, dict):
+        from .auditor import MissionAuditorError, run_mission_audit
+
+        try:
+            result = run_mission_audit("BEFORE_CLOSE", ctx)
+        except MissionAuditorError as exc:
+            return _check("mission_audit", False,
+                          f"{exc.reason}: {exc.detail}")
+    if result.get("gate_passed") is True:
+        return _check("mission_audit", True,
+                      f"stage={result.get('stage', 'BEFORE_CLOSE')}")
+    return _check("mission_audit", False,
+                  str(result.get("reason", "AUDIT_GATE_BLOCKED"))[:500])
+
+
+def check_independent_verification(task, ctx: dict) -> dict:
+    proof = ctx.get("independent_verification")
+    if not isinstance(proof, dict):
+        return _check("independent_verification", SKIPPED,
+                      "independent verifier evidence unavailable")
+    executor_id = str(ctx.get("executor_id") or task.owner_node)
+    verifier_id = str(proof.get("verifier_id") or "")
+    executor_runner = str(ctx.get("executor_runner_id") or "")
+    verifier_runner = str(proof.get("runner_id") or "")
+    if not verifier_id or not verifier_runner or not executor_runner:
+        return _check("independent_verification", SKIPPED,
+                      "executor/verifier identity or runner missing")
+    if verifier_id == executor_id or verifier_runner == executor_runner:
+        return _check("independent_verification", False,
+                      "executor and verifier must be distinct")
+    if proof.get("status") != "PASS":
+        return _check("independent_verification", False,
+                      "verifier did not report PASS")
+    if (proof.get("authenticated") is not True
+            or proof.get("schema") != VERIFICATION_SCHEMA
+            or not re.fullmatch(r"[0-9a-f]{64}",
+                                str(proof.get("signature_sha256", "")))):
+        return _check("independent_verification", False,
+                      "authenticated verifier signature missing")
+    expected_sha = ((task.task_input.hints or {}).get("base_commit")
+                    or (ctx.get("source_sha") or ""))
+    source_sha = str(proof.get("source_sha") or "")
+    patch_digest = str((task.output or {}).get("patch_digest") or "")
+    hints = task.task_input.hints or {}
+    approved_scope = hints.get("approved_scope", {})
+    receipt_path = Path(str(ctx.get("receipt_path") or ""))
+    try:
+        receipt_raw = receipt_path.read_bytes()
+        receipt = json.loads(receipt_raw)
+    except (OSError, ValueError):
+        return _check("independent_verification", False,
+                      "provisional receipt readback missing")
+    if (not re.fullmatch(r"[0-9a-fA-F]{40}", source_sha)
+            or (expected_sha and source_sha != expected_sha)
+            or not patch_digest or proof.get("patch_digest") != patch_digest
+            or proof.get("task_id") != task.task_id
+            or proof.get("mission_id") != task.mission_id
+            or proof.get("plan_id") != hints.get("plan_id")
+            or proof.get("plan_digest") != hints.get("plan_digest")
+            or proof.get("scope_digest") != hints.get("scope_digest")
+            or not isinstance(approved_scope, dict)
+            or proof.get("allowed_paths") != approved_scope.get("allowed_paths")
+            or proof.get("receipt_sha256") != hashlib.sha256(receipt_raw).hexdigest()
+            or proof.get("receipt_version") != receipt.get("receipt_version")
+            or proof.get("lease_token_sha256") != receipt.get("lease_token_sha256")
+            or not proof.get("evidence_refs")):
+        return _check("independent_verification", False,
+                      "source, patch, or evidence reference mismatch")
+    return _check("independent_verification", True,
+                  f"verifier={verifier_id} runner={verifier_runner}")
 
 
 CHECKS = {"source_integrity": check_source_integrity,
@@ -244,7 +348,9 @@ CHECKS = {"source_integrity": check_source_integrity,
           "security": check_security, "regression": check_regression,
           "runtime_health": check_runtime_health,
           "github_ci": check_github_ci,
-          "receipt_readback": check_receipt_readback}
+          "receipt_readback": check_receipt_readback,
+          "mission_audit": check_mission_audit,
+          "independent_verification": check_independent_verification}
 
 
 def run_qc(task, ctx: dict, only: list[str] | None = None) -> dict:
@@ -262,11 +368,16 @@ def run_qc(task, ctx: dict, only: list[str] | None = None) -> dict:
             results.append(fn(task, ctx))
         except Exception as exc:
             results.append(_check(name, False, f"CRASH_{type(exc).__name__}"))
-    failed = [r for r in results if r["passed"] is False]
+    failed = [r for r in results if r["passed"] is not True]
     return {"schema": SCHEMA, "task_id": getattr(task, "task_id", ""),
             "risk": score, "selected": selected,
             "checks": results, "passed": not failed,
             "failed": [r["name"] for r in failed],
+            "unverified": [r["name"] for r in results
+                           if r["passed"] == SKIPPED],
+            "independent_verified": any(
+                r["name"] == "independent_verification"
+                and r["passed"] is True for r in results),
             "retries_used": int(ctx.get("qc_retries_used", 0))}
 
 
