@@ -23,7 +23,7 @@ from .auditor import (MissionAuditorError, SCOPE_DIGEST, context_digest,
                      run_mission_audit)
 from .memory import classify, current_base_commit, fingerprint_for
 from .planner import Plan, order_tasks, is_read_only
-from .verification import VerificationError, create_handoff, read_signed_proof
+from .verification import VerificationError, create_handoff, wait_signed_proof
 from .worktree import WorktreeRegistry
 
 
@@ -334,7 +334,10 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
                     request_path.name.replace(".request.json", ".proof.json"))
                 public_key = Path(os.environ.get(
                     "KMW2_INDEPENDENT_VERIFIER_PUBLIC_KEY", ""))
-                proof = read_signed_proof(request_path, proof_path, public_key)
+                proof = wait_signed_proof(
+                    request_path, proof_path, public_key,
+                    lambda: not lease_lost.is_set() and store.lease_valid(
+                        result.task_id, result.lease_token))
                 result.evidence.append({
                     "event": "independent_verification",
                     "request_digest": request["request_digest"],

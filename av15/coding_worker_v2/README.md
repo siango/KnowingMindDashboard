@@ -55,6 +55,7 @@ execution before queue admission, and the editor cannot change other files.
 | `KMW2_MAX_REPAIR_ATTEMPTS` | 2 | bounded repair loop |
 | `KMW2_TASK_TIMEOUT_S` / `KMW2_TEST_TIMEOUT_S` | 600 / 300 | resource limits |
 | `KMW2_INDEPENDENT_VERIFIER_PUBLIC_KEY` | unset | PEM public key for external-verifier readback |
+| `KMW2_VERIFIER_WAIT_S` | 30 | bounded external proof wait, 0–300 seconds; live lease required |
 
 ## SSOT / monitoring integration (no new control plane)
 
@@ -81,6 +82,9 @@ the exact pinned artifacts. Missing or invalid proof leaves the task
 uncompleted; this file handoff does not claim a live verifier transport.
 Requests use `<task>.v<receipt-version>.request.json`; the verifier returns
 `<task>.v<receipt-version>.proof.json` with `payload` and Base64 `signature`.
+The verifier must publish the complete proof atomically (temporary file plus
+rename). Only a missing file is retried during the bounded wait; invalid proofs
+fail closed immediately. The worker never creates the proof or signing key.
 The signature is over UTF-8 canonical JSON (`sort_keys`, compact separators)
 of the payload, which must echo the request bindings and add PASS status,
 distinct `verifier_id`/`runner_id`, evidence references, and `issued_at` /

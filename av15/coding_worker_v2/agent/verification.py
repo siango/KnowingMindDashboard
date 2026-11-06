@@ -4,17 +4,46 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
 import subprocess
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 SCHEMA = "KM_INDEPENDENT_VERIFICATION_V1"
 MAX_BYTES = 1_000_000
 MAX_AGE_S = 900
+
+
+def wait_signed_proof(request_path: Path, proof_path: Path,
+                      public_key_path: Path, lease_valid) -> dict:
+    """Allow the existing external file handoff time to return a proof.
+
+    Only an absent file is retryable. A published invalid proof fails closed.
+    The executor maintains its existing keepalive throughout this bounded wait.
+    """
+    if not public_key_path.is_file() or not shutil.which("openssl"):
+        raise VerificationError("VERIFIER_AUTHORITY_UNAVAILABLE")
+    try:
+        timeout = float(os.environ.get("KMW2_VERIFIER_WAIT_S", "30"))
+    except ValueError:
+        raise VerificationError("VERIFIER_WAIT_INVALID") from None
+    if not math.isfinite(timeout) or not 0 <= timeout <= 300:
+        raise VerificationError("VERIFIER_WAIT_INVALID")
+    deadline = time.monotonic() + timeout
+    while True:
+        if not lease_valid():
+            raise VerificationError("VERIFIER_LEASE_LOST")
+        if proof_path.exists():
+            return read_signed_proof(request_path, proof_path, public_key_path)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise VerificationError("VERIFIER_PROOF_UNAVAILABLE")
+        time.sleep(min(0.25, remaining))
 
 
 class VerificationError(RuntimeError):

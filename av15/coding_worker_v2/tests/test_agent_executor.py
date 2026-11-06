@@ -85,7 +85,8 @@ class TestExecutor(FakeBackend):
         self.addCleanup(qc_patch.stop)
 
     @staticmethod
-    def verified_proof(request_path, _proof_path, _public_key):
+    def verified_proof(request_path, _proof_path, _public_key, lease_valid):
+        assert lease_valid()
         request = json.loads(Path(request_path).read_text(encoding="utf-8"))
         return {
             **request["request"],
@@ -119,7 +120,7 @@ class TestExecutor(FakeBackend):
             repo = fixture_repo(root)
             config = config_for(self.port)
             with mock.patch.dict(os.environ, {"KMW2_STATE_DIR": tmp}), \
-                    mock.patch.object(executor, "read_signed_proof",
+                    mock.patch.object(executor, "wait_signed_proof",
                                       side_effect=self.verified_proof):
                 report = executor.execute_plan(
                     simple_plan_for("fix add() so 2+3==5"), config,
@@ -155,7 +156,7 @@ class TestExecutor(FakeBackend):
                 return write_receipt(directory, task, extra)
 
             with mock.patch.dict(os.environ, {"KMW2_STATE_DIR": tmp}), \
-                    mock.patch.object(executor, "read_signed_proof",
+                    mock.patch.object(executor, "wait_signed_proof",
                                       side_effect=self.verified_proof), \
                     mock.patch.object(executor, "write_receipt",
                                       side_effect=fail_done_receipt):
@@ -289,7 +290,7 @@ class TestExecutor(FakeBackend):
             config = config_for(self.port)
             qc = {"passed": True, "independent_verified": True, "checks": []}
             with mock.patch.dict(os.environ, {"KMW2_STATE_DIR": tmp}), \
-                    mock.patch.object(executor, "read_signed_proof",
+                    mock.patch.object(executor, "wait_signed_proof",
                                       side_effect=self.verified_proof):
                 first = executor.execute_plan(
                     simple_plan_for("fix add() so 2+3==5"), config,
@@ -363,7 +364,7 @@ class TestExecutor(FakeBackend):
                         return_value={"ran": True, "rc": 0, "duration_ms": 1,
                                       "output": ""}) as tests:
                     with mock.patch.object(
-                            executor, "read_signed_proof",
+                            executor, "wait_signed_proof",
                             side_effect=self.verified_proof):
                         report = executor.execute_plan(
                             simple_plan_for("fix add() so 2+3==5"), config,
