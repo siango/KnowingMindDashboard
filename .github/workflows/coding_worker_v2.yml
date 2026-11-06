@@ -1,0 +1,52 @@
+name: coding-worker-v2
+
+on:
+  push:
+    paths:
+      - 'av15/coding_worker_v2/**'
+      - '.github/workflows/coding_worker_v2.yml'
+  pull_request:
+    paths:
+      - 'av15/coding_worker_v2/**'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile all modules
+        run: python3 -m compileall -q av15/coding_worker_v2
+      - name: Validate n8n workflow JSON
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          files = sorted(Path("av15/coding_worker_v2/agent/n8n").glob("*.json"))
+          if not files:
+              raise SystemExit("No n8n workflow definitions found")
+          for path in files:
+              with path.open(encoding="utf-8") as source:
+                  json.load(source)
+          print(f"Validated {len(files)} n8n workflow definitions")
+          PY
+      - name: Unit + e2e tests (stdlib unittest)
+        run: cd av15 && python3 -m unittest discover -s coding_worker_v2/tests -t .
+      - name: Shell syntax (tracked wrappers only)
+        run: |
+          if git ls-files --error-unmatch av15/coding_worker.sh >/dev/null 2>&1; then
+            bash -n av15/coding_worker.sh
+          else
+            echo "SKIP: wrapper not included in source checkpoint"
+          fi
+      - name: Benchmark harness (when included)
+        run: |
+          if test -f av15/coding_worker_v2/benchmark.py; then
+            cd av15
+            python3 -m coding_worker_v2.benchmark
+          else
+            echo "SKIP: benchmark not included in source checkpoint"
+          fi
