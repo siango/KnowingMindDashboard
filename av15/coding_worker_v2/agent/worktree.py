@@ -64,10 +64,15 @@ class WorktreeRegistry:
         """Create worktree on branch km/<task_id> at base. Idempotent."""
         if not Path(repo).is_dir():
             raise WorktreeError("REPO_MISSING", repo[:120])
+        rc, prefix = _run(["git", "-C", repo, "rev-parse", "--show-prefix"], repo)
+        if rc != 0:
+            raise WorktreeError("REPO_MISSING", repo[:120])
+        prefix = prefix.strip()
         existing = self.get(task_id)
         if existing and existing.get("status") == "active" \
                 and Path(existing["path"]).is_dir():
-            return existing
+            return {**existing,
+                    "workspace_path": str(Path(existing["path"]) / prefix)}
         rc, base_commit = _run(["git", "-C", repo, "rev-parse", base], repo)
         if rc != 0:
             raise WorktreeError("BASE_UNKNOWN", base[:60])
@@ -81,6 +86,7 @@ class WorktreeRegistry:
         if rc != 0:
             raise WorktreeError("WORKTREE_ADD_FAIL", out)
         entry = {"task_id": task_id, "repo": repo, "path": str(path),
+                 "workspace_path": str(path / prefix),
                  "branch": branch, "base_commit": base_commit,
                  "status": "active", "created_at": _utcnow()}
         data = self._read()

@@ -169,6 +169,31 @@ class TestExecutor(FakeBackend):
             self.assertEqual(store.health()["doing"], 1)
             self.assertEqual(store.health()["failed"], 0)
 
+    def test_nested_workspace_executes_in_matching_isolated_subdirectory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = fixture_repo(root)
+            workspace = Path(repo) / "av15"
+            workspace.mkdir()
+            for name in ("calc.py", "test_calc.py"):
+                subprocess.run(["git", "-C", repo, "mv", name, f"av15/{name}"],
+                               check=True)
+            subprocess.run(["git", "-C", repo, "commit", "-qm", "nested workspace"],
+                           check=True)
+            config = config_for(self.port)
+            with mock.patch.dict(os.environ, {"KMW2_STATE_DIR": tmp}), \
+                    mock.patch.object(executor, "wait_signed_proof",
+                                      side_effect=self.verified_proof):
+                report = executor.execute_plan(
+                    simple_plan_for("fix add() so 2+3==5"), config,
+                    QueueStore(root / "q"), root / "receipts", root / "state",
+                    str(workspace), sleep_fn=lambda s: None)
+            self.assertEqual(report["status"], "DONE", report)
+            isolated = Path(report["tasks"][0]["worktree"])
+            self.assertEqual(isolated.name, "av15")
+            self.assertIn("return a + b", (isolated / "calc.py").read_text())
+            self.assertIn("return a - b", (workspace / "calc.py").read_text())
+
     def test_auditor_unavailable_blocks_before_any_queue_or_repo_change(self):
         from coding_worker_v2.agent.auditor import MissionAuditorError
 

@@ -49,6 +49,9 @@ receipts, plans and latest-pointer directory. Explicit `--base`, `--workspace`
 and `KMW2_STATE_DIR` overrides remain available; do not point them at a new
 store for acceptance. The source pin is printed on stderr, not inferred from
 the target workspace's Git revision.
+Task worktrees preserve the workspace's repository-relative subdirectory
+(for example `av15/`); edit paths and tests remain relative to that workspace,
+while the registry retains the checkout root for ownership and cleanup.
 
 An admission-blocked run records the actual `admission_audit` in
 `state/agent_last.json`. It creates no queue task or coding receipt and does

@@ -204,7 +204,7 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
     if registry is not None:
         try:
             worktree = registry.create(workspace, ns_id)
-            repo = worktree["path"]
+            repo = worktree["workspace_path"]
             entry["worktree"] = repo
             entry["branch"] = worktree["branch"]
         except Exception as exc:
