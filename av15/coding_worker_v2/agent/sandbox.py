@@ -25,6 +25,13 @@ def policy_decision(action: str, task_id: str, workspace: str, *,
     """KMCW-owned decisions only; never answer host CLI approval prompts."""
     decision, rule = "REQUIRE_HUMAN_APPROVAL", "UNKNOWN_OR_PRIVILEGED_ACTION"
     root = Path(workspace).resolve()
+    resolution_error = False
+    try:
+        resolved_paths = [(root / rel).resolve() for rel in paths]
+    except (OSError, RuntimeError):
+        resolved_paths, resolution_error = [], True
+    canonical = [str(path.relative_to(root)) for path in resolved_paths
+                 if path.is_relative_to(root)]
     protected = any(
         any(part.startswith(".env") or part in
             {".git", ".ssh", "credentials", "secrets", "production", "prod",
@@ -33,19 +40,24 @@ def policy_decision(action: str, task_id: str, workspace: str, *,
         or Path(rel).suffix.lower() in {".pem", ".key"}
         or "wrangler" in Path(rel).name.lower()
         or ".github/workflows" in str(rel).replace("\\", "/")
-        for rel in paths)
-    confined = all(
+        for rel in [*paths, *canonical])
+    confined = not resolution_error and all(
         not Path(rel).is_absolute() and ".." not in Path(rel).parts
-        and (root / rel).resolve().is_relative_to(root) for rel in paths)
+        and target.is_relative_to(root) for rel, target in zip(paths, resolved_paths))
     if protected:
         rule = "SECRET_PERMISSION_OR_PRODUCTION"
     elif not confined:
-        rule = "WORKSPACE_ESCAPE"
+        rule = "WORKSPACE_UNRESOLVABLE" if resolution_error else "WORKSPACE_ESCAPE"
     elif action in {"inspect", "git_status", "git_diff", "search", "checkpoint",
                     "receipt", "idempotent_retry"}:
         decision, rule = "AUTO_APPROVE", "SCOPED_SAFE_OPERATION"
     elif action == "edit":
-        if isolated and paths and set(paths).issubset(approved_paths):
+        symlinked = any(
+            (root.joinpath(*Path(rel).parts[:index])).is_symlink()
+            for rel in paths for index in range(1, len(Path(rel).parts) + 1))
+        if symlinked:
+            rule = "SYMLINK_EDIT_REQUIRES_APPROVAL"
+        elif isolated and paths and set(paths).issubset(approved_paths):
             decision, rule = "AUTO_APPROVE", "APPROVED_ISOLATED_EDIT"
         else:
             rule = "EDIT_SCOPE_OR_ISOLATION_REQUIRED"

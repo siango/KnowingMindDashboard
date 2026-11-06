@@ -10,6 +10,8 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from coding_worker_v2.agent import sandbox  # noqa: E402
 from coding_worker_v2.agent.sandbox import SandboxError  # noqa: E402
+from coding_worker_v2.pipeline import bounded_edit, PipelineError
+from coding_worker_v2.config import WorkerConfig
 from coding_worker_v2.agent.worktree import (WorktreeError,  # noqa: E402
                                              WorktreeRegistry)
 
@@ -180,6 +182,48 @@ class TestSandbox(unittest.TestCase):
                         action, "task", workspace, paths=paths,
                         approved_paths=paths, isolated=False)
                 self.assertEqual(event["decision"], "REQUIRE_HUMAN_APPROVAL")
+
+    def test_protected_symlink_alias_is_denied_by_policy_and_editor(self):
+        repo = self.root / "repo"
+        protected = repo / ".env"
+        protected.write_text("original\n")
+        (repo / "notes.py").symlink_to(".env")
+        for action in ("edit", "inspect"):
+            event = sandbox.policy_decision(
+                action, "task", str(repo), paths=["notes.py"],
+                approved_paths=["notes.py"], isolated=True)
+            self.assertEqual(event["decision"], "REQUIRE_HUMAN_APPROVAL")
+            self.assertEqual(event["rule_id"], "SECRET_PERMISSION_OR_PRODUCTION")
+        with self.assertRaises(PipelineError) as raised:
+            bounded_edit(str(repo), [{"path": "notes.py", "content": "changed\n"}],
+                         WorkerConfig(), allowed_paths=["notes.py"])
+        self.assertEqual(raised.exception.failure_class, "POLICY_DENY")
+        self.assertEqual(protected.read_text(), "original\n")
+
+    def test_directory_symlink_and_unapproved_alias_target_are_not_edit_scope(self):
+        repo = self.root / "repo"
+        directory = repo / "real"
+        directory.mkdir()
+        target = directory / "source.py"
+        target.write_text("original\n")
+        (repo / "alias").symlink_to("real", target_is_directory=True)
+        event = sandbox.policy_decision(
+            "edit", "task", str(repo), paths=["alias/source.py"],
+            approved_paths=["alias/source.py"], isolated=True)
+        self.assertEqual(event["decision"], "REQUIRE_HUMAN_APPROVAL")
+        self.assertEqual(event["rule_id"], "SYMLINK_EDIT_REQUIRES_APPROVAL")
+        with self.assertRaises(PipelineError):
+            bounded_edit(str(repo), [{"path": "alias/source.py", "content": "changed\n"}],
+                         WorkerConfig(), allowed_paths=["alias/source.py"])
+        self.assertEqual(target.read_text(), "original\n")
+
+    def test_unresolvable_symlink_requires_human_instead_of_auto_approval(self):
+        repo = self.root / "repo"
+        (repo / "loop").symlink_to("loop")
+        event = sandbox.policy_decision(
+            "inspect", "task", str(repo), paths=["loop"])
+        self.assertEqual(event["decision"], "REQUIRE_HUMAN_APPROVAL")
+        self.assertEqual(event["rule_id"], "WORKSPACE_UNRESOLVABLE")
 
     def test_verify_passes(self):
         report = sandbox.verify(str(self.root / "repo"))

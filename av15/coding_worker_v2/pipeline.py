@@ -60,8 +60,14 @@ def inspect_repo(repo: str) -> dict:
 
 
 def _safe_path(repo: Path, rel: str) -> Path:
-    candidate = (repo / rel).resolve()
     root = repo.resolve()
+    parts = Path(rel).parts
+    if Path(rel).is_absolute() or ".." in parts:
+        raise PipelineError("POLICY_DENY", f"path must be repo-relative: {rel[:100]}")
+    if any(root.joinpath(*parts[:index]).is_symlink()
+           for index in range(1, len(parts) + 1)):
+        raise PipelineError("POLICY_DENY", f"symlink edit requires approval: {rel[:100]}")
+    candidate = (root / rel).resolve()
     if candidate != root and root not in candidate.parents:
         raise PipelineError("POLICY_DENY", f"path escapes repo: {rel[:100]}")
     return candidate
