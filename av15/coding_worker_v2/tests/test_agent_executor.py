@@ -186,6 +186,8 @@ class TestExecutor(FakeBackend):
                     use_worktree=False)
             self.assertEqual(report["status"], "BLOCKED")
             self.assertEqual(report["next_action"], "AUDITOR_UNAVAILABLE")
+            self.assertEqual(report["admission_audit"]["reason"],
+                             "AUDITOR_UNAVAILABLE")
             self.assertEqual(store.health()["inbox"], 0)
             self.assertEqual(store.health()["doing"], 0)
             self.assertEqual(store.health()["done"], 0)

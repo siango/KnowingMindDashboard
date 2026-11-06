@@ -35,6 +35,24 @@ V3 execution remains blocked unless all mandatory audit and QC gates,
 including independent verification, pass. Each planned task must also list
 its approved files in `allowed_paths`; missing or nonexistent paths block
 execution before queue admission, and the editor cannot change other files.
+`plan --allowed-path path/to/file` explicitly supplies the operator's approved
+files (repeat the option for multiple files), including when model planning
+falls back. It replaces model-selected paths for every task; it cannot grant
+write scope to a read-only request. Review the saved plan before `run`.
+
+When the AV15 runtime has local edits and the approved source is in an existing
+separate checkout, configure `KMW2_SOURCE_ROOT` to that checkout's `av15`
+directory and `KMW2_SOURCE_SHA` to its exact approved commit in the runtime's
+`coding_worker_v2/.env`. The existing `km` launcher then imports that source,
+rejects mismatched or dirty worker code, and retains the original AV15 queue,
+receipts, plans and latest-pointer directory. Explicit `--base`, `--workspace`
+and `KMW2_STATE_DIR` overrides remain available; do not point them at a new
+store for acceptance. The source pin is printed on stderr, not inferred from
+the target workspace's Git revision.
+
+An admission-blocked run records the actual `admission_audit` in
+`state/agent_last.json`. It creates no queue task or coding receipt and does
+not establish coding E2E acceptance.
 
 ## Environment (`coding_worker_v2/.env`, never committed with secrets)
 

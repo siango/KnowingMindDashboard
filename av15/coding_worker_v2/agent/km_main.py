@@ -109,6 +109,18 @@ def cmd_plan(args, ctx) -> int:
         plan.revision = revision
         plan.engine = engine
         progress(done=2)
+    if args.allowed_path:
+        if agent_planner.is_read_only(command):
+            raise agent_planner.PlanError("PLAN_READ_ONLY_TOOL_DENIED")
+        data = plan.to_dict()
+        for task in data["tasks"]:
+            task["allowed_paths"] = list(args.allowed_path)
+        plan = agent_planner.validate_plan_dict(data, allowed)
+        root = Path(workspace).resolve()
+        for rel in args.allowed_path:
+            target = (root / rel).resolve()
+            if not target.is_relative_to(root) or not target.is_file():
+                raise agent_planner.PlanError("PLAN_SCOPE_PATHS_INVALID", rel)
     progress(phase="SAVE_PLAN", state="RUNNING", done=3)
     path = ctx["state_dir"] / "plans" / f"{plan.plan_id}.json"
     path.write_text(json.dumps(plan.to_dict(), ensure_ascii=False, indent=2),
@@ -262,6 +274,8 @@ def build_parser() -> argparse.ArgumentParser:
     plan.add_argument("--simple", action="store_true")
     plan.add_argument("--revise", default="")
     plan.add_argument("--feedback", default="")
+    plan.add_argument("--allowed-path", action="append", default=[],
+                      help="explicitly approve an existing workspace file for each task; repeat for more files")
     plan.set_defaults(func=cmd_plan)
     run = sub.add_parser("run", help="execute a saved plan")
     run.add_argument("plan")

@@ -101,6 +101,7 @@ def execute_plan(plan: Plan, config: WorkerConfig, store: QueueStore,
         return {"plan_id": plan.plan_id, "revision": plan.revision,
                 "tasks": blocked, "reused": 0, "done": 0, "failed": 0,
                 "skipped": len(blocked), "status": "BLOCKED",
+                "admission_audit": admission,
                 "next_action": "AUDITOR_UNAVAILABLE"}
     history = history if history is not None else []
     ordered = order_tasks(plan)
