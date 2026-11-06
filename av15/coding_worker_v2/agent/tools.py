@@ -19,7 +19,8 @@ from pathlib import Path
 from ..pipeline import inspect_repo, run_tests
 from ..providers import http_json, redact
 from ..receipts import read_receipt
-from ..tasks import Task
+from ..tasks import Task, ID_RE
+from .sandbox import policy_decision, scrubbed_env
 
 PERMISSIONS = {"read", "write", "destructive"}
 TYPE_MAP = {"str": str, "int": int, "bool": bool, "list": list, "dict": dict}
@@ -130,8 +131,29 @@ class ToolRegistry:
         for key, type_name in spec.optional.items():
             if key in args and not _check_type(args[key], type_name):
                 raise ToolError("TOOL_ARG_TYPE", f"{name}.{key} want {type_name}")
+        workspace = ctx.get("workspace", "")
+        paths = []
+        if args.get("repo"):
+            try:
+                paths = [str(Path(args["repo"]).resolve().relative_to(
+                    Path(workspace).resolve()))]
+            except ValueError:
+                paths = ["../outside-workspace"]
+        action = ("test" if name == "test_run" else
+                  "checkpoint" if name == "task_enqueue" else
+                  "inspect" if spec.permission == "read" else name)
+        approval = policy_decision(
+            action, ctx.get("task_id", "operator"), workspace,
+            paths=paths, command=args.get("command", ""), actor="KMCW_TOOL_ROUTER")
+        approval["human_authorized"] = (spec.permission == "destructive"
+                                         and ctx.get("authorize_destructive") is True)
+        ctx.setdefault("evidence", []).append(approval)
         if spec.permission == "destructive" and ctx.get("authorize_destructive") is not True:
             raise ToolError("PERMISSION_DENIED", f"{name} needs explicit authorization")
+        if approval["decision"] != "AUTO_APPROVE" and not approval["human_authorized"]:
+            raise ToolError("REQUIRE_HUMAN_APPROVAL", approval["rule_id"])
+        if name == "receipt_read" and not ID_RE.fullmatch(args["task_id"]):
+            raise ToolError("TOOL_ARGS_INVALID", "invalid receipt task id")
         probe = self._health.get(name)
         if probe is not None:
             available, reason = probe(ctx)
@@ -256,7 +278,7 @@ def build_default_registry() -> ToolRegistry:
                           "allowlist + timeout"),
                  lambda a, c: run_tests(_repo(a), a["command"],
                                         min(int(a.get("timeout_s", 300)), 900),
-                                        env=c.get("test_env")))
+                                        env=scrubbed_env(c.get("test_env"))))
     reg.register(ToolSpec("task_enqueue", "idempotent task enqueue",
                           {"mission_id": "str", "task_id": "str", "repo": "str",
                            "goal": "str"},

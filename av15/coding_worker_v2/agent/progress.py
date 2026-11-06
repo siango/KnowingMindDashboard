@@ -19,7 +19,8 @@ class LiveProgress:
         self.stop = threading.Event()
         self.fields = dict(phase=command, state="RUNNING", task="-", model="-",
                            tool="-", done=0, total=0, qc="NOT_RUN",
-                           receipt="PENDING", reference="-", timeout=None, result="PENDING", unit="steps", provider="-", reason="-", remote="-", waiting_for="Qwen")
+                           receipt="PENDING", reference="-", timeout=None, result="PENDING", unit="steps", provider="-", reason="-", remote="-", waiting_for="Qwen",
+                           quota="UNKNOWN", checkpoint="-", approval="-", retry=0)
         self.thread = threading.Thread(target=self._tick, daemon=True)
 
     def __enter__(self):
@@ -56,6 +57,7 @@ class LiveProgress:
             line = (f"[km] {f['state']} phase={f['phase']} task={f['task']} "
                     f"provider={f['provider']} model={f['model']} tool={f['tool']} remote={f['remote']} reason={f['reason']} elapsed={elapsed:.1f}s "
                     f"progress={percent} completed_{f['unit']}={f['done']}/{f['total']} "
+                    f"quota={f['quota']} checkpoint={f['checkpoint']} approval={f['approval']} retry={f['retry']} "
                     f"qc={f['qc']} receipt={f['receipt']} result={f['result']} ref={f['reference']}{waiting}")
             # Repaint wrapped rows in narrow terminals; pipes get plain lines.
             try:

@@ -13,6 +13,8 @@ logs, receipts, or exceptions.
 from __future__ import annotations
 
 import json
+import math
+import fcntl
 import os
 import re
 import shutil
@@ -20,11 +22,15 @@ import socket
 import subprocess
 import tempfile
 import time
+import uuid
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
+from email.utils import parsedate_to_datetime
+from contextlib import contextmanager
+from types import SimpleNamespace
 
 from .config import WorkerConfig
 
@@ -36,10 +42,46 @@ OLLAMA_KEEP_ALIVE = "5m"
 
 
 class ProviderError(Exception):
-    def __init__(self, reason: str, detail: str = ""):
+    def __init__(self, reason: str, detail: str = "", *, resources=None, trace=None):
         super().__init__(f"{reason}: {redact(detail)}" if detail else reason)
         self.reason = reason
         self.detail = redact(detail)
+        self.resources = resources or {}
+        self.trace = trace or []
+
+
+def resource_headers(headers, now: float | None = None) -> dict:
+    """Only standard disclosed limits; missing values are never inferred."""
+    now = time.time() if now is None else now
+    headers = headers or {}
+    result = {"quota": "UNKNOWN", "remaining": None, "limit": None,
+              "reset_at": None, "retry_at": None,
+              "observed_at": now, "source": "HTTP response headers"}
+    for key, header in (("remaining", "X-RateLimit-Remaining"),
+                        ("limit", "X-RateLimit-Limit"),
+                        ("reset_at", "X-RateLimit-Reset")):
+        try:
+            value = float(headers.get(header, ""))
+            if math.isfinite(value) and value >= 0:
+                result[key] = value
+        except (ValueError, TypeError):
+            continue
+    retry = headers.get("Retry-After")
+    if retry is not None:
+        try:
+            seconds = float(retry)
+            if math.isfinite(seconds) and seconds >= 0:
+                result["retry_at"] = now + seconds
+        except (ValueError, TypeError):
+            try:
+                result["retry_at"] = max(now, parsedate_to_datetime(retry).timestamp())
+            except (ValueError, TypeError, OverflowError):
+                pass
+    if result["remaining"] is not None:
+        result["quota"] = ("EXHAUSTED" if result["remaining"] == 0 else
+                           "LOW_QUOTA" if result["limit"] and
+                           result["remaining"] / result["limit"] <= 0.1 else "AVAILABLE")
+    return result
 
 
 def redact(text: str) -> str:
@@ -74,7 +116,8 @@ _NO_PROXY_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
 def http_json(url: str, payload: dict | None = None, headers: dict | None = None,
-              timeout: int = 30, max_bytes: int = 1_000_000) -> dict:
+              timeout: int = 30, max_bytes: int = 1_000_000,
+              resources: dict | None = None) -> dict:
     data = None
     req_headers = {"Content-Type": "application/json"}
     if headers:
@@ -87,9 +130,22 @@ def http_json(url: str, payload: dict | None = None, headers: dict | None = None
         # No proxy: local providers are loopback-only; paid API goes direct
         # so a sandbox proxy can neither observe keys nor fake responses.
         with _NO_PROXY_OPENER.open(req, timeout=timeout) as resp:
+            if resources is not None:
+                resources.update(resource_headers(resp.headers))
             raw = resp.read(max_bytes + 1)
     except urllib.error.HTTPError as exc:
-        raise ProviderError("HTTP_ERROR", f"status={exc.code}") from None
+        observed = resource_headers(exc.headers)
+        reason = "RATE_LIMITED" if exc.code == 429 else "HTTP_ERROR"
+        try:
+            body = json.loads(exc.read(8192))
+            code = body.get("error", {}).get("code") if isinstance(body, dict) else None
+            if code in {"insufficient_quota", "quota_exhausted"}:
+                reason = "QUOTA_EXHAUSTED"
+        except (ValueError, AttributeError, OSError):
+            pass
+        if reason == "QUOTA_EXHAUSTED":
+            observed["quota"] = "EXHAUSTED"
+        raise ProviderError(reason, f"status={exc.code}", resources=observed) from None
     except (urllib.error.URLError, TimeoutError, socket.timeout, OSError) as exc:
         raise ProviderError("UNAVAILABLE", type(exc).__name__) from None
     if len(raw) > max_bytes:
@@ -189,13 +245,14 @@ class OllamaProvider(BaseProvider):
     def _chat(self, model: str, messages: list[dict], max_tokens: int,
               timeout: int, structured: bool | dict = False) -> Generation:
         started = time.monotonic()
+        resources = {}
         data = http_json(self.base_url() + "/api/chat", {
             "model": model, "stream": False, "think": False,
             "keep_alive": OLLAMA_KEEP_ALIVE,
             "messages": messages,
             **({"format": structured if isinstance(structured, dict) else "json"} if structured else {}),
             "options": {"num_predict": max_tokens},
-        }, timeout=timeout)
+        }, timeout=timeout, resources=resources)
         try:
             text = data.get("message", {}).get("content", "")
         except AttributeError:
@@ -209,11 +266,12 @@ class OllamaProvider(BaseProvider):
             digest = ""
         return Generation(
             text=text, provider=self.name, model=model, version=digest,
-            tokens_in=data.get("prompt_eval_count") if isinstance(
-                data.get("prompt_eval_count"), int) else None,
-            tokens_out=data.get("eval_count") if isinstance(
-                data.get("eval_count"), int) else None,
-            latency_ms=int((time.monotonic() - started) * 1000))
+            tokens_in=data.get("prompt_eval_count") if type(
+                data.get("prompt_eval_count")) is int else None,
+            tokens_out=data.get("eval_count") if type(
+                data.get("eval_count")) is int else None,
+            latency_ms=int((time.monotonic() - started) * 1000),
+            execution={"resources": resources, "actual_cost_usd": None})
 
     def _version_for(self, model: str) -> str:
         for item in self.inventory():
@@ -279,6 +337,8 @@ class QwenProvider(OllamaProvider):
             try:
                 return self._chat(model, messages, max_tokens, timeout, structured=response_schema or True)
             except ProviderError as exc:
+                if exc.reason in {"RATE_LIMITED", "QUOTA_EXHAUSTED"}:
+                    raise
                 errors.append(f"{model}={exc.reason}")
         raise ProviderError("ALL_QWEN_MODELS_FAILED", "; ".join(errors))
 
@@ -292,6 +352,8 @@ class QwenProvider(OllamaProvider):
             try:
                 return self._chat(model, messages, max_tokens, timeout)
             except ProviderError as exc:
+                if exc.reason in {"RATE_LIMITED", "QUOTA_EXHAUSTED"}:
+                    raise
                 errors.append(f"{model}={exc.reason}")
         raise ProviderError("ALL_QWEN_MODELS_FAILED", "; ".join(errors))
 
@@ -347,24 +409,65 @@ class SpendLedger:
         self.path = path
 
     def read(self) -> dict:
+        if not self.path.exists():
+            return {"spent_usd": 0.0, "calls": 0, "reservations": {}}
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                return {"spent_usd": float(data.get("spent_usd", 0.0)),
-                        "calls": int(data.get("calls", 0))}
-        except (OSError, ValueError, TypeError):
-            pass
-        return {"spent_usd": 0.0, "calls": 0}
+            spent = float(data["spent_usd"])
+            calls = data["calls"]
+            reservations = data.get("reservations", {})
+            if (not math.isfinite(spent) or spent < 0 or type(calls) is not int
+                    or calls < 0 or not isinstance(reservations, dict)
+                    or any(type(v) not in (int, float) or not math.isfinite(v)
+                           or v < 0 for v in reservations.values())):
+                raise ValueError("invalid ledger")
+            return {"spent_usd": spent, "calls": calls, "reservations": reservations}
+        except (OSError, ValueError, TypeError, KeyError):
+            raise ProviderError("BUDGET_LEDGER_UNREADABLE") from None
 
-    def add(self, cost_usd: float) -> dict:
-        state = self.read()
-        state["spent_usd"] = round(state["spent_usd"] + cost_usd, 6)
-        state["calls"] += 1
+    @contextmanager
+    def locked(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self.path.with_suffix(".lock").open("a") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            yield
+
+    def _write(self, state):
         tmp = self.path.with_suffix(".tmp")
         tmp.write_text(json.dumps(state), encoding="utf-8")
         tmp.replace(self.path)
-        return state
+
+    def reserve(self, amount: float, budget: float) -> str:
+        if (not math.isfinite(amount) or amount < 0
+                or not math.isfinite(budget) or budget < 0):
+            raise ProviderError("BUDGET_INVALID")
+        with self.locked():
+            state = self.read()
+            if state["spent_usd"] + sum(state["reservations"].values()) + amount > budget:
+                raise ProviderError("BUDGET_EXCEEDED")
+            reference = uuid.uuid4().hex
+            state["reservations"][reference] = amount
+            self._write(state)
+            return reference
+
+    def settle(self, reference: str, cost: float | None) -> None:
+        with self.locked():
+            state = self.read()
+            if reference not in state["reservations"]:
+                raise ProviderError("BUDGET_RESERVATION_MISSING")
+            if cost is not None:
+                del state["reservations"][reference]
+                state["spent_usd"] = round(state["spent_usd"] + cost, 6)
+            state["calls"] += 1
+            self._write(state)
+
+    def add(self, cost_usd: float) -> dict:
+        with self.locked():
+            state = self.read()
+            state["spent_usd"] = round(state["spent_usd"] + cost_usd, 6)
+            state["calls"] += 1
+            self._write(state)
+            return state
 
 
 class DeepSeekAPIProvider(BaseProvider):
@@ -380,7 +483,8 @@ class DeepSeekAPIProvider(BaseProvider):
         allowed, reason = self.config.paid_api_allowed()
         if not allowed:
             return False, reason
-        spent = self.ledger.read()["spent_usd"]
+        state = self.ledger.read()
+        spent = state["spent_usd"] + sum(state["reservations"].values())
         if spent >= self.config.spending_budget_usd:
             return False, "BUDGET_EXHAUSTED"
         return True, f"MODEL={self.config.deepseek_api_model}"
@@ -388,7 +492,8 @@ class DeepSeekAPIProvider(BaseProvider):
     def capabilities(self) -> Capabilities:
         ok, reason = self.is_available()
         if not ok:
-            raise ProviderError("UNAVAILABLE", reason)
+            raise ProviderError("BUDGET_EXCEEDED" if "BUDGET" in reason
+                                else "UNAVAILABLE", reason)
         return Capabilities(provider=self.name,
                             model=self.config.deepseek_api_model, local=False)
 
@@ -408,18 +513,17 @@ class DeepSeekAPIProvider(BaseProvider):
         if not key:
             raise ProviderError("UNAVAILABLE", "API_KEY_MISSING")
         # Pre-check worst case against remaining budget.
-        remaining = self.config.spending_budget_usd - self.ledger.read()["spent_usd"]
-        worst = self._cost(8000, max_tokens)
-        if worst > remaining:
-            raise ProviderError("BUDGET_EXCEEDED",
-                                f"worst_case={worst} remaining={round(remaining, 4)}")
+        input_bound = max(8000, len(json.dumps(messages).encode("utf-8")))
+        worst = self._cost(input_bound, max_tokens)
+        reservation = self.ledger.reserve(worst, self.config.spending_budget_usd)
         started = time.monotonic()
+        resources = {}
         data = http_json(self.config.deepseek_api_base.rstrip("/") + "/chat/completions",
                          {"model": self.config.deepseek_api_model,
                           "messages": messages, "max_tokens": max_tokens,
                           "stream": False},
                          headers={"Authorization": "Bearer " + key},
-                         timeout=timeout)
+                         timeout=timeout, resources=resources)
         try:
             text = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError):
@@ -427,16 +531,20 @@ class DeepSeekAPIProvider(BaseProvider):
         if not isinstance(text, str) or not text.strip():
             raise ProviderError("INVALID_RESPONSE", "empty content")
         usage = data.get("usage", {}) if isinstance(data.get("usage"), dict) else {}
-        tin = usage.get("prompt_tokens", 0) if isinstance(
-            usage.get("prompt_tokens"), int) else 0
-        tout = usage.get("completion_tokens", 0) if isinstance(
-            usage.get("completion_tokens"), int) else 0
-        state = self.ledger.add(self._cost(tin, tout))
-        _ = state
+        tin = usage.get("prompt_tokens")
+        tout = usage.get("completion_tokens")
+        tin = tin if type(tin) is int and tin >= 0 else None
+        tout = tout if type(tout) is int and tout >= 0 else None
+        cost = self._cost(tin, tout) if tin is not None and tout is not None else None
+        self.ledger.settle(reservation, cost)
         return Generation(text=text, provider=self.name,
                           model=self.config.deepseek_api_model,
                           tokens_in=tin, tokens_out=tout,
-                          latency_ms=int((time.monotonic() - started) * 1000))
+                          latency_ms=int((time.monotonic() - started) * 1000),
+                          execution={"resources": resources, "actual_cost_usd": None,
+                                     "estimated_cost_usd": cost,
+                                     "cost_basis": "measured tokens and configured prices; not billed cost",
+                                     "budget_reserved_usd": worst if cost is None else 0})
 
 
 class MuseCliProvider(BaseProvider):
@@ -449,9 +557,11 @@ class MuseCliProvider(BaseProvider):
         return shutil.which("muse")
 
     def is_available(self) -> tuple[bool, str]:
+        if os.environ.get("KMW2_MUSE_ENABLED") != "1":
+            return False, "MUSE_NOT_CONFIGURED"
         if not self.binary():
             return False, "MUSE_BINARY_ABSENT"
-        return True, "HEADLESS_CONTRACT_ASSUMED"
+        return False, "MUSE_READ_ONLY_CONTRACT_UNVERIFIED"
 
     def capabilities(self) -> Capabilities:
         ok, reason = self.is_available()
@@ -461,6 +571,9 @@ class MuseCliProvider(BaseProvider):
 
     def generate(self, messages: list[dict], max_tokens: int = 1024,
                  timeout: int = 120) -> Generation:
+        ok, reason = self.is_available()
+        if not ok:
+            raise ProviderError("UNAVAILABLE", reason)
         binary = self.binary()
         if not binary:
             raise ProviderError("UNAVAILABLE", "MUSE_BINARY_ABSENT")
@@ -533,6 +646,211 @@ class RouteAttempt:
     reason: str = ""
 
 
+class ProviderResources:
+    """Cooldown and measured history inside the existing queue checkpoints."""
+
+    KEY = ".provider-resources"
+
+    def __init__(self, store, clock=time.time):
+        self.store, self.clock = store, clock
+
+    def read(self) -> dict:
+        checkpoint = self.store.load_checkpoint(self.KEY)
+        if checkpoint is None:
+            if (self.store.checkpoints / f"{self.KEY}.json").exists():
+                raise ProviderError("RESOURCE_STATE_UNREADABLE")
+            return {}
+        data = checkpoint.get("data")
+        if not isinstance(data, dict):
+            raise ProviderError("RESOURCE_STATE_UNREADABLE")
+        return data
+
+    def update(self, name, change):
+        with self.store._locked():
+            state = self.read()
+            row = dict(state.get(name, {}))
+            change(row)
+            state[name] = row
+            self.store.save_checkpoint(self.KEY, "provider_resources", state)
+            return row
+
+    def gate(self, name) -> tuple[bool, str, float | None]:
+        row = self.read().get(name, {})
+        until = row.get("blocked_until")
+        if until is not None and self.clock() < until:
+            return False, row.get("status", "RATE_LIMITED"), until
+        if row.get("status") == "EXHAUSTED" and until is None:
+            return False, "EXHAUSTED", None
+        return True, "READY", None
+
+    def ordered(self, chain):
+        from .agent.memory import strategy_effectiveness
+        state = self.read()
+        outcomes = strategy_effectiveness(self.store, self.store.base.parent / "receipts")
+        def rank(provider):
+            row = state.get(provider.name, {})
+            tasks = outcomes.get(provider.name, {})
+            terminal = tasks.get("verified", 0) + tasks.get("failed", 0)
+            return (provider.name != "qwen-local",
+                    not getattr(provider, "local", False),
+                    tasks.get("failed", 0) / terminal if terminal else 0.5,
+                    row.get("mean_latency_ms", float("inf")),
+                    row.get("mean_cost_usd", float("inf")))
+        return sorted(chain, key=rank)
+
+    def failed(self, name, error):
+        def change(row):
+            failures = row.get("consecutive_failures", 0) + 1
+            observed = error.resources
+            status = ("EXHAUSTED" if error.reason == "QUOTA_EXHAUSTED" or
+                      "BUDGET" in error.reason else
+                      "RATE_LIMITED" if error.reason == "RATE_LIMITED" else "UNAVAILABLE")
+            deadlines = [v for v in (observed.get("retry_at"), observed.get("reset_at"))
+                         if isinstance(v, (int, float)) and v > self.clock()]
+            until = (max(deadlines) if deadlines else None if status == "EXHAUSTED"
+                     else self.clock() + min(900, 30 * 2 ** min(failures - 1, 5)))
+            row.update(status=status, quota=observed.get("quota", "UNKNOWN"),
+                       remaining=observed.get("remaining"), limit=observed.get("limit"),
+                       reset_at=observed.get("reset_at"), blocked_until=until,
+                       cooldown_source="provider" if deadlines else "local backoff policy",
+                       observed_at=self.clock(), source=observed.get("source", "execution error"),
+                       last_reason=error.reason, consecutive_failures=failures,
+                       failures=row.get("failures", 0) + 1)
+        return self.update(name, change)
+
+    def succeeded(self, generation):
+        def change(row):
+            count = row.get("generations_succeeded", 0) + 1
+            cost = generation.execution.get("actual_cost_usd")
+            if cost is None:
+                cost = generation.execution.get("estimated_cost_usd")
+            observed = generation.execution.get("resources", {})
+            row.update(status=observed.get("quota", "AVAILABLE")
+                       if observed.get("quota") != "UNKNOWN" else "AVAILABLE",
+                       quota=observed.get("quota", "UNKNOWN"),
+                       remaining=observed.get("remaining"), limit=observed.get("limit"),
+                       reset_at=observed.get("reset_at"),
+                       blocked_until=observed.get("reset_at")
+                       if observed.get("quota") == "EXHAUSTED"
+                       and (observed.get("reset_at") or 0) > self.clock() else None,
+                       consecutive_failures=0, generations_succeeded=count,
+                       model=generation.model, observed_at=self.clock(),
+                       source=observed.get("source", "successful inference; quota not disclosed"),
+                       mean_latency_ms=(row.get("mean_latency_ms", 0) * (count - 1)
+                                        + generation.latency_ms) / count,
+                       last_tokens_in=generation.tokens_in,
+                       last_tokens_out=generation.tokens_out,
+                       actual_cost_usd=generation.execution.get("actual_cost_usd"),
+                       estimated_cost_usd=generation.execution.get("estimated_cost_usd"),
+                       last_reason="SUCCESS")
+            if cost is not None:
+                costs = row.get("cost_observations", 0)
+                row["mean_cost_usd"] = (row.get("mean_cost_usd", 0) * costs + cost) / (costs + 1)
+                row["cost_observations"] = costs + 1
+        return self.update(generation.provider, change)
+
+    def invoke(self, provider, task, messages, max_tokens, timeout, *, generate_fn=None):
+        if not re.fullmatch(r"[a-z0-9-]+", provider.name):
+            raise ProviderError("PROVIDER_NAME_INVALID")
+        with (self.store.checkpoints / f".provider-{provider.name}.lock").open("a") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            allowed, reason, until = self.gate(provider.name)
+            if not allowed:
+                raise ProviderError("PROVIDER_COOLDOWN", reason,
+                                    resources={"retry_at": until})
+            external = not getattr(provider, "local", False)
+            if external and provider.name != "deepseek-api":
+                hints = task.task_input.hints
+                if (hints.get("external_authorized") is not True
+                        or hints.get("billing_mode") != "existing-subscription"):
+                    raise ProviderError("EXTERNAL_NOT_AUTHORIZED")
+                prior = (self.store.load_checkpoint(task.task_id) or {}).get("data", {})
+                limit = hints.get("max_provider_dispatches", 0)
+                used = prior.get("external_dispatches", 0)
+                if prior.get("dispatch_state") in {"pending", "ambiguous"}:
+                    raise ProviderError("DISPATCH_RECONCILIATION_REQUIRED")
+                if type(limit) is not int or used >= limit:
+                    raise ProviderError("EXTERNAL_DISPATCH_BUDGET_EXHAUSTED")
+                self.store.checkpoint_task(task, "dispatching", {
+                    "external_dispatches": used + 1, "dispatch_state": "pending",
+                    "dispatch_provider": provider.name})
+            try:
+                generation = (generate_fn or provider.generate)(messages, max_tokens, timeout)
+            except ProviderError as error:
+                self.failed(provider.name, error)
+                if external and provider.name != "deepseek-api":
+                    self.store.checkpoint_task(task, "dispatch_failed", {
+                        "dispatch_state": "ambiguous" if error.reason in
+                        {"TIMEOUT", "CLI_EXEC_FAILED"} else "returned_error"})
+                raise
+            if external and provider.name != "deepseek-api":
+                self.store.checkpoint_task(task, "dispatch_returned", {
+                    "dispatch_state": "returned"})
+            self.succeeded(generation)
+            return generation
+
+
+def execution_chain(config, task, ledger_path=None):
+    """Only configured proposal providers; external inference needs task authority."""
+    from .agent.providers_ext import CodexCliProvider, CopilotCliProvider
+    hints = task.task_input.hints
+    authorized = (hints.get("external_authorized") is True
+                  and hints.get("billing_mode") == "existing-subscription")
+    providers = {"qwen-local": QwenProvider(config)}
+    if config.deepseek_local_model:
+        providers["deepseek-local"] = DeepSeekLocalProvider(config)
+    if config.deepseek_api_enabled:
+        providers["deepseek-api"] = DeepSeekAPIProvider(config, ledger_path)
+    for name, cls, enabled in (
+            ("codex-cli", CodexCliProvider, "KMW2_CODEX_ENABLED"),
+            ("copilot-cli", CopilotCliProvider, "KMW2_COPILOT_ENABLED")):
+        if os.environ.get(enabled) == "1" or (authorized and
+                task.task_input.preferred_provider in ("auto", name)):
+            providers[name] = cls(config, authorized=authorized,
+                                  workspace=task.task_input.repo)
+    if os.environ.get("KMW2_MUSE_ENABLED") == "1" and authorized:
+        providers["muse-cli"] = MuseCliProvider(config)
+    preferred = task.task_input.preferred_provider
+    if preferred and preferred != "auto":
+        return [providers[preferred]] if preferred in providers else []
+    return list(providers.values())
+
+
+def provider_inventory(config, store, workspace):
+    """Read-only probes, no inference. Quota freshness is independent of availability."""
+    task = SimpleNamespace(task_input=SimpleNamespace(
+        hints={}, preferred_provider="auto", repo=workspace))
+    resources = ProviderResources(store)
+    state = resources.read()
+    rows = []
+    for provider in execution_chain(
+            config, task, store.base.parent / "state" / "spend_ledger.json"):
+        allowed, reason, until = resources.gate(provider.name)
+        row = dict(state.get(provider.name, {}))
+        quota_fresh = ((time.time() - row.get("observed_at", 0)) <= 300
+                       and (row.get("reset_at") is None
+                            or time.time() < row["reset_at"]))
+        probe = {}
+        if allowed:
+            if hasattr(provider, "probe"):
+                probe = provider.probe()
+                available, reason = probe["available"], probe["reason"]
+            else:
+                available, reason = provider.is_available()
+            status = (row.get("quota") if quota_fresh and
+                      row.get("quota") in {"LOW_QUOTA", "EXHAUSTED"} else "AVAILABLE"
+                      ) if available else "UNAVAILABLE"
+        else:
+            available, status = False, row.get("status", "UNKNOWN")
+        rows.append({**row, **probe, "provider": provider.name, "available": available,
+                     "status": status, "reason": reason, "retry_at": until,
+                     "quota": row.get("quota", "UNKNOWN") if quota_fresh else "UNKNOWN",
+                     "quota_fresh": quota_fresh, "remaining": row.get("remaining")
+                     if quota_fresh else None, "probe_observed_at": time.time(),
+                     "probe_source": "configured provider read-only availability/authentication probe"})
+    return rows
+
+
 def build_providers(config: WorkerConfig,
                     ledger_path: Path | None = None) -> dict[str, BaseProvider]:
     return {
@@ -588,28 +906,37 @@ def route_chain(config: WorkerConfig, preferred: str = "",
 
 def generate_with_fallback(messages: list[dict], chain: list[BaseProvider],
                            max_tokens: int = 1024,
-                           timeout: int = 120) -> tuple[Generation, list[RouteAttempt]]:
+                           timeout: int = 120, *, resources=None, task=None,
+                           progress=None) -> tuple[Generation, list[RouteAttempt]]:
     """Try each provider in order. Explicit per-provider failure records."""
     trace: list[RouteAttempt] = []
     if not chain:
         raise ProviderError("NO_PROVIDER_AVAILABLE", "empty chain")
-    for provider in chain:
+    for provider in resources.ordered(chain) if resources else chain:
+        if resources:
+            allowed, reason, _ = resources.gate(provider.name)
+            if not allowed:
+                trace.append(RouteAttempt(provider.name, "", False, reason))
+                continue
         try:
             caps = provider.capabilities()
             model = caps.model
         except ProviderError as exc:
+            if resources:
+                resources.failed(provider.name, exc)
             trace.append(RouteAttempt(provider.name, "", False, exc.reason))
             continue
         try:
-            gen = provider.generate(messages, max_tokens, timeout)
+            if progress:
+                progress(phase="PROVIDER_EXECUTE", state="WAITING",
+                         provider=provider.name, model=model, timeout=timeout,
+                         waiting_for=provider.name, reason="CAPABILITY_BUDGET_QUOTA_HISTORY")
+            gen = (resources.invoke(provider, task, messages, max_tokens, timeout)
+                   if resources else provider.generate(messages, max_tokens, timeout))
         except ProviderError as exc:
             trace.append(RouteAttempt(provider.name, model, False, exc.reason))
-            continue
-        except Exception as exc:
-            trace.append(RouteAttempt(provider.name, model, False,
-                                      f"CRASH_{type(exc).__name__}"))
             continue
         trace.append(RouteAttempt(provider.name, model, True, "OK"))
         return gen, trace
     reasons = "; ".join(f"{t.provider}={t.reason}" for t in trace)
-    raise ProviderError("ALL_PROVIDERS_FAILED", reasons)
+    raise ProviderError("ALL_PROVIDERS_FAILED", reasons, trace=trace)

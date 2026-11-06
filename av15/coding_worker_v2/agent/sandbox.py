@@ -9,12 +9,58 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import time
 from pathlib import Path
 
-from ..pipeline import ALLOWED_TEST_PREFIXES, PipelineError, run_tests
+from ..pipeline import ALLOWED_TEST_PREFIXES, PipelineError, run_tests, test_argv
+from ..providers import redact
 
 SECRET_KEY_RE = re.compile(r"(?i)(secret|api[_-]?key|token|passwd|private[_-]?key)")
 SCHEMA = "KM_SANDBOX_REPORT_V1"
+
+
+def policy_decision(action: str, task_id: str, workspace: str, *,
+                    paths=(), approved_paths=(), isolated=False,
+                    command="", actor="KMCW_EXECUTOR") -> dict:
+    """KMCW-owned decisions only; never answer host CLI approval prompts."""
+    decision, rule = "REQUIRE_HUMAN_APPROVAL", "UNKNOWN_OR_PRIVILEGED_ACTION"
+    root = Path(workspace).resolve()
+    protected = any(
+        any(part.startswith(".env") or part in
+            {".git", ".ssh", "credentials", "secrets", "production", "prod",
+             "id_rsa", "id_ed25519"}
+            for part in Path(rel).parts)
+        or Path(rel).suffix.lower() in {".pem", ".key"}
+        or "wrangler" in Path(rel).name.lower()
+        or ".github/workflows" in str(rel).replace("\\", "/")
+        for rel in paths)
+    confined = all(
+        not Path(rel).is_absolute() and ".." not in Path(rel).parts
+        and (root / rel).resolve().is_relative_to(root) for rel in paths)
+    if protected:
+        rule = "SECRET_PERMISSION_OR_PRODUCTION"
+    elif not confined:
+        rule = "WORKSPACE_ESCAPE"
+    elif action in {"inspect", "git_status", "git_diff", "search", "checkpoint",
+                    "receipt", "idempotent_retry"}:
+        decision, rule = "AUTO_APPROVE", "SCOPED_SAFE_OPERATION"
+    elif action == "edit":
+        if isolated and paths and set(paths).issubset(approved_paths):
+            decision, rule = "AUTO_APPROVE", "APPROVED_ISOLATED_EDIT"
+        else:
+            rule = "EDIT_SCOPE_OR_ISOLATION_REQUIRED"
+    elif action in {"test", "lint", "static_check"}:
+        try:
+            test_argv(command)
+            decision, rule = "AUTO_APPROVE", "ALLOWLISTED_CHECK"
+        except PipelineError:
+            rule = "COMMAND_NOT_ALLOWLISTED"
+    return {"event": "approval_decision", "decision": decision,
+            "rule_id": rule, "task_id": task_id, "actor": actor,
+            "action": action, "source": "KMCW bounded execution policy",
+            "observed_at": time.time(),
+            "evidence": {"paths": list(paths), "command": redact(command),
+                         "isolated_worktree": isolated}}
 
 
 class SandboxError(Exception):

@@ -1,9 +1,4 @@
-"""End-to-end: fake Qwen/Ollama backend drives the full task loop.
-
-Proves the Qwen-local coding path (route -> edit -> syntax -> test ->
-receipt) works end to end given a reachable Ollama; the only gap to a
-live G2 is the missing Ollama service on this host.
-"""
+"""Fake-provider pipeline regressions, not live coding acceptance evidence."""
 import json
 import io
 import os
@@ -100,6 +95,92 @@ class TestE2E(FakeBackend):
     def tearDown(self):
         self._state_patch.stop()
         self._tmpstate.cleanup()
+
+    def continuity_task(self, root):
+        repo = fixture_repo(root)
+        hints = direct_scope("resume", "KM-E2E", "fix add()", ["calc.py"])
+        sha = subprocess.check_output(["git", "-C", repo, "rev-parse", "HEAD"],
+                                      text=True).strip()
+        hints["base_commit"] = hints["approved_scope"]["base_commit"] = sha
+        store = QueueStore(root / "q")
+        store.enqueue(Task.from_dict({
+            "mission_id": "KM-E2E", "task_id": "resume", "owner_node": "AV15",
+            "input": {"repo": repo, "goal": "fix add()",
+                      "test_command": "python3 -m unittest", "hints": hints}}))
+        return repo, store, store.claim("resume")
+
+    @staticmethod
+    def recover_claim(store):
+        path = store.doing / "resume.lease.json"
+        lease = json.loads(path.read_text())
+        lease["expires_at"] = 0
+        path.write_text(json.dumps(lease))
+        store.recover()
+        return store.claim("resume")
+
+    def test_disconnect_resumes_generated_or_edited_without_duplicate_work(self):
+        for stage in ("generated", "edited", "tested"):
+            with self.subTest(stage=stage), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                repo, store, claimed = self.continuity_task(root)
+                persist = store.checkpoint_task
+                def disconnect(task, current_stage, data):
+                    persist(task, current_stage, data)
+                    if current_stage == stage:
+                        raise InterruptedError("session disconnected")
+                with mock.patch.object(store, "checkpoint_task", side_effect=disconnect):
+                    with self.assertRaises(InterruptedError):
+                        run_task(claimed, store, config_for(self.port))
+                resumed = self.recover_claim(store)
+                self.assertNotEqual(claimed.lease_token, resumed.lease_token)
+                with mock.patch.object(run_once, "generate_with_fallback") as generate, \
+                        mock.patch.object(run_once, "bounded_edit",
+                                          wraps=run_once.bounded_edit) as edit:
+                    result = run_task(resumed, store, config_for(self.port))
+                self.assertEqual(result.status, "DONE", result.next_action)
+                generate.assert_not_called()
+                self.assertEqual(edit.call_count, int(stage == "generated"))
+                self.assertIn("return a + b", (Path(repo) / "calc.py").read_text())
+                self.assertTrue(any(e.get("event") == "checkpoint_resumed"
+                                    for e in result.evidence))
+                self.assertTrue(any(e.get("event") == "tests_run"
+                                    and e["tests"]["rc"] == 0 for e in result.evidence))
+
+    def test_resume_rejects_changed_sha_or_workspace_content(self):
+        for change in ("sha", "content"):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                repo, store, claimed = self.continuity_task(root)
+                persist = store.checkpoint_task
+                def disconnect(task, stage, data):
+                    persist(task, stage, data)
+                    raise InterruptedError("session disconnected")
+                with mock.patch.object(store, "checkpoint_task", side_effect=disconnect):
+                    with self.assertRaises(InterruptedError):
+                        run_task(claimed, store, config_for(self.port))
+                if change == "sha":
+                    subprocess.run(["git", "-C", repo, "commit", "--allow-empty",
+                                    "-qm", "source changed"], check=True)
+                else:
+                    (Path(repo) / "calc.py").write_text("def add(a, b):\n return a * b\n")
+                resumed = self.recover_claim(store)
+                with mock.patch.object(run_once, "generate_with_fallback") as generate:
+                    result = run_task(resumed, store, config_for(self.port))
+                self.assertEqual(result.status, "FAILED")
+                self.assertEqual(result.next_action, "SOURCE_SHA_MISMATCH"
+                                 if change == "sha" else "CHECKPOINT_WORKSPACE_MISMATCH")
+                generate.assert_not_called()
+
+    def test_repeated_identical_failure_stops_repair_loop(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, store, claimed = self.continuity_task(Path(tmp))
+            generation = Generation("invalid JSON", "qwen-local", "fake")
+            with mock.patch.object(run_once, "generate_with_fallback",
+                                   return_value=(generation, [])) as generate:
+                result = run_task(claimed, store, config_for(self.port),
+                                  chain=[SimpleNamespace(name="qwen-local")])
+            self.assertEqual(result.next_action, "STAGNATION_DETECTED")
+            self.assertEqual(generate.call_count, 2)
 
     def test_legacy_once_is_blocked_before_queue_claim(self):
         with tempfile.TemporaryDirectory() as tmp:

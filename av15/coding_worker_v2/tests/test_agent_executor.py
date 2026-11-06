@@ -15,6 +15,8 @@ from coding_worker_v2.agent.auditor import (SCOPE_DIGEST,  # noqa: E402
 from coding_worker_v2.config import WorkerConfig  # noqa: E402
 from coding_worker_v2.queue_store import QueueStore  # noqa: E402
 from coding_worker_v2.tests import FakeBackend, FakeState  # noqa: E402
+from coding_worker_v2.providers import ProviderError, QwenProvider
+from coding_worker_v2.tasks import Task
 
 FIX = json.dumps({"edits": [{"path": "calc.py", "old": "return a - b",
                               "new": "return a + b"}]})
@@ -103,6 +105,118 @@ class TestExecutor(FakeBackend):
             self.assertEqual(len(chain), 1)
             self.assertEqual(chain[0].name, "qwen-local")
 
+    def test_nonisolated_edit_requires_human_before_enqueue(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = fixture_repo(root)
+            store = QueueStore(root / "q")
+            report = executor.execute_plan(
+                simple_plan_for("fix add()"), config_for(self.port), store,
+                root / "receipts", root / "state", repo, use_worktree=False)
+            self.assertEqual(report["status"], "BLOCKED")
+            self.assertEqual(report["tasks"][0]["pending_approval"]["rule_id"],
+                             "EDIT_SCOPE_OR_ISOLATION_REQUIRED")
+            self.assertEqual(store.health()["inbox"], 0)
+            self.assertIn("return a - b", (Path(repo) / "calc.py").read_text())
+
+    def test_rate_limit_defers_and_duplicate_run_preserves_receipt_identity(self):
+        import time
+        from coding_worker_v2.receipts import read_receipt
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = fixture_repo(root)
+            store = QueueStore(root / "q")
+            plan = simple_plan_for("fix add()")
+            with mock.patch.dict(os.environ, {"KMW2_STATE_DIR": tmp}), \
+                    mock.patch.object(QwenProvider, "generate", side_effect=ProviderError(
+                        "RATE_LIMITED", resources={"retry_at": time.time() + 100})) as generate:
+                first = executor.execute_plan(
+                    plan, config_for(self.port), store, root / "receipts",
+                    root / "state", repo, sleep_fn=lambda _: None)
+                second = executor.execute_plan(
+                    plan, config_for(self.port), store, root / "receipts",
+                    root / "state", repo, sleep_fn=lambda _: None)
+            self.assertEqual(first["status"], "BLOCKED", first)
+            self.assertEqual(second["tasks"][0]["decision"], "RESUME")
+            self.assertEqual(generate.call_count, 1)
+            self.assertEqual(store.health()["inbox"], 1)
+            self.assertEqual(store.health()["doing"], 0)
+            receipt = read_receipt(Path(first["tasks"][0]["receipt"]))
+            self.assertEqual(receipt["status"], "BLOCKED")
+            self.assertEqual(receipt["task_id"], "ptest-t1")
+            self.assertEqual(receipt["source_sha"], executor.current_base_commit(repo))
+
+    def test_targeted_claim_leaves_foreign_task_unleased(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = fixture_repo(root)
+            store = QueueStore(root / "q")
+            store.enqueue(Task.from_dict({
+                "mission_id": "M", "task_id": "000-foreign", "owner_node": "AV15",
+                "input": {"repo": repo, "goal": "unrelated existing work"}}))
+            with mock.patch.dict(os.environ, {"KMW2_STATE_DIR": tmp}), \
+                    mock.patch.object(executor, "wait_signed_proof",
+                                      side_effect=self.verified_proof):
+                report = executor.execute_plan(
+                    simple_plan_for("fix add()"), config_for(self.port), store,
+                    root / "receipts", root / "state", repo)
+            self.assertEqual(report["status"], "DONE", report)
+            self.assertTrue((store.inbox / "000-foreign.json").is_file())
+            self.assertFalse(store.lease_valid("000-foreign"))
+
+    def test_executor_resumes_existing_checkpoint_after_disconnect(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = fixture_repo(root)
+            store = QueueStore(root / "q")
+            plan = simple_plan_for("fix add()")
+            persist = store.checkpoint_task
+            def disconnect(task, stage, data):
+                persist(task, stage, data)
+                if stage == "generated":
+                    raise InterruptedError("session disconnected")
+            with mock.patch.object(store, "checkpoint_task", side_effect=disconnect):
+                with self.assertRaises(InterruptedError):
+                    executor.execute_plan(
+                        plan, config_for(self.port), store, root / "receipts",
+                        root / "state", repo)
+            lease_path = store.doing / "ptest-t1.lease.json"
+            lease = json.loads(lease_path.read_text())
+            lease["expires_at"] = 0
+            lease_path.write_text(json.dumps(lease))
+            with mock.patch.dict(os.environ, {"KMW2_STATE_DIR": tmp}), \
+                    mock.patch.object(QwenProvider, "generate") as generate, \
+                    mock.patch.object(executor, "wait_signed_proof",
+                                      side_effect=self.verified_proof):
+                report = executor.execute_plan(
+                    plan, config_for(self.port), store, root / "receipts",
+                    root / "state", repo)
+            self.assertEqual(report["status"], "DONE", report)
+            self.assertEqual(report["tasks"][0]["decision"], "RESUME")
+            self.assertEqual(store.health()["done"], 1)
+            generate.assert_not_called()
+            archived = json.loads((store.done / "ptest-t1" / "task.json").read_text())
+            self.assertTrue(any(e.get("event") == "checkpoint_resumed"
+                                for e in archived["evidence"]))
+
+    def test_stagnation_stops_outer_queue_retry_as_well(self):
+        from coding_worker_v2.providers import Generation
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = fixture_repo(root)
+            store = QueueStore(root / "q")
+            with mock.patch.dict(os.environ, {"KMW2_STATE_DIR": tmp}), \
+                    mock.patch.object(QwenProvider, "generate", return_value=Generation(
+                        "invalid JSON", "qwen-local", "fake")) as generate:
+                report = executor.execute_plan(
+                    simple_plan_for("fix add()"), config_for(self.port), store,
+                    root / "receipts", root / "state", repo,
+                    sleep_fn=lambda _: self.fail("stagnation must not retry"))
+            self.assertEqual(report["status"], "FAILED")
+            self.assertEqual(report["tasks"][0]["next_action"], "STAGNATION_DETECTED")
+            self.assertEqual(generate.call_count, 2)
+            self.assertEqual(store.health()["failed"], 1)
+
     def test_qwen_chain_empty_when_down(self):
         with mock.patch.dict(os.environ,
                              {"KMW2_OLLAMA_URL": "http://127.0.0.1:9"},
@@ -125,7 +239,7 @@ class TestExecutor(FakeBackend):
                 report = executor.execute_plan(
                     simple_plan_for("fix add() so 2+3==5"), config,
                     QueueStore(root / "q"), root / "receipts", root / "state",
-                    repo, use_worktree=False, sleep_fn=lambda s: None)
+                    repo, use_worktree=True, sleep_fn=lambda s: None)
             self.assertEqual(report["status"], "DONE")
             self.assertEqual(report["tasks"][0]["decision"], "NEW")
             self.assertEqual(report["tasks"][0]["status"], "DONE")
@@ -164,7 +278,7 @@ class TestExecutor(FakeBackend):
                     executor.execute_plan(
                         simple_plan_for("fix add() so 2+3==5"), config, store,
                         root / "receipts", root / "state", repo,
-                        use_worktree=False, sleep_fn=lambda s: None)
+                        use_worktree=True, sleep_fn=lambda s: None)
             self.assertEqual(store.health()["done"], 0)
             self.assertEqual(store.health()["doing"], 1)
             self.assertEqual(store.health()["failed"], 0)
@@ -284,7 +398,7 @@ class TestExecutor(FakeBackend):
             with mock.patch.dict(os.environ, {"KMW2_STATE_DIR": tmp}):
                 report = executor.execute_plan(
                     simple_plan_for("fix add() so 2+3==5"), config, store,
-                    root / "receipts", root / "state", repo, use_worktree=False,
+                    root / "receipts", root / "state", repo, use_worktree=True,
                     qc_fn=lambda _task, _ctx: qc_calls.append(True) or {
                         "passed": False, "failed": ["independent_check"]},
                     sleep_fn=lambda s: None)
@@ -302,7 +416,7 @@ class TestExecutor(FakeBackend):
             with mock.patch.dict(os.environ, {"KMW2_STATE_DIR": tmp}):
                 report = executor.execute_plan(
                     simple_plan_for("fix add() so 2+3==5"), config, store,
-                    root / "receipts", root / "state", repo, use_worktree=False,
+                    root / "receipts", root / "state", repo, use_worktree=True,
                     qc_fn=lambda _task, _ctx: {
                         "passed": True, "checks": []},
                     sleep_fn=lambda s: None)
@@ -322,7 +436,7 @@ class TestExecutor(FakeBackend):
                 first = executor.execute_plan(
                     simple_plan_for("fix add() so 2+3==5"), config,
                     QueueStore(root / "q"), root / "receipts", root / "state",
-                    repo, use_worktree=False, qc_fn=lambda r, c: qc,
+                    repo, use_worktree=True, qc_fn=lambda r, c: qc,
                     sleep_fn=lambda s: None)
                 self.assertEqual(first["status"], "DONE")
                 # Break the model: REUSE must not call it again.
@@ -330,7 +444,7 @@ class TestExecutor(FakeBackend):
                 second = executor.execute_plan(
                     simple_plan_for("fix add() so 2+3==5"), config,
                     QueueStore(root / "q"), root / "receipts", root / "state",
-                    repo, use_worktree=False, qc_fn=lambda r, c: qc,
+                    repo, use_worktree=True, qc_fn=lambda r, c: qc,
                     sleep_fn=lambda s: None)
             self.assertEqual(second["tasks"][0]["decision"], "REUSE")
             self.assertEqual(second["reused"], 1)
@@ -396,7 +510,7 @@ class TestExecutor(FakeBackend):
                         report = executor.execute_plan(
                             simple_plan_for("fix add() so 2+3==5"), config,
                             QueueStore(root / "q"), root / "receipts",
-                            root / "state", repo, use_worktree=False,
+                            root / "state", repo, use_worktree=True,
                             sleep_fn=lambda s: None)
             self.assertEqual(report["status"], "DONE")
             child_env = tests.call_args.kwargs["env"]

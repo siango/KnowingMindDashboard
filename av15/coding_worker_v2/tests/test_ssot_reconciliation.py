@@ -93,6 +93,32 @@ class TestTerminalReconciliation(unittest.TestCase):
         self.assertEqual(view["QC_STATUS"], "BLOCKED")
         self.assertEqual(len(view["reconciliation_conflicts"]), 1)
 
+    def test_monitor_keeps_execution_separate_from_verification_and_unknown_cost(self):
+        task = self.task()
+        task.status = "DONE"
+        task.evidence = [{"event": "tests_run", "tests": {"ran": True, "rc": 0}},
+                         {"event": "model_generated", "provider": "qwen-local",
+                          "tokens_in": 10, "tokens_out": None, "latency_ms": 5}]
+        view = monitor.execution_observations(task.to_dict())
+        self.assertEqual(view["qc_status"], "DONE")
+        self.assertIsNone(view["time_to_verified_fix_ms"])
+        self.assertEqual(view["tests"]["passed_runs"], 1)
+        self.assertEqual(view["usage"]["tokens_in"]["known_total"], 10)
+        self.assertIsNone(view["usage"]["actual_cost_usd"]["known_total"])
+        self.assertFalse(view["usage"]["tokens_out"]["complete"])
+
+    def test_monitor_rejects_acceptance_for_another_source_sha(self):
+        state = self.root / "state"
+        (state / "multi_ai").mkdir(parents=True)
+        (state / "multi_ai" / "unblock_acceptance_test.json").write_text(json.dumps({
+            "source": {"runtime_source_sha": "1" * 40},
+            "acceptance": {"A1": {"status": "PASS"}}}))
+        with mock.patch.object(monitor, "current_base_commit", return_value="2" * 40):
+            view = monitor.agent_status({"state_dir": state, "store": self.store,
+                                         "receipts_dir": self.receipts})
+        self.assertEqual(view["acceptance_evidence_rejected"], "SOURCE_SHA_MISMATCH")
+        self.assertEqual(view["acceptance"]["A1"]["status"], "NOT_VERIFIED")
+
     def test_corrupt_latest_history_blocks_valid_root_receipt_and_monitor(self):
         task = self.task()
         task.lease_token = "reconciliation-test-lease"

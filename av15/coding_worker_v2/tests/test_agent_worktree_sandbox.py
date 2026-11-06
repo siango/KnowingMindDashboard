@@ -54,6 +54,13 @@ class TestWorktree(unittest.TestCase):
         second = self.reg.create(self.repo, "task1")
         self.assertEqual(first["path"], second["path"])
 
+    def test_registered_original_workspace_is_not_treated_as_isolated(self):
+        self.reg._write({"task1": {"task_id": "task1", "status": "active",
+                                    "path": self.repo, "repo": self.repo}})
+        with self.assertRaises(WorktreeError) as raised:
+            self.reg.create(self.repo, "task1")
+        self.assertEqual(raised.exception.reason, "OWNERSHIP_REFUSED")
+
     def test_branch_isolated_from_base(self):
         entry = self.reg.create(self.repo, "task1")
         (Path(entry["path"]) / "new.txt").write_text("work\n")
@@ -134,6 +141,45 @@ class TestSandbox(unittest.TestCase):
         with self.assertRaises(SandboxError) as ctx:
             sandbox.run_isolated(str(self.root / "repo"), "rm -rf /tmp/x", 5)
         self.assertEqual(ctx.exception.reason, "POLICY_DENY")
+
+    def test_policy_auto_approves_only_scoped_safe_actions(self):
+        workspace = str(self.root / "repo")
+        for action in ("inspect", "git_diff", "checkpoint", "receipt", "idempotent_retry"):
+            with self.subTest(action=action):
+                event = sandbox.policy_decision(action, "task", workspace, paths=["a.py"])
+                self.assertEqual(event["decision"], "AUTO_APPROVE")
+                self.assertTrue(event["rule_id"])
+                self.assertEqual(event["task_id"], "task")
+                self.assertEqual(event["event"], "approval_decision")
+        self.assertEqual(sandbox.policy_decision(
+            "edit", "task", workspace, paths=["a.py"], approved_paths=["a.py"],
+            isolated=True)["decision"], "AUTO_APPROVE")
+        self.assertEqual(sandbox.policy_decision(
+            "test", "task", workspace, command="python3 -m unittest")["decision"],
+            "AUTO_APPROVE")
+
+    def test_policy_human_gates_unsafe_operations_and_command_prefix_tricks(self):
+        workspace = str(self.root / "repo")
+        for action, paths, command in (
+                ("deploy", [], ""), ("merge", [], ""), ("force_push", [], ""),
+                ("independent_qc_sign", [], ""), ("delete", ["a.py"], ""),
+                ("edit", ["a.py"], ""), ("inspect", ["../outside"], ""),
+                ("edit", [".env"], ""), ("inspect", ["id_rsa"], ""),
+                ("edit", ["wrangler.toml"], ""), ("edit", [".github/workflows/ci.yml"], ""),
+                ("test", [], "python3 -m unittest_evil"),
+                ("test", [], "node arbitrary-script.js"),
+                ("test", [], "python3 -m unittest; echo yes"),
+                ("lint", [], "ruff check --fix ."),
+                ("test", [], "python3 -m unittest ../outside.py")):
+            with self.subTest(action=action, paths=paths, command=command):
+                event = sandbox.policy_decision(
+                    action, "task", workspace, paths=paths,
+                    approved_paths=paths, isolated=True, command=command)
+                if action == "edit" and paths == ["a.py"]:
+                    event = sandbox.policy_decision(
+                        action, "task", workspace, paths=paths,
+                        approved_paths=paths, isolated=False)
+                self.assertEqual(event["decision"], "REQUIRE_HUMAN_APPROVAL")
 
     def test_verify_passes(self):
         report = sandbox.verify(str(self.root / "repo"))

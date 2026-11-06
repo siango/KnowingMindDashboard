@@ -71,7 +71,9 @@ class TestKm(unittest.TestCase):
         model_plan = km_main.agent_planner.simple_plan("fix", "M", "p").to_dict()
         model_plan["tasks"][0]["allowed_paths"] = ["unapproved.py"]
         provider = mock.Mock()
-        provider.generate_plan.return_value = mock.Mock(
+        provider.name, provider.local = "qwen-local", True
+        from coding_worker_v2.providers import Generation
+        provider.generate_plan.return_value = Generation(
             text=json.dumps(model_plan), provider="qwen-local",
             model="qwen", latency_ms=1)
         with mock.patch.object(km_main.agent_exec, "qwen_chain",

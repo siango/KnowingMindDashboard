@@ -28,6 +28,7 @@ from coding_worker_v2.agent import tools as agent_tools  # noqa: E402
 from coding_worker_v2.config import WorkerConfig  # noqa: E402
 from coding_worker_v2.pipeline import inspect_repo, list_files  # noqa: E402
 from coding_worker_v2.providers import ProviderError  # noqa: E402
+from coding_worker_v2.providers import provider_inventory, ProviderResources  # noqa: E402
 from coding_worker_v2.queue_store import QueueStore  # noqa: E402
 from coding_worker_v2.receipts import read_receipt  # noqa: E402
 from coding_worker_v2.tasks import Task  # noqa: E402
@@ -75,16 +76,24 @@ def cmd_plan(args, ctx) -> int:
     if not args.simple:
         progress(phase="QWEN_DISCOVERY", state="WAITING",
                  model=ctx["config"].qwen_model or "qwen-auto", timeout=10)
-        chain = agent_exec.qwen_chain(ctx["config"])
+        resources = ProviderResources(ctx["store"])
+        provider_ready, reason, retry_at = resources.gate("qwen-local")
+        chain = agent_exec.qwen_chain(ctx["config"]) if provider_ready else []
+        if not provider_ready:
+            print(json.dumps({"warning": "planner provider paused", "reason": reason,
+                              "retry_at": retry_at, "fallback": "deterministic"}))
         if chain:
             try:
                 progress(phase="QWEN_PLAN", state="WAITING", timeout=ctx["config"].task_timeout_s)
-                gen = chain[0].generate_plan(
-                    agent_planner.plan_messages(command, repo_info, allowed,
-                                                history,
-                                                list_files(workspace)),
-                    max_tokens=4096, timeout=ctx["config"].task_timeout_s,
-                    response_schema=agent_planner.PLAN_OUTPUT_SCHEMA)
+                def generate_plan(messages, max_tokens, timeout):
+                    return chain[0].generate_plan(
+                        messages, max_tokens=max_tokens, timeout=timeout,
+                        response_schema=agent_planner.PLAN_OUTPUT_SCHEMA)
+                gen = resources.invoke(
+                    chain[0], None,
+                    agent_planner.plan_messages(command, repo_info, registry.names(),
+                                                history, list_files(workspace)),
+                    4096, ctx["config"].task_timeout_s, generate_fn=generate_plan)
                 print(json.dumps({"planner_provider": gen.provider, "planner_model": gen.model,
                                   "structured_output": True, "latency_ms": gen.latency_ms}))
                 progress(phase="VALIDATE", state="RUNNING", done=2, model=gen.model, timeout=None)
@@ -135,7 +144,7 @@ def cmd_plan(args, ctx) -> int:
 def cmd_run(args, ctx) -> int:
     progress = ctx.get("progress", lambda **kw: None)
     progress(phase="LOAD_PLAN")
-    if args.provider not in ("", "auto", "qwen-local"):
+    if args.provider == "copilot-cloud":
         progress(state="BLOCKED", phase="PROVIDER_GATE", reason="AUDITED_PROVIDER_ROUTING_NOT_RECONCILED", result="BLOCKED")
         print(json.dumps({"status": "BLOCKED", "reason": "AUDITED_PROVIDER_ROUTING_NOT_RECONCILED", "provider": args.provider}))
         return 1
@@ -155,8 +164,13 @@ def cmd_run(args, ctx) -> int:
         plan, ctx["config"], ctx["store"], ctx["receipts_dir"],
         ctx["state_dir"], ctx["workspace"],
         use_worktree=not args.no_worktree, qc_fn=qc_fn,
-        ledger_path=BASE / "state" / "spend_ledger.json",
-        progress=progress)
+        ledger_path=ctx["state_dir"] / "spend_ledger.json",
+        progress=progress,
+        provider_policy={"provider": args.provider or "auto",
+                         "external_authorized": args.allow_external,
+                         "billing_mode": args.billing_mode,
+                         "test_command": args.test_command,
+                         "max_provider_dispatches": 1})
     last = ctx["state_dir"] / "agent_last.json"
     last.write_text(json.dumps(report, ensure_ascii=False, indent=2),
                     encoding="utf-8")
@@ -204,7 +218,14 @@ def cmd_status(args, ctx) -> int:
         "store": ctx["store"], "receipts_dir": ctx["receipts_dir"],
         "progress": progress, "active_model": ctx["config"].qwen_model or "qwen-auto",
         "current_step": "STATUS", "qc_status": qc_status,
-        "next_action": next_action, "evidence": evidence}), ensure_ascii=False, indent=2))
+        "next_action": next_action, "evidence": evidence,
+        "state_dir": ctx["state_dir"]}), ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_providers(args, ctx) -> int:
+    print(json.dumps(provider_inventory(
+        ctx["config"], ctx["store"], ctx["workspace"]), ensure_ascii=False, indent=2))
     return 0
 
 
@@ -222,6 +243,15 @@ def cmd_tools(args, ctx) -> int:
     except agent_tools.ToolError as exc:
         print(json.dumps({"ok": False, "reason": exc.reason, "detail": exc.detail}))
         return 1
+    finally:
+        store = ctx["store"]
+        with store._locked():
+            previous = store.load_checkpoint(".tool-audit")
+            if previous is None and (store.checkpoints / ".tool-audit.json").exists():
+                raise ValueError("tool approval audit unreadable")
+            events = (previous or {}).get("data", {}).get("events", [])
+            store.save_checkpoint(".tool-audit", "tool_policy_audit",
+                                  {"events": events + tool_ctx["evidence"]})
     print(json.dumps({"ok": True, "result": result}, ensure_ascii=False)[:8000])
     return 0
 
@@ -280,7 +310,9 @@ def build_parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run", help="execute a saved plan")
     run.add_argument("plan")
     run.add_argument("--no-worktree", action="store_true")
-    run.add_argument("--provider", choices=["auto", "qwen-local", "codex-cli", "copilot-cli", "copilot-cloud"], default="")
+    run.add_argument("--provider", choices=["auto", "qwen-local", "codex-cli", "copilot-cli",
+                                          "copilot-cloud", "deepseek-local",
+                                          "deepseek-api", "muse-cli"], default="")
     run.add_argument("--allow-external", action="store_true", help="authorize one existing-subscription dispatch per task")
     run.add_argument("--billing-mode", choices=["existing-subscription"], default="")
     run.add_argument("--test-command", default="")
@@ -292,6 +324,8 @@ def build_parser() -> argparse.ArgumentParser:
     run.set_defaults(func=cmd_run)
     status = sub.add_parser("status", help="monitor view")
     status.set_defaults(func=cmd_status)
+    providers = sub.add_parser("providers", help="configured provider quota and availability readback")
+    providers.set_defaults(func=cmd_providers)
     tools = sub.add_parser("tools", help="tool discovery / call")
     tools.add_argument("--call", default="")
     tools.add_argument("--args", default="{}")

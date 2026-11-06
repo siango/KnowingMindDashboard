@@ -49,6 +49,8 @@ def build_receipt(task: Task, extra: dict | None = None) -> dict:
         "next_action": task.next_action,
         "failure_class": task.failure_class,
         "attempts": task.attempts,
+        "created_at": task.created_at,
+        "recorded_at": time.time(),
     }
     if extra:
         body["extra"] = extra

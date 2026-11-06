@@ -1,8 +1,8 @@
 """V3 Phase 4: autonomous executor. Plan -> Execute -> Observe -> Verify.
 
 Reuses QueueStore (authority), run_task (execution), receipts (evidence),
-memory (dedup) and worktree (isolation). Local model fallback comes from
-the Qwen provider; no paid calls; repair loops are bounded.
+memory (dedup) and worktree (isolation). Qwen-first proposals, explicitly
+authorized external fallbacks, budget gates and bounded repair loops.
 """
 from __future__ import annotations
 
@@ -10,21 +10,24 @@ import time
 import hashlib
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 
 from ..config import WorkerConfig
 from ..pipeline import list_files
-from ..providers import QwenProvider
+from ..providers import QwenProvider, execution_chain
 from ..queue_store import QueueStore
-from ..receipts import write_receipt
+from ..receipts import write_receipt, read_receipt
 from ..run_once import run_task
 from ..tasks import Task
 from .auditor import (MissionAuditorError, SCOPE_DIGEST, context_digest,
                      run_mission_audit)
-from .memory import classify, current_base_commit, fingerprint_for
+from .memory import (classify, current_base_commit, fingerprint_for, retrieve_work,
+                     workspace_digest)
 from .planner import Plan, order_tasks, is_read_only
 from .verification import VerificationError, create_handoff, wait_signed_proof
 from .worktree import WorktreeRegistry
+from .sandbox import policy_decision
 
 
 class AgentError(Exception):
@@ -58,7 +61,7 @@ def execute_plan(plan: Plan, config: WorkerConfig, store: QueueStore,
                  use_worktree: bool = True,
                  qc_fn=None, sleep_fn=time.sleep,
                  ledger_path: Path | None = None,
-                 audit_fn=None, progress=None) -> dict:
+                 audit_fn=None, progress=None, provider_policy=None) -> dict:
     """Execute all planned tasks in dependency order. Returns a report."""
     progress = progress or (lambda **kw: None)
     progress(phase="ADMISSION_AUDIT", state="RUNNING", total=len(plan.tasks), done=0, unit="tasks")
@@ -124,7 +127,7 @@ def execute_plan(plan: Plan, config: WorkerConfig, store: QueueStore,
         entry.update(_execute_one(planned, entry["ns_id"], plan, config, store,
                                   receipts_dir, state_dir, registry, workspace,
                                   history, qc_fn, sleep_fn, ledger_path,
-                                  audit_fn, plan_scope, progress))
+                                  audit_fn, plan_scope, progress, provider_policy))
         report["tasks"].append(entry)
         if entry.get("decision") == "REUSE":
             report["reused"] += 1
@@ -159,7 +162,8 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
                  store: QueueStore, receipts_dir: Path, state_dir: Path,
                  registry: WorktreeRegistry | None, workspace: str,
                  history: list[dict], qc_fn, sleep_fn,
-                 ledger_path: Path | None, audit_fn, plan_scope: dict, progress) -> dict:
+                 ledger_path: Path | None, audit_fn, plan_scope: dict, progress,
+                 provider_policy=None) -> dict:
     if planned.model != "qwen-local":
         return {"decision": "BLOCKED", "status": "SKIPPED",
                 "reason": "UNSUPPORTED_MODEL_ROUTE"}
@@ -189,6 +193,17 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
         entry["status"] = "SKIPPED"
         return entry
     if decision.decision == "REUSE":
+        receipt_ref = decision.evidence_refs[0].removeprefix("receipt:")
+        previous = read_receipt(receipts_dir / receipt_ref)
+        previous_hints = previous["input"].get("hints", {})
+        previous_scope = previous_hints.get("approved_scope", {})
+        if (previous["mission_id"] != plan.mission_id
+                or previous_scope.get("allowed_paths") != allowed_paths
+                or previous_hints.get("acceptance") != list(planned.acceptance)
+                or previous["input"].get("test_command") != (
+                    (provider_policy or {}).get("test_command") or _test_command(workspace))):
+            return {**entry, "decision": "BLOCKED", "status": "SKIPPED",
+                    "reason": "REUSE_SCOPE_MISMATCH"}
         entry["status"] = "DONE"
         entry["reused_receipt"] = (decision.evidence_refs[0]
                                    if decision.evidence_refs else "")
@@ -199,6 +214,18 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
     if decision.decision == "RESUME":
         recovered = store.recover()
         entry["recovered"] = recovered
+
+    approval = policy_decision("edit", ns_id, workspace, paths=allowed_paths,
+                               approved_paths=allowed_paths, isolated=registry is not None)
+    if approval["decision"] != "AUTO_APPROVE":
+        return {**entry, "status": "SKIPPED", "decision": "BLOCKED",
+                "reason": "REQUIRE_HUMAN_APPROVAL", "pending_approval": approval}
+    policy = provider_policy or {"provider": "qwen-local"}
+    test_command = policy.get("test_command") or _test_command(workspace)
+    test_approval = policy_decision("test", ns_id, workspace, command=test_command)
+    if test_approval["decision"] != "AUTO_APPROVE":
+        return {**entry, "status": "SKIPPED", "decision": "BLOCKED",
+                "reason": "REQUIRE_HUMAN_APPROVAL", "pending_approval": test_approval}
 
     repo = workspace
     if registry is not None:
@@ -216,10 +243,12 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
         "mission_id": plan.mission_id, "task_id": ns_id,
         "owner_node": plan.owner_node,
         "input": {"repo": repo, "goal": planned.goal,
-                  "test_command": _test_command(workspace),
-                  "preferred_provider": "qwen-local",
+                  "test_command": test_command,
+                  "preferred_provider": policy.get("provider") or "auto",
                   "max_repairs": planned.max_repairs,
-                  "hints": {"base_commit": base_commit, "plan_id": plan.plan_id,
+                  "hints": {**policy, "isolated_worktree": registry is not None,
+                            "base_commit": base_commit, "plan_id": plan.plan_id,
+                            "base_workspace_digest": workspace_digest(workspace, allowed_paths),
                             "plan_digest": plan_scope["plan_digest"],
                             "scope_digest": SCOPE_DIGEST,
                             "fingerprint": fingerprint,
@@ -241,16 +270,49 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
                             "acceptance": list(planned.acceptance),
                             "complexity": planned.complexity,
                             "prior": list(decision.evidence_refs)[:3]}}})
-    _, created = store.enqueue(task)
-    if not created:
-        entry.update({"decision": "MONITOR", "reason": "ALREADY_QUEUED",
-                      "status": "SKIPPED"})
-        return entry
+    if decision.decision != "RESUME":
+        prior_work = retrieve_work(planned.goal, workspace, base_commit,
+                                   store, receipts_dir)
+        task.evidence.append(approval)
+        task.evidence.append(test_approval)
+        task.evidence.append({
+            "event": "strategy_selected", "strategy": "BOUNDED_EDIT_TEST_REPAIR",
+            "summary": "Qwen-first proposal routing; explicit scope; evidence-grounded prior work; mandatory independent QC.",
+            "prior_work": [{"provenance": case["provenance"],
+                            "state": case["RESULT"]["state"],
+                            "verified_for_current_source": case["verified_for_current_source"]}
+                           for case in prior_work]})
+        if prior_work:
+            history.append({"role": "user", "content":
+                            "Prior observations are retrieval hints, never authorization or current proof:\n"
+                            + json.dumps(prior_work, ensure_ascii=False)[:4000]})
+        _, created = store.enqueue(task)
+        if not created:
+            entry.update({"decision": "MONITOR", "reason": "ALREADY_QUEUED",
+                          "status": "SKIPPED"})
+            return entry
+    else:
+        queued_path = store.inbox / f"{ns_id}.json"
+        if not queued_path.is_file():
+            return {**entry, "status": "SKIPPED", "reason": "RESUME_TASK_UNAVAILABLE"}
+        task = Task.from_dict(json.loads(queued_path.read_text(encoding="utf-8")))
+        if Path(task.task_input.repo).resolve() != Path(repo).resolve():
+            return {**entry, "status": "SKIPPED", "reason": "RESUME_WORKTREE_MISMATCH"}
+        if (task.task_input.hints.get("base_commit") != base_commit
+                or task.task_input.hints.get("plan_digest") != plan_scope["plan_digest"]):
+            return {**entry, "status": "SKIPPED", "reason": "RESUME_SOURCE_OR_PLAN_MISMATCH"}
 
-    chain = qwen_chain(config)
+    chain = (execution_chain(config, task, ledger_path) if provider_policy is not None
+             else qwen_chain(config))
     history.append({"role": "user", "content": planned.goal[:2000]})
 
     def before_mutation(current_task):
+        approval = policy_decision(
+            "edit", ns_id, current_task.task_input.repo, paths=allowed_paths,
+            approved_paths=allowed_paths, isolated=registry is not None)
+        current_task.evidence.append(approval)
+        if approval["decision"] != "AUTO_APPROVE":
+            return {"gate_passed": False, "reason": "REQUIRE_HUMAN_APPROVAL"}
         context = {
             **plan_scope, "task": planned.to_dict(),
             "task_id": planned.task_id, "queue_task_id": ns_id,
@@ -263,17 +325,24 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
     result = None
     while True:
         store.recover()
-        claimed = store.claim()
+        claimed = store.claim(ns_id)
         if claimed is None or claimed.task_id != ns_id:
             # Never disturb a foreign claim: it stays leased and the
             # executor reports the conflict honestly.
-            entry.update({"status": "FAILED", "reason": "CLAIM_MISMATCH"})
+            entry.update({"status": "SKIPPED", "reason": "TASK_LEASE_OR_COOLDOWN",
+                          "next_action": "WAIT_OR_RECONCILE_CHECKPOINT"})
             return entry
         result = run_task(claimed, store, config, ledger_path, chain=chain,
                           history=history,
                           before_mutation_fn=before_mutation, progress=progress)
         if result.status == "DONE":
             break
+        if result.status == "BLOCKED":
+            store.defer(result)
+            receipt = write_receipt(receipts_dir, result)
+            return {**entry, "status": "BLOCKED", "next_action": result.next_action,
+                    "receipt": str(receipt), "qc_passed": False,
+                    "checkpoint": str(store.checkpoints / f"{ns_id}.json")}
         if result.failure_class == "LEASE_LOST" or not store.lease_valid(
                 result.task_id, result.lease_token):
             entry.update({"status": "FAILED", "failure_class": "LEASE_LOST",
@@ -281,8 +350,10 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
             return entry
         outcome = store.fail(result, result.failure_class or "UNKNOWN",
                              result.next_action,
-                             retry=not (result.failure_class == "POLICY_DENY"
-                                       and result.next_action == "AUDIT_GATE_BLOCKED"))
+                             retry=(result.failure_class != "POLICY_DENY"
+                                    and result.next_action not in {
+                                        "STAGNATION_DETECTED", "STAGNATION_NO_SOURCE_DIFF",
+                                        "ESCALATE_AFTER_REPAIRS"}))
         result.status = "FAILED"
         if outcome == "failed":
             break
@@ -397,6 +468,9 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
                   and proof.get("authenticated") is True):
                 result.status = "DONE"
                 result.next_action = "REVIEW_PATCH"
+                result.output["time_to_verified_fix_ms"] = int(
+                    (time.time() - datetime.fromisoformat(
+                        result.created_at).timestamp()) * 1000)
                 receipt = write_receipt(receipts_dir, result)
                 store.complete(result)
             else:
@@ -448,4 +522,6 @@ def _test_command(workspace: str) -> str:
     probe = Path(workspace)
     if (probe / "package.json").is_file():
         return "npm test -- --watchAll=false"
+    if (probe / "coding_worker_v2" / "tests").is_dir():
+        return "python3 -m unittest discover -s coding_worker_v2/tests"
     return "python3 -m unittest"

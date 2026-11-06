@@ -98,15 +98,50 @@ class TestClassify(unittest.TestCase):
         task.output = {"changed": ["a.py"]}
         if qc_pass:
             task.evidence.append({"event": "qc_checked",
-                                  "qc": {"passed": True}})
+                                  "qc": {"passed": True, "independent_verified": True}})
+            task.evidence.append({"event": "independent_verification", "proof": {
+                "authenticated": True, "status": "PASS", "task_id": task.task_id,
+                "source_sha": base, "signature_sha256": "a" * 64}})
         self._archive_terminal(task, self.store.done)
         return write_receipt(self.receipts, task)
 
     def test_reuse_exact_match(self):
-        self._done_receipt("reuse me", "c1")
-        out = memory.classify("reuse me", str(self.root / "repo"), "c1",
+        self._done_receipt("reuse me", "1" * 40)
+        out = memory.classify("reuse me", str(self.root / "repo"), "1" * 40,
                               self.store, self.receipts)
         self.assertEqual(out.decision, "REUSE")
+
+    def test_four_part_memory_retains_original_provenance_without_false_verification(self):
+        path = self._done_receipt("fix repeated problem", "1" * 40, qc_pass=False)
+        original = path.read_bytes()
+        records = memory.retrieve_work(
+            "fix repeated problem", str(self.root / "repo"), "1" * 40,
+            self.store, self.receipts)
+        self.assertEqual(len(records), 1)
+        case = records[0]
+        self.assertEqual(case["RESULT"]["state"], "EXECUTION_DONE")
+        self.assertFalse(case["verified_for_current_source"])
+        self.assertEqual(case["provenance"]["sha256"], hashlib.sha256(original).hexdigest())
+        self.assertEqual(case["CAUSE"]["hypotheses"], [])
+        self.assertEqual(path.read_bytes(), original)
+        self.assertTrue(all(k in case for k in ("PROBLEM", "CAUSE", "SOLUTION_PATH", "RESULT")))
+
+    def test_verified_solution_on_different_source_is_retrieval_only(self):
+        self._done_receipt("verified fix", "1" * 40)
+        records = memory.retrieve_work(
+            "verified fix", str(self.root / "repo"), "2" * 40, self.store, self.receipts)
+        self.assertEqual(records[0]["RESULT"]["state"], "VERIFIED_PASS")
+        self.assertFalse(records[0]["verified_for_current_source"])
+        self.assertTrue(records[0]["retrieval_only"])
+
+    def test_duplicate_task_source_mismatch_is_blocked(self):
+        task = make_task("same task", str(self.root / "repo"), "old")
+        self.store.enqueue(task)
+        out = memory.classify(
+            "same task", str(self.root / "repo"), "new",
+            self.store, self.receipts, task_id=task.task_id)
+        self.assertEqual(out.decision, "BLOCKED")
+        self.assertEqual(out.reason, "SOURCE_OR_TASK_SCOPE_MISMATCH")
 
     def test_reverify_base_changed(self):
         self._done_receipt("shifting", "c1")
@@ -141,14 +176,18 @@ class TestClassify(unittest.TestCase):
         self.assertEqual(out.decision, "REPAIR")
 
     def test_reuse_matches_base_workspace_not_worktree(self):
-        task = make_task("wt work", "/state/worktrees/x-t1", "c1")
+        task = make_task("wt work", "/state/worktrees/x-t1", "1" * 40)
         task.task_input.hints["workspace"] = str(self.root / "repo")
         task.status = "DONE"
         task.output = {"changed": ["a.py"]}
-        task.evidence.append({"event": "qc_checked", "qc": {"passed": True}})
+        task.evidence.append({"event": "qc_checked", "qc": {
+            "passed": True, "independent_verified": True}})
+        task.evidence.append({"event": "independent_verification", "proof": {
+            "authenticated": True, "status": "PASS", "task_id": task.task_id,
+            "source_sha": "1" * 40, "signature_sha256": "a" * 64}})
         self._archive_terminal(task, self.store.done)
         write_receipt(self.receipts, task)
-        out = memory.classify("wt work", str(self.root / "repo"), "c1",
+        out = memory.classify("wt work", str(self.root / "repo"), "1" * 40,
                               self.store, self.receipts)
         self.assertEqual(out.decision, "REUSE")
 

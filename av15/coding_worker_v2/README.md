@@ -57,6 +57,53 @@ An admission-blocked run records the actual `admission_audit` in
 `state/agent_last.json`. It creates no queue task or coding receipt and does
 not establish coding E2E acceptance.
 
+## Continuity, resource control and execution policy
+
+`km providers` probes configured providers without inference and reports
+quota source/freshness separately from availability. Undisclosed quota,
+reset, tokens and billed cost remain UNKNOWN/null. Disclosed exhaustion
+stops requests; a provider reset/Retry-After or bounded local backoff controls
+retry. Exhaustion without a disclosed reset remains blocked, not guessed away.
+The existing queue checkpoint `.provider-resources` holds these observations;
+planner and executor share the same controller. Generation success is not a
+verified task success.
+
+Routing defaults to Qwen, then configured local/authorized alternatives,
+ranked using reconciled receipt outcomes and measured latency/cost.
+`run --provider ...` restricts the route. CLI subscription proposals require
+`--allow-external --billing-mode existing-subscription` and permit at most one
+dispatch per task. An interrupted/ambiguous dispatch is never blindly retried.
+DeepSeek API remains independently configuration-, credential-, price- and
+budget-gated; budget reservations survive unknown usage and interrupted calls.
+Token-based price estimates are not reported as billed costs.
+Muse is unavailable until a read-only proposal contract is verified.
+Cloud task mutation remains gated separately from source-only PR handoff.
+
+Use the same `run <plan>` after disconnect: a live duplicate is monitored,
+while an expired lease/checkpoint resumes the same task and isolated worktree.
+Checkpoints bind task input, source SHA and approved-file content digest.
+Generated proposals/edits are not repeated; tests and mandatory QC are rerun.
+Partial mutation or source/content mismatch fails closed. Provider cooldown
+releases the lease and retains the task in the existing inbox. Pending human
+approval cannot be automatically reclaimed.
+
+Policy decisions record decision, rule ID, task ID, actor and evidence.
+Scoped inspection, isolated approved edits, allowlisted tests and checkpoint/
+receipt operations need no repeated internal prompt. Non-isolated edits,
+workspace escapes, credentials/production paths, unknown commands, deployment,
+merge/force push and independent signing require human approval. This policy
+does not authorize host CLI prompts or independent QC signing.
+`run --test-command` supplies an explicit allowlisted test command; worker
+workspaces otherwise use the existing worker test suite.
+
+`km status` reads existing checkpoints, receipts and audit events for task
+phase, diff statistics, tests, provider/usage, retry/recovery, approvals and
+next action. Four-part PROBLEM / CAUSE / SOLUTION_PATH / RESULT memory is a
+derived view of original hashed receipts, not another database. Retrieval is
+a hint, never proof: execution-only DONE is not VERIFIED_PASS, and changed
+source cannot reuse old verification. Acceptance observations are displayed
+only when their source SHA matches the executing worker.
+
 ## Environment (`coding_worker_v2/.env`, never committed with secrets)
 
 | Var | Default | Meaning |
@@ -73,6 +120,8 @@ not establish coding E2E acceptance.
 | `KMW2_SPENDING_BUDGET_USD` | 0 | must be > 0 for paid calls |
 | `KMW2_DEEPSEEK_PRICE_PER_1K_IN/OUT` | unset (required) | no assumed pricing |
 | `KMW2_ALLOW_ECHO_FALLBACK` | 0 | deterministic offline tests only |
+| `KMW2_CODEX_ENABLED` / `KMW2_COPILOT_ENABLED` | unset | configured CLI probes; execution still requires task authorization |
+| `KMW2_MUSE_ENABLED` | unset | configured probe only; read-only contract remains unverified |
 | `KMW2_MAX_REPAIR_ATTEMPTS` | 2 | bounded repair loop |
 | `KMW2_TASK_TIMEOUT_S` / `KMW2_TEST_TIMEOUT_S` | 600 / 300 | resource limits |
 | `KMW2_INDEPENDENT_VERIFIER_PUBLIC_KEY` | unset | PEM public key for external-verifier readback |

@@ -65,6 +65,112 @@ def _receipt_qc_pass(receipt: dict) -> bool:
     return False
 
 
+def receipt_verified(receipt: dict) -> bool:
+    source = receipt.get("source_sha", "")
+    if not re.fullmatch(r"[0-9a-f]{40}", source):
+        return False
+    qc = [e.get("qc", {}) for e in receipt.get("evidence", [])
+          if isinstance(e, dict) and e.get("event") == "qc_checked"]
+    proofs = [e.get("proof", {}) for e in receipt.get("evidence", [])
+              if isinstance(e, dict) and e.get("event") == "independent_verification"]
+    return (receipt.get("status") == "DONE"
+            and any(q.get("passed") is True and q.get("independent_verified") is True
+                    for q in qc)
+            and any(p.get("authenticated") is True and p.get("status") == "PASS"
+                    and p.get("source_sha") == source
+                    and p.get("task_id") == receipt.get("task_id")
+                    and re.fullmatch(r"[0-9a-f]{64}", str(p.get("signature_sha256", "")))
+                    for p in proofs))
+
+
+def workspace_digest(repo: str, paths: list[str]) -> str:
+    root = Path(repo).resolve()
+    digest = hashlib.sha256()
+    for rel in sorted(paths):
+        path = (root / rel).resolve()
+        if not path.is_relative_to(root) or not path.is_file():
+            raise ValueError("checkpoint file missing or outside workspace")
+        digest.update(rel.encode("utf-8") + b"\0")
+        with path.open("rb") as source:
+            while chunk := source.read(65536):
+                digest.update(chunk)
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def work_case(receipt: dict, reference: str, original_sha256: str) -> dict:
+    """Derived four-part view; original receipts/events remain the authority."""
+    events = [e for e in receipt.get("evidence", []) if isinstance(e, dict)]
+    failures = [e for e in events if e.get("event") in
+                {"edit_failed", "verification_blocked", "provider_paused"}]
+    tests = [e.get("tests", {}) for e in events if e.get("event") == "tests_run"]
+    output = receipt.get("output") or {}
+    state = ("VERIFIED_PASS" if receipt_verified(receipt) else
+             "EXECUTION_DONE" if receipt.get("status") == "DONE" else
+             "BLOCKED" if receipt.get("status") in {"BLOCKED", "QC_PENDING"} else "FAILED")
+    return {
+        "task_id": receipt.get("task_id"), "source_sha": receipt.get("source_sha"),
+        "timestamp": receipt.get("recorded_at"),
+        "provenance": {"original_ref": reference, "sha256": original_sha256,
+                       "classification": "DERIVED_WORK_MEMORY"},
+        "PROBLEM": {"goal": receipt.get("input", {}).get("goal", ""),
+                    "failure_class": receipt.get("failure_class"),
+                    "observations": failures[-5:], "classification": "FACT"},
+        "CAUSE": {"evidenced": failures[-5:],
+                  "hypotheses": [], "root_cause_status": "UNRESOLVED"
+                  if failures else "NOT_ASSERTED"},
+        "SOLUTION_PATH": {"changed": output.get("changed", []),
+                          "patch_digest": output.get("patch_digest"),
+                          "provider": output.get("provider"),
+                          "model": output.get("model"),
+                          "test_command": receipt.get("input", {}).get("test_command"),
+                          "tests": tests, "decision_summary": [
+                              e for e in events if e.get("event") in
+                              {"route_selected", "strategy_selected", "provider_switch"}]},
+        "RESULT": {"state": state, "next_action": receipt.get("next_action"),
+                   "classification": "FACT", "tests": tests},
+    }
+
+
+def retrieve_work(goal, repo, source_sha, store, receipts_dir, limit=5) -> list[dict]:
+    records = []
+    for path, receipt in _iter_receipts(receipts_dir):
+        if not receipt or canonical_repo(receipt.get("input", {})) != repo:
+            continue
+        previous_goal = normalize_goal(receipt.get("input", {}).get("goal", ""))
+        exact = previous_goal == normalize_goal(goal)
+        overlap = set(previous_goal.split()) & set(normalize_goal(goal).split())
+        if not exact and not overlap:
+            continue
+        case = work_case(receipt, str(path), hashlib.sha256(path.read_bytes()).hexdigest())
+        case["verified_for_current_source"] = (
+            receipt.get("source_sha") == source_sha
+            and exact and receipt_verified(receipt) and not terminal_conflicts(store, receipt))
+        case["retrieval_only"] = True
+        records.append((exact, len(overlap), case))
+    return [case for _, _, case in sorted(records, key=lambda row: row[:2],
+                                          reverse=True)[:limit]]
+
+
+def strategy_effectiveness(store, receipts_dir) -> dict:
+    outcomes = {}
+    for _, receipt in _iter_receipts(receipts_dir):
+        if not receipt or terminal_conflicts(store, receipt):
+            continue
+        provider = (receipt.get("output") or {}).get("provider")
+        if not provider:
+            continue
+        row = outcomes.setdefault(provider, {"verified": 0, "failed": 0,
+                                              "execution_done": 0})
+        if receipt_verified(receipt):
+            row["verified"] += 1
+        elif receipt.get("status") == "FAILED":
+            row["failed"] += 1
+        elif receipt.get("status") == "DONE":
+            row["execution_done"] += 1
+    return outcomes
+
+
 def _iter_receipts(receipts_dir: Path):
     if not receipts_dir.is_dir():
         return
@@ -222,11 +328,19 @@ def classify(goal: str, repo: str, base_commit: str, store,
 
     live = [entry for entry in _queued_fingerprints(store)
             if entry["fingerprint"] == fingerprint]
+    for entry in _queued_fingerprints(store):
+        if entry["task_id"] == task_id and entry["fingerprint"] != fingerprint:
+            return Classification("BLOCKED", "SOURCE_OR_TASK_SCOPE_MISMATCH",
+                                  fingerprint, (f"queue:{entry['queue']}/{task_id}",))
     for entry in live:
         if entry["queue"] == "doing":
             if store.lease_valid(entry["task_id"]):
                 return Classification(
                     "MONITOR", f"ACTIVE_LEASE task={entry['task_id']}",
+                    fingerprint, (f"queue:doing/{entry['task_id']}",))
+            if task_id and entry["task_id"] != task_id:
+                return Classification(
+                    "MONITOR", f"RESUME_ORIGINAL_TASK task={entry['task_id']}",
                     fingerprint, (f"queue:doing/{entry['task_id']}",))
             checkpoint = store.load_checkpoint(entry["task_id"])
             if checkpoint:
@@ -239,6 +353,9 @@ def classify(goal: str, repo: str, base_commit: str, store,
                 (f"queue:doing/{entry['task_id']}",))
     for entry in live:
         if entry["queue"] == "inbox":
+            if entry["task_id"] == task_id and store.load_checkpoint(task_id):
+                return Classification("RESUME", "CHECKPOINT_READY",
+                                      fingerprint, (f"queue:inbox/{task_id}",))
             return Classification(
                 "MONITOR", f"QUEUED task={entry['task_id']}", fingerprint,
                 (f"queue:inbox/{entry['task_id']}",))
@@ -290,9 +407,19 @@ def classify(goal: str, repo: str, base_commit: str, store,
             if age > freshness_ttl_s:
                 return Classification("REVERIFY", f"EVIDENCE_STALE age_s={int(age)}",
                                       fingerprint, (ref,))
-            if not _receipt_qc_pass(receipt):
+            if not receipt_verified(receipt):
                 return Classification("REVERIFY", "QC_PASS_NOT_RECORDED",
                                       fingerprint, (ref,))
+            base_digest = hints.get("base_workspace_digest")
+            if base_digest:
+                paths = hints.get("approved_scope", {}).get("allowed_paths", [])
+                try:
+                    same_content = paths and workspace_digest(repo, paths) == base_digest
+                except (ValueError, OSError):
+                    same_content = False
+                if not same_content:
+                    return Classification("REVERIFY", "WORKSPACE_CONTENT_CHANGED",
+                                          fingerprint, (ref,))
             _ = output
             return Classification("REUSE", "FINGERPRINT_REV_FRESH_QC_MATCH",
                                   fingerprint, (ref,))

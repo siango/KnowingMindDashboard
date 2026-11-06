@@ -71,8 +71,12 @@ class WorktreeRegistry:
         existing = self.get(task_id)
         if existing and existing.get("status") == "active" \
                 and Path(existing["path"]).is_dir():
+            path = Path(existing["path"]).resolve()
+            if (path.parent != self.roots.resolve()
+                    or Path(existing["repo"]).resolve() != Path(repo).resolve()):
+                raise WorktreeError("OWNERSHIP_REFUSED", task_id)
             return {**existing,
-                    "workspace_path": str(Path(existing["path"]) / prefix)}
+                    "workspace_path": str(path / prefix)}
         rc, base_commit = _run(["git", "-C", repo, "rev-parse", base], repo)
         if rc != 0:
             raise WorktreeError("BASE_UNKNOWN", base[:60])

@@ -6,6 +6,7 @@ price schedule. No model names or prices are assumed.
 from __future__ import annotations
 
 import os
+import math
 from dataclasses import dataclass, field
 
 
@@ -85,12 +86,15 @@ class WorkerConfig:
         """Gate for any paid call. Returns (allowed, reason)."""
         if not self.deepseek_api_enabled:
             return False, "API_NOT_ENABLED"
-        if self.spending_budget_usd <= 0:
+        if not math.isfinite(self.spending_budget_usd) or self.spending_budget_usd <= 0:
             return False, "SPENDING_BUDGET_NOT_CONFIGURED"
         if not self.deepseek_api_model:
             return False, "API_MODEL_NOT_CONFIGURED"
         if self.deepseek_price_in_per_1k is None or self.deepseek_price_out_per_1k is None:
             return False, "PRICING_UNCONFIGURED"
+        if any(not math.isfinite(p) or p < 0 for p in
+               (self.deepseek_price_in_per_1k, self.deepseek_price_out_per_1k)):
+            return False, "PRICING_INVALID"
         if not os.environ.get(self.api_key_env, "").strip():
             return False, "API_KEY_MISSING"
         return True, "ALLOWED"

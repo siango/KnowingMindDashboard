@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import shlex
 import py_compile
 import shutil
 import subprocess
@@ -16,7 +17,9 @@ from pathlib import Path
 from .config import WorkerConfig
 
 ALLOWED_TEST_PREFIXES = ("python3 -m unittest", "python -m unittest",
-                         "node --test", "npm test --", "node ")
+                         "node --test", "npm test --", "node --check",
+                         "python3 -m compileall", "python -m compileall",
+                         "ruff check", "eslint")
 MAX_TEST_OUTPUT = 20000
 
 
@@ -208,6 +211,22 @@ def syntax_check(repo: str, changed: list[str]) -> dict:
     return {"ok": not errors, "checked": checked, "errors": errors[:10]}
 
 
+def test_argv(command: str) -> list[str]:
+    if any(c in command for c in (";", "&", "|", ">", "<", "`", "$", "\n", "\r")):
+        raise PipelineError("POLICY_DENY", "shell syntax is not allowlisted")
+    try:
+        argv = shlex.split(command)
+    except ValueError:
+        raise PipelineError("POLICY_DENY", "invalid command") from None
+    prefixes = [shlex.split(prefix) for prefix in ALLOWED_TEST_PREFIXES]
+    if (not any(argv[:len(prefix)] == prefix for prefix in prefixes)
+            or any(arg == "--fix" or arg.startswith("--fix=") for arg in argv)
+            or any(Path(arg).is_absolute() or ".." in Path(arg).parts
+                   for arg in argv[1:])):
+        raise PipelineError("POLICY_DENY", "command or path is not allowlisted")
+    return argv
+
+
 def run_tests(repo: str, command: str, timeout_s: int,
               env: dict | None = None) -> dict:
     """Sandboxed test execution. Command must match the allowlist.
@@ -217,11 +236,10 @@ def run_tests(repo: str, command: str, timeout_s: int,
     """
     if not command:
         return {"ran": False, "rc": None, "duration_ms": 0, "output": ""}
-    if not command.startswith(ALLOWED_TEST_PREFIXES):
-        raise PipelineError("POLICY_DENY", f"test command not allowlisted: {command[:80]}")
+    argv = test_argv(command)
     started = time.monotonic()
     try:
-        proc = subprocess.run(command.split(), cwd=repo, capture_output=True,
+        proc = subprocess.run(argv, cwd=repo, capture_output=True,
                               text=True, timeout=timeout_s, check=False,
                               env=env)
     except subprocess.TimeoutExpired:
@@ -244,13 +262,16 @@ CODING_SYSTEM_PROMPT = (
 
 
 def coding_messages(goal: str, repo_info: dict, failure: str = "",
-                    files: list[str] | None = None) -> list[dict]:
+                    files: list[str] | None = None,
+                    sources: dict | None = None) -> list[dict]:
     user = {"goal": goal, "repo": {k: repo_info.get(k) for k in
                                    ("files", "git_branch", "git_clean")}}
     if files:
         user["files"] = [str(f)[:200] for f in files[:100]]
     if failure:
         user["previous_failure"] = failure[:3000]
+    if sources:
+        user["approved_source"] = sources
     return [{"role": "system", "content": CODING_SYSTEM_PROMPT},
             {"role": "user", "content": json.dumps(user, ensure_ascii=False)}]
 

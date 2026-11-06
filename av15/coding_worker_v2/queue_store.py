@@ -23,7 +23,7 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
-from .tasks import Task, admit
+from .tasks import Task, admit, ID_RE
 
 LEASE_TTL_S = 300
 HEARTBEAT_EVERY_S = 60
@@ -138,11 +138,23 @@ class QueueStore:
             return task.task_id, True
 
     # -- claim + lease --------------------------------------------------------
-    def claim(self) -> Task | None:
+    def claim(self, task_id: str = "") -> Task | None:
         """Claim oldest inbox task into doing/ with a fresh lease."""
         with self._locked():
-            candidates = sorted(self.inbox.glob("*.json"))
+            if task_id and not ID_RE.fullmatch(task_id):
+                raise ValueError("invalid task id")
+            candidates = ([self.inbox / f"{task_id}.json"] if task_id else
+                          sorted(self.inbox.glob("*.json")))
             for path in candidates:
+                if not path.is_file():
+                    continue
+                checkpoint = self.load_checkpoint(path.stem) or {}
+                if checkpoint.get("stage") == "waiting_approval":
+                    continue
+                if checkpoint.get("stage") == "waiting_provider":
+                    retry_at = checkpoint.get("data", {}).get("retry_at")
+                    if retry_at is None or time.time() < retry_at:
+                        continue
                 try:
                     task = Task.from_dict(json.loads(path.read_text(encoding="utf-8")))
                 except (OSError, ValueError):
@@ -233,6 +245,15 @@ class QueueStore:
             (self.doing / f"{task.task_id}.json").unlink(missing_ok=True)
             return "failed"
 
+    def defer(self, task: Task) -> None:
+        """Release a live lease without retrying a blocked provider in a loop."""
+        with self._locked():
+            self._assert_lease(task.task_id, task.lease_token)
+            task.status = "BLOCKED"
+            self._write_json(self.inbox / f"{task.task_id}.json", task.to_dict())
+            (self.doing / f"{task.task_id}.json").unlink(missing_ok=True)
+            (self.doing / f"{task.task_id}.lease.json").unlink(missing_ok=True)
+
     # -- crash / restart recovery ----------------------------------------------
     def recover(self) -> dict:
         """Requeue doing/ entries with expired or missing leases."""
@@ -264,6 +285,18 @@ class QueueStore:
     def save_checkpoint(self, task_id: str, stage: str, data: dict) -> None:
         self._write_json(self.checkpoints / f"{task_id}.json",
                          {"task_id": task_id, "stage": stage, "data": data})
+
+    def checkpoint_task(self, task: Task, stage: str, data: dict) -> None:
+        """Persist original execution events before any derived memory."""
+        with self._locked():
+            self._assert_lease(task.task_id, task.lease_token)
+            prior = self.load_checkpoint(task.task_id)
+            if prior is None and (self.checkpoints / f"{task.task_id}.json").exists():
+                raise QueueLeaseError("checkpoint unreadable")
+            merged = {**(prior or {}).get("data", {}), **data,
+                      "task_snapshot": task.to_dict(), "observed_at": time.time()}
+            self.save_checkpoint(task.task_id, stage, merged)
+            self._write_json(self.doing / f"{task.task_id}.json", task.to_dict())
 
     def load_checkpoint(self, task_id: str) -> dict | None:
         try:
