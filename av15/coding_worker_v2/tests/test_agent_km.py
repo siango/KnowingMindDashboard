@@ -158,7 +158,7 @@ class TestPinnedLauncher(unittest.TestCase):
         (package / "km_main.py").write_text(
             "import json, os, sys\n"
             "print(json.dumps({'args': sys.argv[1:],"
-            "'pointer_dir': os.environ['KMW2_STATE_DIR']}))\n")
+            "'pointer_dir': os.environ['KMW2_STATE_DIR'], 'cwd': os.getcwd()}))\n")
         subprocess.run(["git", "init", "-q", str(self.source)], check=True)
         subprocess.run(["git", "-C", str(self.source), "add", "."], check=True)
         subprocess.run([
@@ -183,6 +183,7 @@ class TestPinnedLauncher(unittest.TestCase):
             "--base", str(self.runtime / "coding_worker_v2"),
             "--workspace", str(self.runtime), "status"])
         self.assertEqual(data["pointer_dir"], str(self.runtime / "state"))
+        self.assertEqual(data["cwd"], str(self.runtime))
         self.assertIn(f"source_sha={self.sha}", result.stderr)
 
     def test_missing_or_wrong_pin_fails_closed(self):

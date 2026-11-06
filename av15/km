@@ -28,7 +28,7 @@ if [ -n "${KMW2_SOURCE_ROOT:-}" ]; then
   fi
   export KMW2_STATE_DIR="${KMW2_STATE_DIR:-$BASE/state}"
   echo "KMCW source_sha=$SHA source_root=$SOURCE runtime_base=$BASE/coding_worker_v2" >&2
-  cd "$SOURCE" && exec "$PY" -m coding_worker_v2.agent.km_main \
+  cd "$BASE" && exec "$PY" "$SOURCE/coding_worker_v2/agent/km_main.py" \
     --base "$BASE/coding_worker_v2" --workspace "$BASE" "$@"
 fi
 cd "$BASE" && exec "$PY" -m coding_worker_v2.agent.km_main "$@"
