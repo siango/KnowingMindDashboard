@@ -10,7 +10,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from coding_worker_v2.agent import tools  # noqa: E402
-from coding_worker_v2.agent.tools import ToolError, ToolRegistry  # noqa: E402
+from coding_worker_v2.agent.tools import ToolError, ToolRegistry, ToolSpec  # noqa: E402
 from coding_worker_v2.config import WorkerConfig  # noqa: E402
 from coding_worker_v2.queue_store import QueueStore  # noqa: E402
 
@@ -38,6 +38,62 @@ class TestRegistry(unittest.TestCase):
         for expected in ("repo_inspect", "code_search", "git_diff",
                          "task_enqueue", "git_commit", "pr_create"):
             self.assertIn(expected, names)
+
+    def test_command_contract_is_stable_and_schema_checked(self):
+        import hashlib
+        first = self.reg.command_contract()
+        second = self.reg.command_contract()
+        self.assertEqual(first, second)
+        self.assertEqual(first["schema"], "KMCW_TOOL_COMMAND_CONTRACT_V1")
+        self.assertEqual(first["command_count"], len(self.reg.names()))
+        self.assertEqual([item["name"] for item in first["commands"]],
+                         self.reg.names())
+        canonical = json.dumps(first["commands"], sort_keys=True,
+                               separators=(",", ":"), ensure_ascii=False)
+        self.assertEqual(first["sha256"],
+                         hashlib.sha256(canonical.encode("utf-8")).hexdigest())
+        for item in first["commands"]:
+            self.assertIn(item["permission"], ("read", "write", "destructive"))
+            self.assertIn("side_effects", item)
+            self.assertIn("required", item)
+            self.assertIn("optional", item)
+
+    def test_duplicate_or_ambiguous_commands_rejected(self):
+        with self.assertRaises(ToolError) as error:
+            self.reg.register(ToolSpec("repo_inspect", "duplicate"), lambda a, c: {})
+        self.assertEqual(error.exception.reason, "TOOL_SPEC_INVALID")
+        with self.assertRaises(ToolError):
+            self.reg.register(ToolSpec("ambiguous", "invalid",
+                                       {"repo": "str"}, {"repo": "str"}),
+                              lambda a, c: {})
+
+    def test_tool_evidence_uses_current_call_not_stale_success(self):
+        calls = [0]
+
+        def one_pass_then_fail(_args, _ctx):
+            calls[0] += 1
+            if calls[0] == 1:
+                return {"ok": True}
+            raise ToolError("SYNTHETIC_FAILURE")
+
+        self.reg.register(ToolSpec("one_pass", "regression probe"),
+                          one_pass_then_fail)
+        self.reg.call("one_pass", {}, self.ctx)
+        with self.assertRaises(ToolError):
+            self.reg.call("one_pass", {}, self.ctx)
+        events = [e for e in self.ctx["evidence"]
+                  if e.get("event") == "tool_called" and e.get("tool") == "one_pass"]
+        self.assertEqual([e["ok"] for e in events], [True, False])
+        self.assertNotIn("_one_pass_ok", self.ctx)
+
+    def test_non_dict_result_is_failure_not_success(self):
+        self.reg.register(ToolSpec("bad_result", "regression probe"),
+                          lambda _a, _c: "not a result dict")
+        with self.assertRaises(ToolError) as error:
+            self.reg.call("bad_result", {}, self.ctx)
+        self.assertEqual(error.exception.reason, "TOOL_RESULT_INVALID")
+        self.assertFalse(self.ctx["evidence"][-1]["ok"])
+        self.assertNotIn("_bad_result_ok", self.ctx)
 
     def test_unknown_tool_rejected(self):
         with self.assertRaises(ToolError) as ctx:
