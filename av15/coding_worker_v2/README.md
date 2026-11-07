@@ -182,3 +182,24 @@ G8 queue/lease/idempotency tests · G9 CI workflow · G10 receipt readback tests
 No benchmark harness/evidence is included in this source checkpoint. These are
 repository-side tests; they do not constitute an AV15 runtime or production
 acceptance.
+
+## Agent-controllable command contract (source-only extension)
+
+The existing `agent/tools.py:ToolRegistry` remains the **only** local tool
+registry. `build_default_registry().command_contract()` exposes a stable,
+SHA-256-fingerprinted declaration of each registered command's name, input
+types, permission, side effects and limits. It is inert metadata: discovery
+availability still comes from live probes; a source contract is **not** MCP
+runtime evidence, authority to call a tool, or proof of acceptance.
+
+This pattern adopts the *idea* of agent-controllable applications and parity
+testing without importing or cloning ArtCraft code. No new MCP server, queue,
+ledger, database, admin endpoint, worker or control plane is introduced.
+The existing `call()` admission/permission checks remain authoritative.
+Registration now rejects duplicate or ambiguous command signatures.
+Per-call evidence records the outcome of the **current** invocation, not a
+success flag left in context by a previous invocation; non-dict output is
+a failure. `tests/test_agent_tools.py` pins deterministic contracts,
+duplicate rejection, pass-then-fail replay, and invalid-result fail-closed
+behavior. External independent verification and AV15 runtime acceptance
+remain separate gates.
