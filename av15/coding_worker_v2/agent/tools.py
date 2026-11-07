@@ -9,6 +9,7 @@ only, no shell=True anywhere in this module).
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import subprocess
@@ -66,8 +67,18 @@ class ToolRegistry:
         self._health: dict[str, object] = {}
 
     def register(self, spec: ToolSpec, fn, health=None) -> None:
-        if spec.permission not in PERMISSIONS:
-            raise ToolError("TOOL_SPEC_INVALID", spec.name)
+        if (not isinstance(spec.name, str) or not spec.name
+                or spec.name in self._specs
+                or spec.permission not in PERMISSIONS
+                or not isinstance(spec.required, dict)
+                or not isinstance(spec.optional, dict)
+                or set(spec.required) & set(spec.optional)
+                or any(not isinstance(key, str) or not key
+                       or type_name not in TYPE_MAP
+                       for mapping in (spec.required, spec.optional)
+                       for key, type_name in mapping.items())
+                or not callable(fn)):
+            raise ToolError("TOOL_SPEC_INVALID", str(spec.name))
         self._specs[spec.name] = spec
         self._fns[spec.name] = fn
         if health is not None:
@@ -75,6 +86,25 @@ class ToolRegistry:
 
     def names(self) -> list[str]:
         return sorted(self._specs)
+
+    def command_contract(self) -> dict:
+        """Deterministic, source-only contract of the existing tool registry.
+
+        Does not execute tools, probe hosts, create authority or report runtime
+        readiness. The digest covers the declared commands, not live health.
+        """
+        commands = [
+            {"name":spec.name, "capability":spec.capability,
+             "required":dict(spec.required), "optional":dict(spec.optional),
+             "permission":spec.permission, "side_effects":spec.side_effects,
+             "limits":spec.limits}
+            for spec in (self._specs[name] for name in self.names())
+        ]
+        raw = json.dumps(commands, sort_keys=True, separators=(",", ":"),
+                         ensure_ascii=False).encode("utf-8")
+        return {"schema":"KMCW_TOOL_COMMAND_CONTRACT_V1",
+                "command_count":len(commands), "commands":commands,
+                "sha256":hashlib.sha256(raw).hexdigest()}
 
     def discover(self, ctx: dict) -> list[dict]:
         """Dynamic capability discovery. Never raises."""
@@ -98,8 +128,12 @@ class ToolRegistry:
 
     def call(self, name: str, args: dict, ctx: dict) -> dict:
         started = time.monotonic()
+        success = False
+        ctx.pop(f"_{name}_ok", None)  # prevent stale success from a prior call
         try:
-            return self._call_inner(name, args, ctx)
+            result = self._call_inner(name, args, ctx)
+            success = True
+            return result
         except ToolError as exc:
             raise exc
         except Exception as exc:
@@ -109,7 +143,7 @@ class ToolRegistry:
             evidence = ctx.setdefault("evidence", [])
             if isinstance(evidence, list):
                 evidence.append({"event": "tool_called", "tool": name,
-                                 "ok": f"_{name}_ok" in ctx, "ms": ms})
+                                 "ok": success, "ms": ms})
 
     def _call_inner(self, name: str, args: dict, ctx: dict) -> dict:
         spec = self._specs.get(name)
@@ -160,9 +194,9 @@ class ToolRegistry:
             if not available:
                 raise ToolError("TOOL_UNAVAILABLE", f"{name} {reason}")
         result = self._fns[name](args, ctx)
-        ctx[f"_{name}_ok"] = True
         if not isinstance(result, dict):
             raise ToolError("TOOL_RESULT_INVALID", name)
+        ctx[f"_{name}_ok"] = True
         return result
 
 
