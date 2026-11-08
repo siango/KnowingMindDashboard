@@ -11,11 +11,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import selectors
 import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
+from urllib import error, request
 
 from ..pipeline import inspect_repo, run_tests
 from ..providers import http_json, redact
@@ -129,26 +133,40 @@ class ToolRegistry:
     def call(self, name: str, args: dict, ctx: dict) -> dict:
         started = time.monotonic()
         success = False
+        result_hash, error_class = None, None
         ctx.pop(f"_{name}_ok", None)  # prevent stale success from a prior call
         try:
             result = self._call_inner(name, args, ctx)
+            result_hash = hashlib.sha256(json.dumps(
+                result, sort_keys=True, separators=(",", ":"),
+                ensure_ascii=False).encode("utf-8")).hexdigest()
             success = True
             return result
         except ToolError as exc:
+            error_class = exc.reason
             raise exc
         except Exception as exc:
+            error_class = "TOOL_CRASH"
             raise ToolError("TOOL_CRASH", f"{name} {type(exc).__name__}") from None
         finally:
+            if not success:
+                ctx.pop(f"_{name}_ok", None)
             ms = int((time.monotonic() - started) * 1000)
             evidence = ctx.setdefault("evidence", [])
             if isinstance(evidence, list):
                 evidence.append({"event": "tool_called", "tool": name,
-                                 "ok": success, "ms": ms})
+                                 "ok": success, "ms": ms,
+                                 "result_sha256": result_hash,
+                                 "error_class": error_class,
+                                 "task_id": ctx.get("task_id"),
+                                 "mission_id": ctx.get("mission_id")})
 
     def _call_inner(self, name: str, args: dict, ctx: dict) -> dict:
         spec = self._specs.get(name)
         if spec is None:
             raise ToolError("TOOL_UNKNOWN", name[:80])
+        if ctx.get("read_only") and spec.permission != "read":
+            raise ToolError("PERMISSION_DENIED", "read-only task")
         if name == "pr_create" and ctx.get("allow_new_pr") is not True:
             raise ToolError("PR_CREATE_NOT_APPROVED",
                             "new pull requests require separate owner approval")
@@ -264,7 +282,7 @@ def search_code(repo: str, pattern: str, max_matches: int = 30) -> list[dict]:
     return out
 
 
-def build_default_registry() -> ToolRegistry:
+def build_default_registry(photocraft=None) -> ToolRegistry:
     reg = ToolRegistry()
 
     def health_repo(ctx):
@@ -341,7 +359,257 @@ def build_default_registry() -> ToolRegistry:
     reg.register(ToolSpec("ci_status", "recent workflow runs", {"repo": "str"},
                           {}, "read", "none", "60s gh probe"),
                  lambda a, c: _ci_status(a), health_gh)
+    if photocraft is not None:
+        for local, remote, required, optional, permission in (
+            ("list", "session_list", {}, {}, "read"),
+            ("inspect", "doc_inspect", {}, {"index": "int"}, "read"),
+            ("create", "doc_new", {"name": "str", "width": "int", "height": "int"},
+             {"background": "str"}, "write"),
+            ("export", "doc_export", {"path": "str"}, {"index": "int"}, "write"),
+        ):
+            if remote not in photocraft.tools:
+                continue
+            def invoke(args, ctx, remote=remote):
+                return photocraft.call_tool(remote, args)
+
+            def health(ctx, permission=permission):
+                if permission != "read":
+                    return False, "KCC_GOVERNED_ARTCRAFT_DISPATCH_UNVERIFIED"
+                return not photocraft.closed, "MCP_CLOSED" if photocraft.closed else "OK"
+
+            reg.register(ToolSpec(
+                f"creative.photocraft.{local}", "creative.photocraft",
+                required, optional, permission,
+                "none" if permission == "read" else "isolated ArtCraft document/output",
+                "discovered stdio tools only; writes pending governed KCC admission"),
+                invoke, health)
+    for kind in ("health", "task_read", "mission_read", "node_read"):
+        field_name = {"task_read": "task_id", "mission_read": "mission_id",
+                      "node_read": "node_id"}.get(kind)
+        reg.register(ToolSpec(
+            f"kcc.d1.{kind}", f"kcc.d1.{kind}",
+            {field_name: "str"} if field_name else {}, {}, "read", "none",
+            "authenticated existing D1 snapshot; 1 MiB, 10s, freshness 60s; no SQL"),
+            lambda a, c, kind=kind: _kcc_read(kind, a, c),
+            lambda c: (False, "KCC_LEAST_PRIVILEGE_READ_AUTH_UNVERIFIED"))
     return reg
+
+
+ARTCRAFT_ROOT = Path.home() / ".local/share/knowingmind/artcraft"
+KCC_RUNTIME_ENDPOINT = "https://control-app.kebunate.com/api/control/runtime-v2"
+MCP_MAX_BYTES = 1024 * 1024
+
+
+def _artcraft_path(root: Path, value: str) -> Path:
+    path = Path(value)
+    if not value or ".." in path.parts or "\\" in value:
+        raise ToolError("ARTCRAFT_PATH_DENIED")
+    candidate = path if path.is_absolute() else root / path
+    if not candidate.is_relative_to(root) or candidate == root:
+        raise ToolError("ARTCRAFT_PATH_DENIED")
+    for part in (candidate, *candidate.parents):
+        if part.is_symlink():
+            raise ToolError("ARTCRAFT_SYMLINK_DENIED")
+    if not candidate.resolve().is_relative_to(root.resolve()):
+        raise ToolError("ARTCRAFT_PATH_DENIED")
+    return candidate
+
+
+class PhotoCraftStdio:
+    """Operator-owned bounded session; not a KCC execution claim or receipt."""
+
+    def __init__(self, timeout_s=10):
+        self.timeout_s = timeout_s
+        self.closed = False
+        self.tools = {}
+        self._id = 0
+        self._buffer = b""
+        binary = Path.home() / ".local/bin/photocraft-cli"
+        for root in (ARTCRAFT_ROOT / "input", ARTCRAFT_ROOT / "output"):
+            _artcraft_path(ARTCRAFT_ROOT, str(root))
+            if not root.is_dir():
+                raise ToolError("ARTCRAFT_ROOT_MISSING")
+        self._proc = subprocess.Popen(
+            [str(binary), "mcp", "--no-gpu",
+             "--automation-read-root", str(ARTCRAFT_ROOT / "input"),
+             "--automation-write-root", str(ARTCRAFT_ROOT / "output")],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, cwd=ARTCRAFT_ROOT,
+            env={key: os.environ[key] for key in ("HOME", "PATH", "LANG", "TMPDIR")
+                 if key in os.environ})
+        os.set_blocking(self._proc.stdin.fileno(), False)
+        self._selector = selectors.DefaultSelector()
+        self._selector.register(self._proc.stdout, selectors.EVENT_READ)
+        try:
+            self.server = self.rpc("initialize", {
+                "protocolVersion": "2024-11-05", "capabilities": {},
+                "clientInfo": {"name": "kmcw-v3", "version": "1"}})
+            self._send(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
+            listing = self.rpc("tools/list", {})
+            if listing.get("nextCursor") or not isinstance(listing.get("tools"), list):
+                raise ToolError("MCP_TOOL_LIST_INCOMPLETE")
+            for tool in listing["tools"]:
+                name = tool.get("name")
+                if not isinstance(name, str) or name in self.tools:
+                    raise ToolError("MCP_TOOL_LIST_INVALID")
+                self.tools[name] = tool
+        except Exception:
+            self.close()
+            raise
+
+    def _send(self, payload):
+        deadline = time.monotonic() + self.timeout_s
+        with selectors.DefaultSelector() as writable:
+            writable.register(self._proc.stdin, selectors.EVENT_WRITE)
+            while payload:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or not writable.select(remaining):
+                    raise ToolError("MCP_TIMEOUT")
+                try:
+                    count = os.write(self._proc.stdin.fileno(), payload)
+                except BlockingIOError:
+                    continue
+                if count <= 0:
+                    raise ToolError("MCP_EOF")
+                payload = payload[count:]
+
+    def rpc(self, method, params):
+        if self.closed:
+            raise ToolError("MCP_CLOSED")
+        self._id += 1
+        payload = json.dumps({"jsonrpc": "2.0", "id": self._id,
+                              "method": method, "params": params}).encode() + b"\n"
+        if len(payload) > 4096:
+            raise ToolError("MCP_REQUEST_TOO_LARGE")
+        deadline = time.monotonic() + self.timeout_s
+        try:
+            self._send(payload)
+            consumed = 0
+            while True:
+                if time.monotonic() >= deadline:
+                    raise ToolError("MCP_TIMEOUT")
+                if b"\n" in self._buffer:
+                    line, self._buffer = self._buffer.split(b"\n", 1)
+                    reply = json.loads(line)
+                    if not isinstance(reply, dict):
+                        raise ToolError("MCP_RESULT_INVALID")
+                    if reply.get("id") != self._id:
+                        if "id" in reply:
+                            raise ToolError("MCP_RESPONSE_ID_MISMATCH")
+                        continue
+                    if "error" in reply:
+                        raise ToolError("MCP_RPC_ERROR")
+                    result = reply.get("result")
+                    if not isinstance(result, dict):
+                        raise ToolError("MCP_RESULT_INVALID")
+                    return result
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or not self._selector.select(remaining):
+                    raise ToolError("MCP_TIMEOUT")
+                chunk = os.read(self._proc.stdout.fileno(), 65536)
+                if not chunk:
+                    raise ToolError("MCP_EOF")
+                consumed += len(chunk)
+                self._buffer += chunk
+                if consumed > MCP_MAX_BYTES:
+                    raise ToolError("MCP_RESPONSE_TOO_LARGE")
+        except (ToolError, OSError, ValueError) as exc:
+            self.close()
+            if isinstance(exc, ToolError):
+                raise
+            raise ToolError("MCP_TRANSPORT_FAILURE", type(exc).__name__) from None
+
+    def call_tool(self, name, args):
+        if name not in self.tools:
+            raise ToolError("MCP_TOOL_ABSENT")
+        if name not in {"session_list", "doc_inspect", "doc_new", "doc_export"}:
+            raise ToolError("MCP_TOOL_NOT_ALLOWLISTED")
+        args = dict(args)
+        if name == "doc_new":
+            if any(type(args.get(k)) is not int or not 1 <= args[k] <= 2048
+                   for k in ("width", "height")):
+                raise ToolError("ARTCRAFT_SIZE_DENIED")
+        if name == "doc_export":
+            target = _artcraft_path(ARTCRAFT_ROOT / "output", args.get("path", ""))
+            if target.suffix.lower() != ".png" or target.exists():
+                raise ToolError("ARTCRAFT_EXPORT_DENIED")
+            args["path"] = str(target)
+        result = self.rpc("tools/call", {"name": name, "arguments": args})
+        if result.get("isError"):
+            raise ToolError("MCP_TOOL_ERROR")
+        return result
+
+    def close(self):
+        if self.closed:
+            return
+        self.closed = True
+        self._selector.close()
+        if self._proc.poll() is None:
+            self._proc.terminate()
+            try:
+                self._proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self._proc.kill()
+                self._proc.wait(timeout=2)
+        for pipe in (self._proc.stdin, self._proc.stdout):
+            pipe.close()
+
+
+def _kcc_read(kind, args, ctx):
+    token = _need(ctx, "kcc_runtime_token")
+    if not isinstance(token, str) or not token:
+        raise ToolError("KCC_AUTH_MISSING")
+    class NoRedirect(request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            return None
+    req = request.Request(KCC_RUNTIME_ENDPOINT, headers={
+        "Authorization": f"Bearer {token}", "Accept": "application/json"})
+    try:
+        with request.build_opener(NoRedirect).open(req, timeout=10) as response:
+            raw = response.read(MCP_MAX_BYTES + 1)
+        if len(raw) > MCP_MAX_BYTES:
+            raise ToolError("KCC_RESPONSE_TOO_LARGE")
+        snapshot = json.loads(raw)
+    except error.HTTPError as exc:
+        raise ToolError("KCC_AUTH_DENIED" if exc.code in (401, 403)
+                        else "KCC_HTTP_UNAVAILABLE", str(exc.code)) from None
+    except (error.URLError, TimeoutError, ValueError):
+        raise ToolError("KCC_READ_UNAVAILABLE") from None
+    if (not isinstance(snapshot, dict)
+            or snapshot.get("component") != "KCC_D1_RUNTIME_V2"
+            or snapshot.get("authenticated") is not True
+            or snapshot.get("runtime_authority") != "CLOUDFLARE_D1"
+            or snapshot.get("spreadsheet_runtime_dependency") is not False):
+        raise ToolError("KCC_AUTHORITY_INVALID")
+    try:
+        age = (datetime.now(timezone.utc) - datetime.fromisoformat(
+            snapshot["generated_at"].replace("Z", "+00:00"))).total_seconds()
+    except (KeyError, TypeError, ValueError):
+        raise ToolError("KCC_FRESHNESS_INVALID") from None
+    if not 0 <= age <= 60:
+        raise ToolError("KCC_SNAPSHOT_STALE")
+    sources = snapshot.get("source_health")
+    if not isinstance(sources, dict) or not sources or any(
+            not isinstance(s, dict) or s.get("ok") is not True
+            for s in sources.values()):
+        raise ToolError("KCC_D1_UNHEALTHY")
+    metadata = {"endpoint": KCC_RUNTIME_ENDPOINT, "source": "CLOUDFLARE_D1",
+                "generated_at": snapshot["generated_at"], "age_s": age,
+                "execution_policy": "READ_ONLY_NO_EXECUTION_CLAIM_NO_STATUS_ASSUMPTION"}
+    if kind == "health":
+        return {**metadata, "sources": sources}
+    table, key = {"task_read": ("tasks", "task_id"),
+                  "mission_read": ("missions", "mission_id"),
+                  "node_read": ("nodes", "node_id")}[kind]
+    if not ID_RE.fullmatch(args[key]):
+        raise ToolError("TOOL_ARGS_INVALID", key)
+    rows = snapshot.get(table)
+    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+        raise ToolError("KCC_READ_MODEL_INVALID")
+    matches = [row for row in rows if row.get(key) == args[key]]
+    if len(matches) != 1:
+        raise ToolError("KCC_RECORD_NOT_IN_BOUNDED_SNAPSHOT")
+    return {**metadata, "record": matches[0]}
 
 
 def _git_diff(args: dict) -> dict:

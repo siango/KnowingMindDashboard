@@ -203,3 +203,36 @@ a failure. `tests/test_agent_tools.py` pins deterministic contracts,
 duplicate rejection, pass-then-fail replay, and invalid-result fail-closed
 behavior. External independent verification and AV15 runtime acceptance
 remain separate gates.
+
+### PhotoCraft stdio and KCC D1 read adapters (acceptance pending)
+
+`PhotoCraftStdio` uses the installed `~/.local/bin/photocraft-cli` with fixed
+read/write roots `~/.local/share/knowingmind/artcraft/{input,output}`, CPU mode,
+an allowlisted child environment, a 10-second request deadline and 1-MiB
+response cap. An operator-owned session passed to
+`build_default_registry(session)` registers only tools found in its actual
+`tools/list`: `creative.photocraft.list`, `.inspect`, `.create`, `.export`.
+It does not expose arbitrary engine commands. Export is PNG-only, confined,
+symlink-rejected and non-overwriting. Transport failures close the session;
+there is no automatic mutation retry.
+
+Creating/exporting remains unavailable: no authenticated governed KCC
+ArtCraft admission/lease/handler has been verified. The existing approval
+policy is not widened, and standalone operator export diagnostics are not
+mission execution or independent QC. Read-only tasks cannot invoke writes,
+including with destructive authorization. Per-call evidence includes the
+result SHA-256, error class and supplied mission/task trace, never credentials.
+
+`kcc.d1.{health,task_read,mission_read,node_read}` are declared in this same
+registry but report `KCC_LEAST_PRIVILEGE_READ_AUTH_UNVERIFIED`. The candidate
+reader targets only the existing `/api/control/runtime-v2` read model at
+`https://control-app.kebunate.com`, refuses redirects, checks D1 authority,
+all returned source-health entries and snapshot freshness, and cannot execute
+SQL or mutate D1. Its source parsing tests use fixtures, not cloud readback.
+No credential/configuration switch enables these tools: enabling them requires
+verified least-privilege authentication and independent acceptance first.
+
+The AV15 filesystem QueueStore/receipts remain execution checkpoints, not
+authoritative cloud mission status. A1 source/runtime reconciliation, A2
+independent signer, A3 same-task cloud lease/receipt, A4 existing QC/security,
+and A5 source handoff remain separate, unfinished acceptance gates.

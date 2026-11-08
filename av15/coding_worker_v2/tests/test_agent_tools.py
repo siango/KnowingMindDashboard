@@ -7,6 +7,8 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+from urllib import error
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from coding_worker_v2.agent import tools  # noqa: E402
@@ -215,6 +217,181 @@ class TestRegistry(unittest.TestCase):
                       self.ctx)
         events = [e.get("event") for e in self.ctx["evidence"]]
         self.assertIn("tool_called", events)
+
+    def test_photocraft_discovery_missing_tool_and_write_gate(self):
+        client = mock.Mock(tools={"session_list": {}, "doc_export": {}},
+                           closed=False)
+        reg = tools.build_default_registry(client)
+        self.assertIn("creative.photocraft.list", reg.names())
+        self.assertNotIn("creative.photocraft.inspect", reg.names())
+        client.call_tool.return_value = {"content": []}
+        reg.call("creative.photocraft.list", {}, self.ctx)
+        with self.assertRaises(ToolError):
+            reg.call("creative.photocraft.export", {"path": "canary.png"}, self.ctx)
+        self.assertEqual(client.call_tool.call_count, 1)
+        self.assertFalse(self.ctx["evidence"][-1]["ok"])
+        discovery = {row["tool"]: row for row in reg.discover(self.ctx)}
+        self.assertFalse(discovery["creative.photocraft.export"]["available"])
+        self.assertEqual(reg.command_contract(),
+                         tools.build_default_registry(client).command_contract())
+
+    def test_read_only_rejects_writes_even_with_destructive_approval(self):
+        with self.assertRaises(ToolError) as caught:
+            self.reg.call("task_enqueue", {}, {
+                **self.ctx, "read_only": True, "authorize_destructive": True})
+        self.assertEqual(caught.exception.reason, "PERMISSION_DENIED")
+
+    def test_artcraft_paths_deny_traversal_absolute_and_symlink(self):
+        root = self.root / "output"
+        root.mkdir()
+        (root / "alias").symlink_to(self.root / "repo", target_is_directory=True)
+        for path in ("../escape.png", str(self.root / "outside.png"),
+                     "alias/export.png", r"..\escape.png"):
+            with self.subTest(path=path), self.assertRaises(ToolError):
+                tools._artcraft_path(root, path)
+        self.assertEqual(tools._artcraft_path(root, "image.png"), root / "image.png")
+
+    def test_photocraft_export_no_overwrite_and_canvas_cap(self):
+        client = tools.PhotoCraftStdio.__new__(tools.PhotoCraftStdio)
+        client.tools = {"doc_export": {}, "doc_new": {}}
+        client.rpc = mock.Mock(return_value={"content": []})
+        (self.root / "output").mkdir()
+        (self.root / "output" / "existing.png").write_bytes(b"original")
+        with mock.patch.object(tools, "ARTCRAFT_ROOT", self.root):
+            for path in ("existing.png", "../escape.png", "image.jpg"):
+                with self.subTest(path=path), self.assertRaises(ToolError):
+                    client.call_tool("doc_export", {"path": path})
+            client.call_tool("doc_export", {"path": "new.png"})
+        self.assertEqual(client.rpc.call_count, 1)
+        self.assertEqual((self.root / "output" / "existing.png").read_bytes(), b"original")
+        for width in (True, -1, 2049):
+            with self.subTest(width=width), self.assertRaises(ToolError):
+                client.call_tool("doc_new", {"width": width, "height": 64})
+
+    def test_mcp_timeout_fault_and_absent_tool_fail_closed(self):
+        client = tools.PhotoCraftStdio.__new__(tools.PhotoCraftStdio)
+        client.closed = False
+        client.tools = {"session_list": {}}
+        client.timeout_s = 0.01
+        client._id = 0
+        client._buffer = b""
+        client._proc = mock.Mock()
+        client._selector = mock.Mock()
+        client._selector.select.return_value = []
+        client._send = mock.Mock()
+        client.close = mock.Mock()
+        with self.assertRaises(ToolError) as caught:
+            client.call_tool("session_list", {})
+        self.assertEqual(caught.exception.reason, "MCP_TIMEOUT")
+        client.close.assert_called_once()
+        with self.assertRaises(ToolError) as caught:
+            client.call_tool("doc_export", {})
+        self.assertEqual(caught.exception.reason, "MCP_TOOL_ABSENT")
+        client.rpc = mock.Mock(return_value={"isError": True})
+        with self.assertRaises(ToolError) as caught:
+            client.call_tool("session_list", {})
+        self.assertEqual(caught.exception.reason, "MCP_TOOL_ERROR")
+
+    def test_mcp_response_cap_and_id_mismatch(self):
+        for raw, reason in (
+            (b"x" * (tools.MCP_MAX_BYTES + 1), "MCP_RESPONSE_TOO_LARGE"),
+            (b'{"jsonrpc":"2.0","id":999,"result":{}}\n',
+             "MCP_RESPONSE_ID_MISMATCH"),
+        ):
+            client = tools.PhotoCraftStdio.__new__(tools.PhotoCraftStdio)
+            client.closed, client._id, client._buffer = False, 0, b""
+            client.timeout_s = 1
+            client._proc, client._selector = mock.Mock(), mock.Mock()
+            client._send = mock.Mock()
+            client.close = mock.Mock()
+            with self.subTest(reason=reason), mock.patch.object(
+                    tools.os, "read", return_value=raw):
+                with self.assertRaises(ToolError) as caught:
+                    client.rpc("tools/list", {})
+                self.assertEqual(caught.exception.reason, reason)
+                client.close.assert_called_once()
+
+    def test_mcp_blocked_stdin_has_deadline(self):
+        client = tools.PhotoCraftStdio.__new__(tools.PhotoCraftStdio)
+        client.timeout_s = 0.01
+        client._proc = mock.Mock()
+        selector = mock.MagicMock()
+        selector.__enter__.return_value.select.return_value = []
+        with mock.patch.object(tools.selectors, "DefaultSelector", return_value=selector):
+            with self.assertRaises(ToolError) as caught:
+                client._send(b"request\n")
+        self.assertEqual(caught.exception.reason, "MCP_TIMEOUT")
+
+    def test_d1_discovery_unavailable_and_no_network_or_secret_evidence(self):
+        ctx = {**self.ctx, "kcc_runtime_token": "fixture-secret-never-log"}
+        with mock.patch.object(tools.request, "build_opener") as opener:
+            with self.assertRaises(ToolError) as caught:
+                self.reg.call("kcc.d1.health", {}, ctx)
+        self.assertEqual(caught.exception.reason, "TOOL_UNAVAILABLE")
+        opener.assert_not_called()
+        self.assertNotIn("fixture-secret-never-log", json.dumps(ctx["evidence"]))
+
+    def test_d1_read_schema_freshness_auth_and_outage(self):
+        now = datetime.now(timezone.utc)
+        snapshot = {"component": "KCC_D1_RUNTIME_V2", "authenticated": True,
+                    "runtime_authority": "CLOUDFLARE_D1",
+                    "spreadsheet_runtime_dependency": False,
+                    "generated_at": now.isoformat(),
+                    "source_health": {"kcc_node_task_queue": {"ok": True}},
+                    "tasks": [{"task_id": "existing-task", "lease_id": "existing-lease"}]}
+        opener = mock.Mock()
+        def response(data):
+            result = mock.MagicMock()
+            result.__enter__.return_value.read.return_value = json.dumps(data).encode()
+            return result
+        ctx = {"kcc_runtime_token": "fixture-secret"}
+        with mock.patch.object(tools.request, "build_opener", return_value=opener):
+            opener.open.return_value = response(snapshot)
+            result = tools._kcc_read("task_read", {"task_id": "existing-task"}, ctx)
+            self.assertEqual(result["record"]["lease_id"], "existing-lease")
+            self.assertNotIn("fixture-secret", json.dumps(result))
+            for changed, reason in (
+                ({"generated_at": (now - timedelta(seconds=120)).isoformat()},
+                 "KCC_SNAPSHOT_STALE"),
+                ({"source_health": {"kcc_node_task_queue": {"ok": False}}},
+                 "KCC_D1_UNHEALTHY"),
+                ({"authenticated": False}, "KCC_AUTHORITY_INVALID"),
+            ):
+                opener.open.return_value = response({**snapshot, **changed})
+                with self.subTest(reason=reason), self.assertRaises(ToolError) as caught:
+                    tools._kcc_read("health", {}, ctx)
+                self.assertEqual(caught.exception.reason, reason)
+            for fault, reason in (
+                (error.HTTPError(tools.KCC_RUNTIME_ENDPOINT, 401, "", {}, None),
+                 "KCC_AUTH_DENIED"),
+                (error.HTTPError(tools.KCC_RUNTIME_ENDPOINT, 302, "", {}, None),
+                 "KCC_HTTP_UNAVAILABLE"),
+                (error.URLError("offline"), "KCC_READ_UNAVAILABLE"),
+            ):
+                opener.open.side_effect = fault
+                with self.subTest(reason=reason), self.assertRaises(ToolError) as caught:
+                    tools._kcc_read("health", {}, ctx)
+                self.assertEqual(caught.exception.reason, reason)
+        with self.assertRaises(ToolError):
+            tools._kcc_read("health", {}, {})
+
+    def test_result_hash_and_failed_retry_trace(self):
+        client = mock.Mock(tools={"session_list": {}}, closed=False)
+        client.call_tool.side_effect = [{"content": []}, ToolError("MCP_TOOL_ERROR"),
+                                       {"content": [{"text": "recovered"}]}]
+        reg = tools.build_default_registry(client)
+        for success in (True, False, True):
+            if success:
+                reg.call("creative.photocraft.list", {}, self.ctx)
+            else:
+                with self.assertRaises(ToolError):
+                    reg.call("creative.photocraft.list", {}, self.ctx)
+                self.assertNotIn("_creative.photocraft.list_ok", self.ctx)
+        events = [e for e in self.ctx["evidence"] if e.get("event") == "tool_called"]
+        self.assertEqual([e["ok"] for e in events], [True, False, True])
+        self.assertEqual(events[1]["error_class"], "MCP_TOOL_ERROR")
+        self.assertIsNone(events[1]["result_sha256"])
+        self.assertEqual(len(events[0]["result_sha256"]), 64)
 
 
 if __name__ == "__main__":
