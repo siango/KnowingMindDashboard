@@ -349,6 +349,9 @@ class TestRegistry(unittest.TestCase):
             opener.open.return_value = response(snapshot)
             result = tools._kcc_read("task_read", {"task_id": "existing-task"}, ctx)
             self.assertEqual(result["record"]["lease_id"], "existing-lease")
+            request_sent = opener.open.call_args.args[0]
+            self.assertEqual(request_sent.get_header("Authorization"),
+                             "Bearer " + "fixture-" + "secret")
             self.assertNotIn("fixture-secret", json.dumps(result))
             for changed, reason in (
                 ({"generated_at": (now - timedelta(seconds=120)).isoformat()},
