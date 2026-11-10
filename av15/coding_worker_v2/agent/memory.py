@@ -142,10 +142,12 @@ def retrieve_work(goal, repo, source_sha, store, receipts_dir, limit=5) -> list[
         overlap = set(previous_goal.split()) & set(normalize_goal(goal).split())
         if not exact and not overlap:
             continue
+        if terminal_conflicts(store, receipt):
+            continue
         case = work_case(receipt, str(path), hashlib.sha256(path.read_bytes()).hexdigest())
         case["verified_for_current_source"] = (
             receipt.get("source_sha") == source_sha
-            and exact and receipt_verified(receipt) and not terminal_conflicts(store, receipt))
+            and exact and receipt_verified(receipt))
         case["retrieval_only"] = True
         records.append((exact, len(overlap), case))
     return [case for _, _, case in sorted(records, key=lambda row: row[:2],

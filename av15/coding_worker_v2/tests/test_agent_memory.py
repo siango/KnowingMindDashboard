@@ -134,6 +134,18 @@ class TestClassify(unittest.TestCase):
         self.assertFalse(records[0]["verified_for_current_source"])
         self.assertTrue(records[0]["retrieval_only"])
 
+    def test_conflicting_receipt_is_not_retrieved_as_a_work_lesson(self):
+        base = "1" * 40
+        self._done_receipt("verified fix", base)
+        archive = next(self.store.done.glob("*/task.json"))
+        data = json.loads(archive.read_text())
+        data["status"] = "FAILED"
+        archive.write_text(json.dumps(data))
+        records = memory.retrieve_work(
+            "verified fix", str(self.root / "repo"), base,
+            self.store, self.receipts)
+        self.assertEqual(records, [])
+
     def test_duplicate_task_source_mismatch_is_blocked(self):
         task = make_task("same task", str(self.root / "repo"), "old")
         self.store.enqueue(task)
