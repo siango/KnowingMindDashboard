@@ -309,3 +309,28 @@ class TestFileListAndPatch(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestEventSpool(unittest.TestCase):
+    def test_idempotent_append_tamper_detection_and_redaction(self):
+        import tempfile
+        from pathlib import Path
+        from coding_worker_v2.queue_store import QueueStore
+        with tempfile.TemporaryDirectory() as tmp:
+            store = QueueStore(Path(tmp) / "q")
+            first = store.append_event("t-1", "provider.generated", "SUCCESS", "k1",
+                                       detail="api_key='sk-abcdefghijklmnopqrstuv'")
+            again = store.append_event("t-1", "provider.generated", "SUCCESS", "k1")
+            self.assertEqual(first["delivery"], "APPENDED")
+            self.assertEqual(again["delivery"], "DUPLICATE_IGNORED")
+            self.assertEqual(again["event_id"], first["event_id"])
+            store.append_event("t-1", "task.outcome", "FAILED", "k2")
+            readback = store.read_events("t-1")
+            self.assertEqual(readback["event_count"], 2)
+            self.assertTrue(readback["chain_intact"])
+            self.assertNotIn("sk-abcdefghijklmnopqrstuv", (store.events / "t-1.jsonl").read_text())
+            path = store.events / "t-1.jsonl"
+            path.write_text(path.read_text().replace('"FAILED"', '"DONE"'))
+            self.assertFalse(store.read_events("t-1")["chain_intact"])
+            with self.assertRaises(ValueError):
+                store.append_event("../x", "s", "ok")

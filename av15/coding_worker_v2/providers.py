@@ -271,7 +271,8 @@ class OllamaProvider(BaseProvider):
             tokens_out=data.get("eval_count") if type(
                 data.get("eval_count")) is int else None,
             latency_ms=int((time.monotonic() - started) * 1000),
-            execution={"resources": resources, "actual_cost_usd": None})
+            execution={"resources": resources, "actual_cost_usd": None,
+                       "usage_source": "OLLAMA_EVAL_COUNTS"})
 
     def _version_for(self, model: str) -> str:
         for item in self.inventory():
@@ -544,6 +545,9 @@ class DeepSeekAPIProvider(BaseProvider):
                           execution={"resources": resources, "actual_cost_usd": None,
                                      "estimated_cost_usd": cost,
                                      "cost_basis": "measured tokens and configured prices; not billed cost",
+                                     "usage_source": "OPENAI_COMPATIBLE_USAGE_FIELDS",
+                                     # Reservations are budget holds, never billed cost.
+                                     "reservation_ref": reservation,
                                      "budget_reserved_usd": worst if cost is None else 0})
 
 
@@ -635,7 +639,8 @@ class EchoProvider(BaseProvider):
                           provider=self.name, model="echo-1",
                           version="deterministic",
                           tokens_in=len(last.split()), tokens_out=8,
-                          latency_ms=1)
+                          latency_ms=1,
+                          execution={"usage_source": "WORD_COUNT_NOT_TOKENS"})
 
 
 @dataclass(frozen=True)

@@ -33,6 +33,42 @@ from coding_worker_v2.receipts import write_receipt  # noqa: E402
 from coding_worker_v2.tasks import Task  # noqa: E402
 
 
+def _provider_event(store: QueueStore, task: Task, event: dict, step: str, status: str) -> None:
+    usage = event.get("native_usage") or event.get("usage") or {}
+    store.append_event(
+        task.task_id, step, status, event["idempotency_key"],
+        account_id=event.get("account_id"), mission_id=event.get("mission_id"),
+        execution_id=event.get("execution_id"), owner_node=task.owner_node,
+        provider=event.get("provider"), model=event.get("model"),
+        source_sha=(task.task_input.hints or {}).get("base_commit"),
+        provider_request_id=event.get("provider_request_id"),
+        usage_source=event.get("usage_source"),
+        usage={"tokens_in": event.get("tokens_in", usage.get("tokens_in")),
+               "tokens_out": event.get("tokens_out", usage.get("tokens_out")),
+               "premium_requests": usage.get("premium_requests"),
+               "nano_aiu": usage.get("nano_aiu"),
+               "estimated_cost_usd": event.get("estimated_cost_usd"),
+               "billed_cost_usd": None, "reservation_ref": event.get("reservation_ref"),
+               "quota": event.get("quota", "UNKNOWN"),
+               "usage_scope": event.get("usage_scope")},
+        detail=event.get("detail"), provenance="run_once provider response")
+
+
+def usage_correlation(task: Task, round_no: int, provider: str, model: str,
+                      execution: dict | None) -> dict:
+    """Correlation for one generation; the idempotency key is stable across resume."""
+    execution = execution or {}
+    hints = task.task_input.hints or {}
+    execution_id = f"{task.task_id}:a{task.attempts}:r{round_no}"
+    return {"account_id": hints.get("account_id"), "mission_id": task.mission_id,
+            "task_id": task.task_id, "execution_id": execution_id,
+            "provider_request_id": execution.get("provider_request_id"),
+            "idempotency_key": hashlib.sha256(
+                f"{execution_id}|{provider}|{model}".encode("utf-8")).hexdigest(),
+            "usage_source": execution.get("usage_source", "UNKNOWN"),
+            "usage_scope": "CUSTOMER_TASK"}
+
+
 def run_task(task: Task, store: QueueStore, config: WorkerConfig,
              ledger_path: Path | None = None,
              chain: list | None = None,
@@ -188,9 +224,14 @@ def _run_task_inner(task: Task, store: QueueStore, config: WorkerConfig,
                     prompt, chain, max_tokens=2048, timeout=config.task_timeout_s,
                     resources=resources, task=task, progress=progress)
             except ProviderError as exc:
+                usage = exc.resources.get("usage") if isinstance(exc.resources, dict) else None
                 task.evidence.append({"event": "provider_paused", "reason": exc.reason,
                                       "detail": exc.detail,
-                                      "route": [vars(t) for t in exc.trace]})
+                                      "route": [vars(t) for t in exc.trace],
+                                      "usage": usage,
+                                      **usage_correlation(task, round_no, "failed-dispatch", "-",
+                                                          usage)})
+                _provider_event(store, task, task.evidence[-1], "provider.failed", exc.reason)
                 gates = [resources.gate(p.name) for p in chain]
                 deadlines = [g[2] for g in gates if g[2] is not None]
                 retry_at = min(deadlines) if deadlines else None
@@ -212,8 +253,14 @@ def _run_task_inner(task: Task, store: QueueStore, config: WorkerConfig,
                                   "tokens_in": gen.tokens_in, "tokens_out": gen.tokens_out,
                                   "actual_cost_usd": gen.execution.get("actual_cost_usd"),
                                   "estimated_cost_usd": gen.execution.get("estimated_cost_usd"),
+                                  "native_usage": gen.execution.get("usage"),
+                                  "reservation_ref": gen.execution.get("reservation_ref"),
+                                  "quota": (gen.execution.get("resources") or {}).get("quota", "UNKNOWN"),
+                                  **usage_correlation(task, round_no, gen.provider, gen.model,
+                                                      gen.execution),
                                   "history_turns": len(clipped_history),
                                   "route": [vars(t) for t in trace]})
+            _provider_event(store, task, task.evidence[-1], "provider.generated", "SUCCESS")
             try:
                 edits = parse_edits(gen.text)
             except PipelineError as exc:

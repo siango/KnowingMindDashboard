@@ -55,6 +55,97 @@ def namespaced_id(plan: Plan, task_id: str) -> str:
     return f"{plan.plan_id}-{task_id}"[:120]
 
 
+DIFFICULTY_RUBRIC = "KMCW_DIFFICULTY_PRE_V1"
+
+
+def frozen_difficulty(planned, workspace: str, test_command: str) -> dict:
+    """Pre-execution D1-D5 (1 low .. 3 high); post-hoc difficulty is recorded separately."""
+    paths = list(planned.allowed_paths)
+    security = policy_decision("edit", "difficulty", workspace, paths=paths,
+                               approved_paths=paths, isolated=True)["decision"]
+    return {"rubric": DIFFICULTY_RUBRIC,
+            "D1_scope": 1 if len(paths) <= 1 else 2 if len(paths) <= 3 else 3,
+            "D2_dependencies": min(3, 1 + len(planned.deps)),
+            "D3_security": 1 if security == "AUTO_APPROVE" else 3,
+            "D4_testing": 1 if test_command else 3,
+            "D5_uncertainty": {"S": 1, "M": 2, "L": 3}.get(planned.complexity, 3)}
+
+
+def _event_context(plan: Plan, ns_id: str, provider_policy, source_sha: str) -> dict:
+    policy = provider_policy or {}
+    return {"account_id": policy.get("account_id"), "mission_id": plan.mission_id,
+            "command_id": plan.plan_id, "parent_command_id": policy.get("parent_command_id"),
+            "prompt_version": f"KM_TASK_PLAN_V1:r{plan.revision}:{plan.engine}",
+            "owner_node": plan.owner_node, "source_sha": source_sha,
+            "execution_id": ns_id, "provenance": "KMCW executor"}
+
+
+def _gate_status(result: dict) -> str:
+    return "PASS" if result.get("gate_passed") is True else "BLOCKED"
+
+
+def _gate_detail(result: dict) -> dict:
+    report = result.get("report") if isinstance(result.get("report"), dict) else {}
+    return {"reason": result.get("reason"), "detail": result.get("detail"),
+            "verdict": report.get("verdict"),
+            "observed_requirements": report.get("observed_requirements"),
+            "requirements_total": report.get("requirements_total"),
+            "global_findings": [f.get("code") for f in report.get("global_findings", [])
+                                if isinstance(f, dict)],
+            "context_digest": result.get("context_digest")}
+
+
+def emit_gate(store, ns_id: str, stage: str, result: dict, context: dict) -> dict:
+    detail = _gate_detail(result)
+    key = hashlib.sha256(json.dumps(
+        [ns_id, stage, _gate_status(result), context.get("source_sha"),
+         detail["reason"], detail["global_findings"], detail["context_digest"]],
+        sort_keys=True).encode()).hexdigest()
+    return store.append_event(ns_id, f"gate.{stage}", _gate_status(result), key,
+                              gate=detail, **context)
+
+
+def learning_record(receipt: dict | None = None, *, problem: str = "", cause: list | None = None,
+                    criterion: str = "", receipt_ref: str = "", receipt_sha: str = "") -> dict:
+    """Ariyasacca Four as an engineering-analysis metaphor, not doctrinal truth."""
+    from .memory import receipt_verified, work_case
+    if receipt is not None:
+        case = work_case(receipt, receipt_ref, receipt_sha)
+        verified = receipt_verified(receipt)
+        return {"framework": "FOUR_TRUTHS_ENGINEERING_METAPHOR_V1",
+                "dukkha_problem": case["PROBLEM"], "samudaya_observed_cause": case["CAUSE"],
+                "nirodha_success_criterion": receipt.get("input", {}).get("hints", {}).get("acceptance"),
+                "magga_path": case["SOLUTION_PATH"] if verified else None,
+                "magga_state": "PROVEN_BY_VERIFIED_RECEIPT" if verified else "UNPROVEN",
+                "result": case["RESULT"], "receipt_ref": receipt_ref, "receipt_sha256": receipt_sha,
+                "generalization": "NOT_AUTO_PERSISTED"}
+    return {"framework": "FOUR_TRUTHS_ENGINEERING_METAPHOR_V1",
+            "dukkha_problem": problem, "samudaya_observed_cause": cause or [],
+            "nirodha_success_criterion": criterion, "magga_path": None,
+            "magga_state": "UNPROVEN", "receipt_ref": None,
+            "generalization": "NOT_AUTO_PERSISTED"}
+
+
+def record_receipt(store, receipts_dir: Path, result, context: dict, terminal: bool = False) -> Path:
+    """Existing write_receipt plus an immutable receipt event (and learning when terminal)."""
+    path = write_receipt(receipts_dir, result)
+    raw = path.read_bytes()
+    digest = hashlib.sha256(raw).hexdigest()
+    store.append_event(result.task_id, "receipt.written", str(result.status),
+                       hashlib.sha256(f"receipt|{digest}".encode()).hexdigest(),
+                       receipt_uri=str(path), receipt_sha256=digest,
+                       next_action=result.next_action, **context)
+    if terminal:
+        learning = learning_record(json.loads(raw), receipt_ref=str(path), receipt_sha=digest)
+        store.append_event(result.task_id, "learning.recorded",
+                           "PROVEN" if learning["magga_state"] == "PROVEN_BY_VERIFIED_RECEIPT"
+                           else "UNPROVEN",
+                           hashlib.sha256(f"learning|{digest}".encode()).hexdigest(),
+                           learning=learning,
+                           receipt_uri=str(path), receipt_sha256=digest, **context)
+    return path
+
+
 def execute_plan(plan: Plan, config: WorkerConfig, store: QueueStore,
                  receipts_dir: Path, state_dir: Path, workspace: str,
                  history: list[dict] | None = None,
@@ -65,8 +156,39 @@ def execute_plan(plan: Plan, config: WorkerConfig, store: QueueStore,
     """Execute all planned tasks in dependency order. Returns a report."""
     progress = progress or (lambda **kw: None)
     progress(phase="ADMISSION_AUDIT", state="RUNNING", total=len(plan.tasks), done=0, unit="tasks")
+    source_sha = current_base_commit(workspace)
+    test_command = (provider_policy or {}).get("test_command") or _test_command(workspace)
+
+    def admission_events(result: dict) -> None:
+        for planned in plan.tasks:
+            ns_id = namespaced_id(plan, planned.task_id)
+            context = _event_context(plan, ns_id, provider_policy, source_sha)
+            difficulty = frozen_difficulty(planned, workspace, test_command)
+            store.append_event(ns_id, "plan.difficulty_frozen", "RECORDED",
+                               hashlib.sha256(json.dumps([ns_id, plan.plan_id, plan.revision,
+                                                          difficulty], sort_keys=True).encode()).hexdigest(),
+                               difficulty=difficulty, **context)
+            event = emit_gate(store, ns_id, "ADMIT", result, context)
+            if event["status"] != "PASS":
+                gate = event["gate"]
+                store.append_event(
+                    ns_id, "learning.recorded", "UNPROVEN",
+                    hashlib.sha256(f"learning|{event['idempotency_key']}".encode()).hexdigest(),
+                    learning=learning_record(
+                        problem=f"ADMIT blocked: {gate.get('reason')}",
+                        cause=gate.get("global_findings") or [gate.get("detail")],
+                        criterion="ADMIT gate_passed with fresh authorized authority snapshot "
+                                  "covering all mission requirements"),
+                    next_action=gate.get("reason"), **context)
+                store.append_event(
+                    ns_id, "task.outcome", "SKIPPED",
+                    hashlib.sha256(f"outcome|{event['idempotency_key']}".encode()).hexdigest(),
+                    detail=gate.get("reason"), next_action="AUTHORITY_OR_SCOPE_RESOLUTION",
+                    **context)
+
     if is_read_only(plan.source_command):
         reason = "READ_ONLY_TOOL_RUNTIME_NOT_RECONCILED"
+        admission_events({"gate_passed": False, "reason": reason})
         progress(phase="ADMISSION", state="BLOCKED", reason=reason)
         return {"plan_id": plan.plan_id, "revision": plan.revision,
                 "tasks": [{"task_id": t.task_id, "ns_id": namespaced_id(plan,t.task_id),
@@ -78,6 +200,7 @@ def execute_plan(plan: Plan, config: WorkerConfig, store: QueueStore,
                          f"plan={plan.owner_node} runtime={config.owner_node}")
     task_targets = [namespaced_id(plan, task.task_id) for task in plan.tasks]
     if len(task_targets) != len(set(task_targets)):
+        admission_events({"gate_passed": False, "reason": "DUPLICATE_TASK_TARGET"})
         blocked = [{"task_id": task.task_id, "decision": "BLOCKED",
                     "status": "SKIPPED", "reason": "DUPLICATE_TASK_TARGET"}
                    for task in plan.tasks]
@@ -96,6 +219,7 @@ def execute_plan(plan: Plan, config: WorkerConfig, store: QueueStore,
         plan.to_dict(), sort_keys=True, separators=(",", ":"),
         ensure_ascii=False).encode("utf-8")).hexdigest()
     admission = _audit(audit_fn, "ADMIT", plan_scope)
+    admission_events(admission)
     if admission.get("gate_passed") is not True:
         blocked = [{"task_id": t.task_id, "decision": "BLOCKED",
                     "status": "SKIPPED",
@@ -129,6 +253,16 @@ def execute_plan(plan: Plan, config: WorkerConfig, store: QueueStore,
                                   history, qc_fn, sleep_fn, ledger_path,
                                   audit_fn, plan_scope, progress, provider_policy))
         report["tasks"].append(entry)
+        outcome_context = _event_context(plan, entry["ns_id"], provider_policy, source_sha)
+        store.append_event(entry["ns_id"], "task.outcome", str(entry.get("status", "UNKNOWN")),
+                           hashlib.sha256(json.dumps(
+                               [entry["ns_id"], entry.get("status"), entry.get("decision"),
+                                entry.get("reason"), entry.get("receipt") or entry.get("reused_receipt"),
+                                source_sha], sort_keys=True).encode()).hexdigest(),
+                           detail=entry.get("reason") or entry.get("failure_class"),
+                           next_action=entry.get("next_action"),
+                           receipt_uri=entry.get("receipt") or entry.get("reused_receipt"),
+                           **outcome_context)
         if entry.get("decision") == "REUSE":
             report["reused"] += 1
         elif entry.get("status") == "DONE":
@@ -182,10 +316,12 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
                 "reason": "APPROVED_PATH_NOT_FOUND",
                 "paths": missing_paths[:10]}
     base_commit = current_base_commit(workspace)
+    event_context = _event_context(plan, ns_id, provider_policy, base_commit)
     fingerprint = fingerprint_for(planned.goal, workspace, base_commit)
     decision = classify(planned.goal, workspace, base_commit, store,
                         receipts_dir, task_id=ns_id,
-                        max_attempts=planned.max_repairs + 1)
+                        max_attempts=planned.max_repairs + 1,
+                        account_id=(provider_policy or {}).get("account_id"))
     entry: dict = {"decision": decision.decision, "reason": decision.reason,
                    "fingerprint": fingerprint[:16],
                    "evidence_refs": list(decision.evidence_refs)}
@@ -272,7 +408,9 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
                             "prior": list(decision.evidence_refs)[:3]}}})
     if decision.decision != "RESUME":
         prior_work = retrieve_work(planned.goal, workspace, base_commit,
-                                   store, receipts_dir)
+                                   store, receipts_dir,
+                                   account_id=policy.get("account_id"),
+                                   ranking=policy.get("memory_ranking", "baseline"))
         task.evidence.append(approval)
         task.evidence.append(test_approval)
         task.evidence.append({
@@ -320,7 +458,9 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
             "allowed_paths": allowed_paths, "fingerprint": fingerprint,
             "queue_store": store, "lease_token": current_task.lease_token,
         }
-        return _audit(audit_fn, "BEFORE_MUTATION", context)
+        mutation = _audit(audit_fn, "BEFORE_MUTATION", context)
+        emit_gate(store, ns_id, "BEFORE_MUTATION", mutation, event_context)
+        return mutation
 
     result = None
     while True:
@@ -339,7 +479,7 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
             break
         if result.status == "BLOCKED":
             store.defer(result)
-            receipt = write_receipt(receipts_dir, result)
+            receipt = record_receipt(store, receipts_dir, result, event_context, terminal=True)
             return {**entry, "status": "BLOCKED", "next_action": result.next_action,
                     "receipt": str(receipt), "qc_passed": False,
                     "checkpoint": str(store.checkpoints / f"{ns_id}.json")}
@@ -382,13 +522,14 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
             result.evidence.append({"event": "mission_audit",
                                     "stage": "AFTER_TEST",
                                     "result": audit_after})
+            emit_gate(store, ns_id, "AFTER_TEST", audit_after, event_context)
             if audit_after.get("gate_passed") is not True:
                 result.status = "FAILED"
                 result.failure_class = "POLICY_DENY"
                 result.next_action = "AUDIT_ESCALATE"
                 store.fail(result, result.failure_class, result.next_action,
                            retry=False)
-                receipt = write_receipt(receipts_dir, result)
+                receipt = record_receipt(store, receipts_dir, result, event_context, terminal=True)
                 entry.update({"status": result.status,
                               "failure_class": result.failure_class,
                               "next_action": result.next_action,
@@ -397,7 +538,7 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
 
             result.status = "QC_PENDING"
             request_dir = state_dir / "verifier_handoff"
-            candidate_receipt = write_receipt(receipts_dir, result)
+            candidate_receipt = record_receipt(store, receipts_dir, result, event_context)
             try:
                 request_path, request = create_handoff(
                     request_dir, result, candidate_receipt, plan_scope,
@@ -422,6 +563,11 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
                     "event": "verification_blocked", "reason": exc.reason,
                     "request": str(request_path) if request_path else "",
                 })
+            store.append_event(
+                ns_id, "verifier.independent_proof",
+                "AUTHENTICATED" if isinstance(proof, dict) and proof.get("authenticated") else "BLOCKED",
+                hashlib.sha256(f"proof|{ns_id}|{patch_digest}|{bool(proof)}".encode()).hexdigest(),
+                detail=None if proof else result.evidence[-1].get("reason"), **event_context)
 
             result.status = "DONE"
             result.next_action = "REVIEW_PATCH"
@@ -436,9 +582,18 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
                 "independent_verification": proof, "progress": progress,
             })
             result.evidence.append({"event": "qc_checked", "qc": qc_report})
+            store.append_event(
+                ns_id, "qc.checked", "PASS" if qc_report.get("passed") is True else "FAIL",
+                hashlib.sha256(json.dumps([ns_id, patch_digest, qc_report.get("passed"),
+                                           qc_report.get("independent_verified")],
+                                          sort_keys=True).encode()).hexdigest(),
+                detail={"independent_verified": qc_report.get("independent_verified"),
+                        "failed_checks": [c.get("name") for c in qc_report.get("checks", [])
+                                          if isinstance(c, dict) and c.get("passed") is False]},
+                **event_context)
             result.status = "QC_PENDING"
             result.next_action = "BEFORE_CLOSE_AUDIT"
-            close_receipt = write_receipt(receipts_dir, result)
+            close_receipt = record_receipt(store, receipts_dir, result, event_context)
             close_receipt_raw = close_receipt.read_bytes()
             close_receipt_data = json.loads(close_receipt_raw)
             audit_close = _audit(audit_fn, "BEFORE_CLOSE", {
@@ -456,6 +611,7 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
             result.evidence.append({"event": "mission_audit",
                                     "stage": "BEFORE_CLOSE",
                                     "result": audit_close})
+            emit_gate(store, ns_id, "BEFORE_CLOSE", audit_close, event_context)
             if lease_lost.is_set() or not store.lease_valid(
                     result.task_id, result.lease_token):
                 result.status = "FAILED"
@@ -471,7 +627,7 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
                 result.output["time_to_verified_fix_ms"] = int(
                     (time.time() - datetime.fromisoformat(
                         result.created_at).timestamp()) * 1000)
-                receipt = write_receipt(receipts_dir, result)
+                receipt = record_receipt(store, receipts_dir, result, event_context, terminal=True)
                 store.complete(result)
             else:
                 result.status = "FAILED"
@@ -486,7 +642,7 @@ def _execute_one(planned, ns_id: str, plan: Plan, config: WorkerConfig,
                                     "next_action": result.next_action})
     progress(phase="RECEIPT", state="RUNNING", tool="-", model="-")
     if receipt is None:
-        receipt = write_receipt(receipts_dir, result)
+        receipt = record_receipt(store, receipts_dir, result, event_context, terminal=True)
     history.append({"role": "assistant",
                     "content": f"{result.status} {ns_id} "
                                f"{result.failure_class}"[:2000]})

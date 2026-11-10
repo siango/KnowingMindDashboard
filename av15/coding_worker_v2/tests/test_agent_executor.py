@@ -1,4 +1,5 @@
 """V3 executor tests: dedup-aware plan execution over a fake backend."""
+import hashlib
 import json
 import os
 import subprocess
@@ -145,6 +146,38 @@ class TestExecutor(FakeBackend):
             self.assertEqual(receipt["status"], "BLOCKED")
             self.assertEqual(receipt["task_id"], "ptest-t1")
             self.assertEqual(receipt["source_sha"], executor.current_base_commit(repo))
+
+    def test_instrumented_success_path_writes_complete_event_chain(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = fixture_repo(root)
+            store = QueueStore(root / "q")
+            with mock.patch.dict(os.environ, {"KMW2_STATE_DIR": tmp}), \
+                    mock.patch.object(executor, "wait_signed_proof",
+                                      side_effect=self.verified_proof):
+                report = executor.execute_plan(
+                    simple_plan_for("fix add()"), config_for(self.port), store,
+                    root / "receipts", root / "state", repo,
+                    provider_policy={"provider": "qwen-local", "account_id": "acct-1",
+                                     "test_command": "python3 -m unittest"})
+            self.assertEqual(report["status"], "DONE", report)
+            readback = store.read_events("ptest-t1")
+            self.assertTrue(readback["chain_intact"])
+            steps = [e["step"] for e in readback["events"]]
+            for step in ("plan.difficulty_frozen", "gate.ADMIT", "queue.enqueue", "queue.claim",
+                         "provider.generated", "gate.BEFORE_MUTATION", "gate.AFTER_TEST",
+                         "verifier.independent_proof", "qc.checked", "gate.BEFORE_CLOSE",
+                         "receipt.written", "queue.complete", "learning.recorded", "task.outcome"):
+                self.assertIn(step, steps)
+            provider = next(e for e in readback["events"] if e["step"] == "provider.generated")
+            self.assertEqual(provider["usage_source"], "OLLAMA_EVAL_COUNTS")
+            self.assertEqual(provider["account_id"], "acct-1")
+            self.assertIsNone(provider["usage"]["billed_cost_usd"])
+            learning = next(e for e in readback["events"] if e["step"] == "learning.recorded")
+            self.assertEqual(learning["status"], "PROVEN")
+            receipt_event = [e for e in readback["events"] if e["step"] == "receipt.written"][-1]
+            self.assertEqual(hashlib.sha256(Path(receipt_event["receipt_uri"]).read_bytes()).hexdigest(),
+                             receipt_event["receipt_sha256"])
 
     def test_targeted_claim_leaves_foreign_task_unleased(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -192,7 +192,7 @@ class ToolRegistry:
             except ValueError:
                 paths = ["../outside-workspace"]
         action = ("test" if name == "test_run" else
-                  "checkpoint" if name == "task_enqueue" else
+                  "checkpoint" if name in {"task_enqueue", "pilot_submit", "pilot_run"} else
                   "inspect" if spec.permission == "read" else name)
         approval = policy_decision(
             action, ctx.get("task_id", "operator"), workspace,
@@ -284,6 +284,8 @@ def search_code(repo: str, pattern: str, max_matches: int = 30) -> list[dict]:
 
 def build_default_registry(photocraft=None) -> ToolRegistry:
     reg = ToolRegistry()
+    from .pilot import register_pilot_tools
+    register_pilot_tools(reg)
 
     def health_repo(ctx):
         return (True, "OK") if ctx.get("workspace") else (False, "WORKSPACE_UNSET")

@@ -132,10 +132,26 @@ def work_case(receipt: dict, reference: str, original_sha256: str) -> dict:
     }
 
 
-def retrieve_work(goal, repo, source_sha, store, receipts_dir, limit=5) -> list[dict]:
+def lesson_tags(receipt: dict) -> list[str]:
+    words = set(re.findall(r"[a-z][a-z0-9_]{2,}", normalize_goal(
+        str(receipt.get("input", {}).get("goal", "")))))
+    words -= {"the", "and", "for", "with", "fix", "that", "from", "this"}
+    words.update(Path(path).suffix.lstrip(".") for path in
+                 (receipt.get("output") or {}).get("changed", [])
+                 if isinstance(path, str) and Path(path).suffix)
+    return sorted(words)[:40]
+
+
+def retrieve_work(goal, repo, source_sha, store, receipts_dir, limit=5, *,
+                  account_id=None, ranking="baseline") -> list[dict]:
+    if ranking not in {"baseline", "qc"}:
+        raise ValueError("unknown memory ranking")
     records = []
     for path, receipt in _iter_receipts(receipts_dir):
         if not receipt or canonical_repo(receipt.get("input", {})) != repo:
+            continue
+        if (account_id is not None
+                and receipt["input"].get("hints", {}).get("account_id") != account_id):
             continue
         previous_goal = normalize_goal(receipt.get("input", {}).get("goal", ""))
         exact = previous_goal == normalize_goal(goal)
@@ -149,9 +165,16 @@ def retrieve_work(goal, repo, source_sha, store, receipts_dir, limit=5) -> list[
             receipt.get("source_sha") == source_sha
             and exact and receipt_verified(receipt))
         case["retrieval_only"] = True
-        records.append((exact, len(overlap), case))
-    return [case for _, _, case in sorted(records, key=lambda row: row[:2],
-                                          reverse=True)[:limit]]
+        case["tags"] = lesson_tags(receipt)
+        case["qc_score"] = 1 if receipt_verified(receipt) else 0
+        tag_overlap = len(set(re.findall(r"[a-z][a-z0-9_]{2,}",
+                                        normalize_goal(goal))) & set(case["tags"]))
+        score = ((exact, len(overlap)) if ranking == "baseline" else
+                 (exact, tag_overlap, case["qc_score"], len(overlap)))
+        case["retrieval_score"] = list(score)
+        records.append((score, case))
+    return [case for _, case in sorted(records, key=lambda row: row[0],
+                                       reverse=True)[:limit]]
 
 
 def strategy_effectiveness(store, receipts_dir) -> dict:
@@ -305,6 +328,7 @@ def _queued_fingerprints(store) -> list[dict]:
                 continue
             hints = task_input.get("hints", {})
             out.append({"task_id": data.get("task_id", path.stem),
+                        "account_id": hints.get("account_id") if isinstance(hints, dict) else None,
                         "queue": directory.name,
                         "attempts": data.get("attempts", 0),
                         "max_attempts": data.get("max_attempts", 3),
@@ -319,7 +343,8 @@ def _queued_fingerprints(store) -> list[dict]:
 def classify(goal: str, repo: str, base_commit: str, store,
              receipts_dir: Path, now: float | None = None,
              freshness_ttl_s: int = DEFAULT_FRESHNESS_TTL_S,
-             task_id: str = "", max_attempts: int = 3) -> Classification:
+             task_id: str = "", max_attempts: int = 3,
+             account_id=None) -> Classification:
     """Classify an intake task against SSOT (receipts + leases + queue)."""
     now = time.time() if now is None else now
     fingerprint = fingerprint_for(goal, repo, base_commit)
@@ -328,9 +353,11 @@ def classify(goal: str, repo: str, base_commit: str, store,
     if not repo or not Path(repo).is_dir():
         return Classification("BLOCKED", "REPO_MISSING", fingerprint)
 
-    live = [entry for entry in _queued_fingerprints(store)
+    queued = [entry for entry in _queued_fingerprints(store)
+              if account_id is None or entry["account_id"] == account_id]
+    live = [entry for entry in queued
             if entry["fingerprint"] == fingerprint]
-    for entry in _queued_fingerprints(store):
+    for entry in queued:
         if entry["task_id"] == task_id and entry["fingerprint"] != fingerprint:
             return Classification("BLOCKED", "SOURCE_OR_TASK_SCOPE_MISMATCH",
                                   fingerprint, (f"queue:{entry['queue']}/{task_id}",))
@@ -373,6 +400,9 @@ def classify(goal: str, repo: str, base_commit: str, store,
             return Classification("BLOCKED", "TERMINAL_RECORD_UNREADABLE",
                                   fingerprint,
                                   (f"queue:{folder_name}/{path.parent.name}",))
+        if (account_id is not None
+                and archived_input.get("hints", {}).get("account_id") != account_id):
+            continue
         archive_key = (normalize_goal(str(archived_input.get("goal", ""))),
                        canonical_repo(archived_input))
         if archive_key == (normalize_goal(goal), repo or ""):
@@ -387,6 +417,8 @@ def classify(goal: str, repo: str, base_commit: str, store,
         output = receipt.get("output", {})
         receipt_input = receipt.get("input", {}) or {}
         hints = receipt_input.get("hints", {})
+        if account_id is not None and hints.get("account_id") != account_id:
+            continue
         receipt_base = hints.get("base_commit", "") if isinstance(hints, dict) else ""
         receipt_key = (normalize_goal(str(receipt_input.get("goal", ""))),
                        canonical_repo(receipt_input))

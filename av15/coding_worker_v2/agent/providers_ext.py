@@ -5,6 +5,7 @@ runs tests. A successful login is not a claim that inference will succeed.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -17,6 +18,54 @@ from pathlib import Path
 from ..providers import BaseProvider, Capabilities, Generation, ProviderError, redact
 
 EXTERNAL = {"codex-cli", "copilot-cli", "copilot-cloud"}
+USAGE_FILE_MAX_BYTES = 1_000_000
+
+
+def _count(value):
+    return value if type(value) is int and value >= 0 else None
+
+
+def parse_copilot_usage(path: Path) -> dict:
+    """Fail-closed parse of `copilot --usage-output-file` JSON. Never raises.
+
+    Tokens are provider-reported counts. Premium requests and nano AIU are kept
+    in their native units: no USD or token conversion contract exists.
+    """
+    unavailable = {"usage_source": "COPILOT_USAGE_UNAVAILABLE", "tokens_in": None,
+                   "tokens_out": None, "premium_requests": None, "nano_aiu": None,
+                   "billed_cost_usd": None}
+    try:
+        if not path.is_file() or path.is_symlink() or path.stat().st_size > USAGE_FILE_MAX_BYTES:
+            return {**unavailable, "reason": "USAGE_FILE_MISSING_OR_INVALID"}
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeDecodeError):
+        return {**unavailable, "reason": "USAGE_FILE_UNREADABLE"}
+    metrics = data.get("modelMetrics") if isinstance(data, dict) else None
+    if not isinstance(metrics, dict) or not metrics:
+        return {**unavailable, "reason": "USAGE_MODEL_METRICS_MISSING"}
+    totals = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
+    models = []
+    for model, row in metrics.items():
+        usage = row.get("usage") if isinstance(row, dict) else None
+        counts = {key: _count(usage.get(field)) if isinstance(usage, dict) else None
+                  for key, field in (("input", "inputTokens"), ("output", "outputTokens"),
+                                     ("cache_read", "cacheReadTokens"),
+                                     ("cache_write", "cacheWriteTokens"))}
+        if counts["input"] is None or counts["output"] is None:
+            return {**unavailable, "reason": "USAGE_TOKEN_COUNTS_INVALID"}
+        for key, value in counts.items():
+            totals[key] += value or 0
+        models.append(str(model)[:80])
+    credits_complete = data.get("aiCreditsStatus") == "complete"
+    return {"usage_source": "COPILOT_CLI_USAGE_OUTPUT_FILE",
+            "tokens_in": totals["input"], "tokens_out": totals["output"],
+            "cache_read_tokens": totals["cache_read"], "cache_write_tokens": totals["cache_write"],
+            "models": models,
+            "premium_requests": _count(data.get("totalPremiumRequestCost")) if credits_complete else None,
+            "nano_aiu": _count(data.get("totalNanoAiu")) if credits_complete else None,
+            "ai_credits_status": str(data.get("aiCreditsStatus"))[:40],
+            "provider_request_id": None, "billed_cost_usd": None,
+            "unit_contract": "NATIVE_UNITS_ONLY_NO_USD_CONVERSION"}
 
 
 def supervised_by_codex() -> bool:
@@ -135,23 +184,36 @@ class ProposalCli(BaseProvider):
         try:
             with tempfile.TemporaryDirectory(prefix="km-proposal-") as directory:
                 argv, last = self.argv(Path(directory))
-                rc, output, elapsed = run_bounded(argv, prompt=prompt, cwd=self.workspace,
-                                                  timeout=timeout, env=env)
+                try:
+                    rc, output, elapsed = run_bounded(argv, prompt=prompt, cwd=self.workspace,
+                                                      timeout=timeout, env=env)
+                finally:
+                    usage = self.collect_usage(Path(directory))
                 if rc:
-                    raise ProviderError("CLI_EXEC_FAILED", f"provider={self.name} exit_status={rc} elapsed_ms={elapsed}")
+                    raise ProviderError("CLI_EXEC_FAILED", f"provider={self.name} exit_status={rc} elapsed_ms={elapsed}",
+                                        resources={"usage": usage})
                 if last:
                     if not last.is_file() or last.stat().st_size > 256000:
-                        raise ProviderError("INVALID_RESPONSE", "missing or oversized final response")
+                        raise ProviderError("INVALID_RESPONSE", "missing or oversized final response",
+                                            resources={"usage": usage})
                     output = last.read_text(encoding="utf-8")
         except subprocess.TimeoutExpired:
             raise ProviderError("TIMEOUT", f"provider={self.name} timeout_s={timeout}") from None
         except OSError:
             raise ProviderError("CLI_EXEC_FAILED", f"provider={self.name} process start/read failed") from None
         if not output.strip() or len(output) > 256000:
-            raise ProviderError("INVALID_RESPONSE", "empty or oversized CLI output")
+            raise ProviderError("INVALID_RESPONSE", "empty or oversized CLI output",
+                                resources={"usage": usage})
         return Generation(text=output, provider=self.name, model=self.model_name(), latency_ms=elapsed,
+                          tokens_in=usage.get("tokens_in"), tokens_out=usage.get("tokens_out"),
                           execution={"exit_status": rc, "elapsed_ms": elapsed,
-                                     "output_summary": redact(output[:500]), "mode": "read-only-edit-proposal"})
+                                     "output_summary": redact(output[:500]), "mode": "read-only-edit-proposal",
+                                     "usage_source": usage["usage_source"], "usage": usage,
+                                     "provider_request_id": usage.get("provider_request_id")})
+
+    def collect_usage(self, directory: Path) -> dict:
+        return {"usage_source": "NOT_CAPTURED_BY_ADAPTER", "tokens_in": None,
+                "tokens_out": None, "billed_cost_usd": None}
 
 
 class CodexCliProvider(ProposalCli):
@@ -187,11 +249,15 @@ class CopilotCliProvider(ProposalCli):
         # Piped input is supported prompt mode. No shell/write/MCP/agent tools.
         argv = [self.binary(), "-s", "--no-color", "--no-auto-update",
                 "--disable-builtin-mcps", "--available-tools=view,glob,grep",
-                "--deny-tool=shell,write", "--max-autopilot-continues=0"]
+                "--deny-tool=shell,write", "--max-autopilot-continues=0",
+                "--usage-output-file", str(directory / "usage.json")]
         model = os.environ.get("KMW2_COPILOT_MODEL", "").strip()
         if model:
             argv += ["--model", model]
         return argv, None
+
+    def collect_usage(self, directory):
+        return parse_copilot_usage(directory / "usage.json")
 
 
 def on_demand_chain(config, name):

@@ -1,11 +1,12 @@
 """External CLI contracts; mocked inference is not live provider acceptance."""
+import json
 import os
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from coding_worker_v2.agent.providers_ext import CodexCliProvider, CopilotCliProvider
+from coding_worker_v2.agent.providers_ext import CodexCliProvider, CopilotCliProvider, parse_copilot_usage
 from coding_worker_v2.config import WorkerConfig
 from coding_worker_v2.providers import ProviderError, redact
 
@@ -34,6 +35,7 @@ class TestExternalCLI(unittest.TestCase):
         argv = execute.call_args.args[0]
         self.assertIn('--available-tools=view,glob,grep', argv)
         self.assertIn('--deny-tool=shell,write', argv)
+        self.assertIn('--usage-output-file', argv)
         self.assertNotIn('--allow-all', argv)
         self.assertEqual(result.execution['exit_status'], 0)
         self.assertEqual(result.execution['elapsed_ms'], 12)
@@ -54,3 +56,62 @@ class TestExternalCLI(unittest.TestCase):
         with patch.dict(os.environ, {'GH_TOKEN':'sensitive-opaque-value'}):
             self.assertNotIn('sensitive-opaque-value',redact('value=sensitive-opaque-value'))
         self.assertNotIn('ghp_123456789abcdefgh',redact('ghp_123456789abcdefgh'))
+
+
+USAGE = {"totalPremiumRequestCost": 1, "totalNanoAiu": 5928260000, "aiCreditsStatus": "complete",
+         "modelMetrics": {"model-a": {"usage": {"inputTokens": 50270, "outputTokens": 1038,
+                                                "cacheReadTokens": 31986, "cacheWriteTokens": 18272}}}}
+
+
+class TestCopilotUsage(unittest.TestCase):
+    def write(self, directory, data):
+        path = Path(directory) / 'usage.json'
+        path.write_text(data if isinstance(data, str) else json.dumps(data))
+        return path
+
+    def test_parse_reports_native_units_without_usd(self):
+        with tempfile.TemporaryDirectory() as d:
+            usage = parse_copilot_usage(self.write(d, USAGE))
+        self.assertEqual(usage['usage_source'], 'COPILOT_CLI_USAGE_OUTPUT_FILE')
+        self.assertEqual((usage['tokens_in'], usage['tokens_out']), (50270, 1038))
+        self.assertEqual((usage['premium_requests'], usage['nano_aiu']), (1, 5928260000))
+        self.assertIsNone(usage['billed_cost_usd'])
+        self.assertIsNone(usage['provider_request_id'])
+
+    def test_parse_fails_closed(self):
+        bad_counts = json.loads(json.dumps(USAGE))
+        bad_counts['modelMetrics']['model-a']['usage']['inputTokens'] = True
+        incomplete = dict(USAGE, aiCreditsStatus='pending')
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(parse_copilot_usage(Path(d) / 'absent.json')['usage_source'],
+                             'COPILOT_USAGE_UNAVAILABLE')
+            for data in ('not json', {'modelMetrics': {}}, bad_counts, [1]):
+                result = parse_copilot_usage(self.write(d, data))
+                self.assertEqual(result['usage_source'], 'COPILOT_USAGE_UNAVAILABLE', data)
+                self.assertIsNone(result['tokens_in'])
+            partial = parse_copilot_usage(self.write(d, incomplete))
+            self.assertEqual(partial['tokens_in'], 50270)
+            self.assertIsNone(partial['premium_requests'])
+            self.assertIsNone(partial['nano_aiu'])
+
+    def test_generation_and_failed_dispatch_carry_usage(self):
+        provider = CopilotCliProvider(WorkerConfig(), authorized=True)
+        def run(argv, **kwargs):
+            Path(argv[argv.index('--usage-output-file') + 1]).write_text(json.dumps(USAGE))
+            return run.rc, '{"edits":[]}', 5
+        with patch.object(provider, 'is_available', return_value=(True, 'OK')), \
+                patch.object(provider, 'binary', return_value='copilot'), \
+                patch('coding_worker_v2.agent.providers_ext.run_bounded', side_effect=run):
+            run.rc = 0
+            generation = provider.generate([{'role': 'user', 'content': 'x'}])
+            run.rc = 3
+            with self.assertRaises(ProviderError) as failed:
+                provider.generate([])
+        self.assertEqual((generation.tokens_in, generation.tokens_out), (50270, 1038))
+        self.assertEqual(generation.execution['usage_source'], 'COPILOT_CLI_USAGE_OUTPUT_FILE')
+        self.assertEqual(failed.exception.resources['usage']['tokens_in'], 50270)
+
+    def test_codex_usage_remains_explicitly_uncaptured(self):
+        provider = CodexCliProvider(WorkerConfig())
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(provider.collect_usage(Path(d))['usage_source'], 'NOT_CAPTURED_BY_ADAPTER')

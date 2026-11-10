@@ -341,21 +341,26 @@ def build_parser() -> argparse.ArgumentParser:
     fp.add_argument("--repo", required=True)
     fp.add_argument("--goal", required=True)
     fp.set_defaults(func=cmd_fingerprint)
+    from coding_worker_v2.pilot_install import add_parser
+    add_parser(sub)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    ctx = _ctx(args)
     try:
+        if args.cmd == "pilot":
+            from coding_worker_v2.pilot_install import main as pilot_main
+            return pilot_main(args)
+        ctx = _ctx(args)
         if args.cmd in ("plan", "run"):
             with LiveProgress(args.cmd) as display:
                 ctx["progress"] = display.update
                 return args.func(args, ctx)
         return args.func(args, ctx)
     except (ProviderError, agent_planner.PlanError, agent_tools.ToolError,
-            agent_exec.AgentError, agent_qc.QCError, FileNotFoundError,
+            agent_exec.AgentError, agent_qc.QCError, OSError,
             ValueError) as exc:
         print(json.dumps({"ok": False, "error": f"{type(exc).__name__}: {exc}"[:500]}))
         return 1

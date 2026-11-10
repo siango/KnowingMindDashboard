@@ -155,6 +155,22 @@ class TestClassify(unittest.TestCase):
         self.assertEqual(out.decision, "BLOCKED")
         self.assertEqual(out.reason, "SOURCE_OR_TASK_SCOPE_MISMATCH")
 
+    def test_qc_ranking_prefers_verified_lesson_without_replacing_provenance(self):
+        self._done_receipt("fix arithmetic addition", "1" * 40)
+        second = make_task("fix arithmetic subtraction", str(self.root / "repo"), "1" * 40)
+        second.task_id = "unverified"
+        second.status = "FAILED"
+        second.output = {"changed": ["calc.py"]}
+        write_receipt(self.receipts, second)
+        records = memory.retrieve_work(
+            "arithmetic", str(self.root / "repo"), "1" * 40,
+            self.store, self.receipts, ranking="qc")
+        self.assertEqual(records[0]["task_id"], "t1")
+        self.assertEqual(records[0]["qc_score"], 1)
+        self.assertIn("py", records[0]["tags"])
+        original = Path(records[0]["provenance"]["original_ref"])
+        self.assertEqual(json.loads(original.read_text())["task_id"], "t1")
+
     def test_reverify_base_changed(self):
         self._done_receipt("shifting", "c1")
         out = memory.classify("shifting", str(self.root / "repo"), "c2",
