@@ -1,0 +1,16 @@
+{
+  "schema": "KMCW_PROJECT_PILOT_V1",
+  "account_id": "pilot-local",
+  "worker_id": "AV15",
+  "workspace": "/absolute/path/to/authorized-test-repo",
+  "runtime_base": "/absolute/path/to/existing-pilot-runtime",
+  "allowed_paths": ["calc.py"],
+  "context_paths": ["calc.py", "test_calc.py"],
+  "test_command": "python3 -m unittest",
+  "provider": "copilot-cli",
+  "authorize_subscription": true,
+  "memory_ranking": "baseline",
+  "auditor_root": "/absolute/path/to/existing-pinned-auditor",
+  "authority_snapshot": "/absolute/path/to/existing-authority-snapshot.json",
+  "verifier_public_key": "/absolute/path/to/authorized-verifier-public.pem"
+}
