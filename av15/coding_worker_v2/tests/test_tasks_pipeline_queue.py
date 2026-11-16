@@ -141,6 +141,62 @@ class TestQueue(unittest.TestCase):
         self.assertEqual(task_id, task_id2)
         self.assertEqual(self.store.health()["inbox"], 1)
 
+    def test_duplicate_tool_intake_has_one_claim_without_execution(self):
+        """Queue acceptance only; never invoke the mission admission/executor."""
+        from coding_worker_v2.agent.tools import build_default_registry
+
+        registry = build_default_registry()
+        request = {"mission_id": "KM-TEST", "task_id": "t1",
+                   "repo": self.tmp.name, "goal": "fixture intake only",
+                   "max_repairs": 0}
+        ctx = {"store": self.store, "workspace": self.tmp.name}
+        with mock.patch("coding_worker_v2.agent.executor.execute_plan") as execute, \
+                mock.patch("coding_worker_v2.agent.executor.run_task") as dispatch, \
+                mock.patch("coding_worker_v2.agent.executor.run_mission_audit") as audit, \
+                mock.patch("coding_worker_v2.providers.http_json") as model_http, \
+                mock.patch("subprocess.Popen") as subprocess_call:
+            first = registry.call("task_enqueue", dict(request), ctx)
+            event_path = self.store.events / "t1.jsonl"
+            initial_events = event_path.read_bytes()
+            # Reconstruct the existing adapter to exercise persistent dedup.
+            ctx["store"] = QueueStore(self.store.base)
+            second = registry.call("task_enqueue", dict(request), ctx)
+            self.assertEqual(first, {"task_id": "t1", "created": True})
+            self.assertEqual(second, {"task_id": "t1", "created": False})
+            self.assertEqual(event_path.read_bytes(), initial_events)
+            self.assertEqual(ctx["store"].health()["inbox"], 1)
+            claimed = ctx["store"].claim(first["task_id"])
+            self.assertIsNotNone(claimed)
+            self.assertEqual(claimed.task_id, second["task_id"])
+            self.assertIsNone(ctx["store"].claim(second["task_id"]))
+            claimed_events = event_path.read_bytes()
+            third = registry.call("task_enqueue", dict(request), ctx)
+            self.assertEqual(third, second)
+            self.assertEqual(event_path.read_bytes(), claimed_events)
+            self.assertTrue(claimed_events.startswith(initial_events))
+            self.assertEqual(ctx["store"].health()["doing"], 1)
+            self.assertEqual(ctx["store"].health()["inbox"], 0)
+            events = ctx["store"].read_events("t1")
+            self.assertTrue(events["chain_intact"])
+            self.assertEqual([e["step"] for e in events["events"]],
+                             ["queue.enqueue", "queue.claim"])
+            for call in (execute, dispatch, audit, model_http, subprocess_call):
+                call.assert_not_called()
+
+    def test_duplicate_intake_preserves_waiting_approval_checkpoint(self):
+        self.store.enqueue(make_task())
+        self.store.save_checkpoint("t1", "waiting_approval", {"reason": "fixture hold"})
+        checkpoint = self.store.checkpoints / "t1.json"
+        before = checkpoint.read_bytes()
+        events = (self.store.events / "t1.jsonl").read_bytes()
+        self.assertEqual(self.store.enqueue(make_task()), ("t1", False))
+        self.assertIsNone(self.store.claim("t1"))
+        self.assertIsNone(self.store.claim("t1"))
+        self.assertEqual(checkpoint.read_bytes(), before)
+        self.assertEqual((self.store.events / "t1.jsonl").read_bytes(), events)
+        self.assertEqual(self.store.health()["inbox"], 1)
+        self.assertEqual(self.store.health()["doing"], 0)
+
     def test_stale_lease_token_is_fenced_after_recovery(self):
         self.store.enqueue(make_task())
         stale = self.store.claim()

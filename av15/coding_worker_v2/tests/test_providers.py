@@ -436,5 +436,191 @@ class TestResourceControl(unittest.TestCase):
         transport.assert_not_called()
 
 
+class TestAuthenticatedCapabilityBoundary(unittest.TestCase):
+    """Trusted-middleware test doubles, never production auth qualification."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.store = QueueStore(Path(self.tmp.name) / "q")
+        self.resources = ProviderResources(self.store, clock=lambda: 1000)
+        self.binding = {"mission_id": "G0-G1-MINIMUM-SELLABLE-DEMO",
+            "task_id": "pilot-0c3fdc91ed2e2a9011c0cb1d-t1", "owner_node": "AV15",
+            "source_sha": "1" * 40, "scope_digest": "sha256:" + "2" * 64,
+            "endpoint": "https://fixture.invalid/mcp", "subject": "FIXTURE_TRANSPORT"}
+        self.payload = {k: v for k, v in self.binding.items() if k not in {"endpoint", "subject"}}
+        self.payload.update(schema="KMCW_CAPABILITY_EVIDENCE_V1", observed_at=990,
+            expires_at=1040, candidates=[{"provider": "qwen-local", "available": True,
+                "observed_at": 990, "node_id": "AV15", "node_online": True,
+                "heartbeat_at": 990, "tested_capabilities": ["bounded-edit"],
+                "capability_evidence_ref": "fixture:capability",
+                "qualification_status": "PASS", "capability_evidence_sha256": "a" * 64,
+                "runtime_artifact_sha256": "b" * 64,
+                "context_limit_tokens": 4096, "security_permissions": ["repo:approved-paths"]}])
+
+    def route(self, payload=None, auth_change=None):
+        import hashlib
+        raw = json.dumps(self.payload if payload is None else payload, sort_keys=True).encode()
+        auth = {"authenticated": True, "subject": self.binding["subject"],
+                "endpoint": self.binding["endpoint"], "permissions": ["capability:read"],
+                "body_sha256": hashlib.sha256(raw).hexdigest(), **(auth_change or {})}
+        return self.resources.select_authenticated_advisory(raw, binding=self.binding,
+            authentication=auth, capability="bounded-edit", context_tokens=100,
+            required_permissions=["repo:approved-paths"])
+
+    def test_auth_subject_permissions_endpoint_and_body_are_bound(self):
+        for change in ({"authenticated": False}, {"subject": "other"},
+                       {"permissions": ["capability:read", "admin"]},
+                       {"endpoint": "https://other.invalid/mcp"}, {"body_sha256": "0" * 64}):
+            with self.subTest(change=change), self.assertRaisesRegex(
+                    ProviderError, "AUTHENTICATION_REQUIRED"):
+                self.route(auth_change=change)
+
+    def test_task_source_scope_and_payload_auth_claims_cannot_drift(self):
+        for field in ("mission_id", "task_id", "source_sha", "scope_digest", "owner_node"):
+            with self.subTest(field=field), self.assertRaisesRegex(ProviderError, "SCOPE_MISMATCH"):
+                self.route({**self.payload, field: "other"})
+        with self.assertRaisesRegex(ProviderError, "SCOPE_MISMATCH"):
+            self.route({**self.payload, "authenticated": True})
+
+    def test_offline_node_unavailable_provider_and_expired_evidence_rejected(self):
+        candidate = self.payload["candidates"][0]
+        for changes, expected in (({"node_online": False}, "OFFLINE_OR_STALE_NODE"),
+                                  ({"qualification_status": "PROPOSED"}, "CAPABILITY_QUALIFICATION_UNPROVEN"),
+                                  ({"runtime_artifact_sha256": "missing"}, "CAPABILITY_QUALIFICATION_UNPROVEN"),
+                                  ({"available": False}, "AVAILABILITY_STALE_OR_UNPROVEN")):
+            result = self.route({**self.payload, "candidates": [{**candidate, **changes}]})
+            self.assertIsNone(result["selected_provider"])
+            self.assertEqual(result["rejected"][0]["reason"], expected)
+        with self.assertRaisesRegex(ProviderError, "EXPIRED_OR_STALE"):
+            self.route({**self.payload, "expires_at": 999})
+
+    def test_duplicate_advice_has_one_key_and_zero_dispatch_or_writes(self):
+        from unittest import mock
+        before = {str(p): p.read_bytes() for p in self.store.base.rglob('*') if p.is_file()}
+        with mock.patch("coding_worker_v2.providers.http_json") as http, \
+                mock.patch("subprocess.Popen") as process:
+            first, second = self.route(), self.route()
+            self.assertEqual(first, second)
+            self.assertEqual(first["selected_provider"], "qwen-local")
+            self.assertFalse(first["dispatch"])
+            self.assertEqual(first["central_sync"], "UNSYNCED")
+            http.assert_not_called(); process.assert_not_called()
+        self.assertEqual({str(p): p.read_bytes() for p in self.store.base.rglob('*') if p.is_file()}, before)
+
+    def test_external_spending_and_duplicate_provider_cannot_be_injected(self):
+        candidate = {**self.payload["candidates"][0], "provider": "codex-cli",
+                     "quota": "AVAILABLE", "quota_observed_at": 990,
+                     "quota_evidence_ref": "fixture:quota", "estimated_cost_usd": 0}
+        result = self.route({**self.payload, "candidates": [candidate]})
+        self.assertIsNone(result["selected_provider"])
+        self.assertEqual(result["rejected"][0]["reason"], "EXTERNAL_PROVIDER_NOT_APPROVED")
+        with self.assertRaisesRegex(ProviderError, "CANDIDATE_INVALID"):
+            self.route({**self.payload, "candidates": [candidate, candidate]})
+
+
+class TestAdvisoryProviderSelection(unittest.TestCase):
+    """Synthetic evidence; selection is not live provider qualification."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.store = QueueStore(Path(self.tmp.name) / "queue")
+        self.resources = ProviderResources(self.store, clock=lambda: 1000)
+
+    def candidate(self, name, **extra):
+        return {"provider": name, "available": True, "observed_at": 990,
+                "tested_capabilities": ["bounded-edit"],
+                "capability_evidence_ref": "fixture:capability",
+                "security_permissions": ["repo:approved-paths"],
+                "context_limit_tokens": 4096, "quota": "AVAILABLE",
+                "quota_observed_at": 990, "quota_evidence_ref": "fixture:quota",
+                "estimated_cost_usd": 0.1, **extra}
+
+    def select(self, candidates, **extra):
+        return self.resources.select_advisory(
+            candidates, capability="bounded-edit", context_tokens=100,
+            required_permissions=["repo:approved-paths"], **extra)
+
+    def test_deterministic_then_local_before_approved_external(self):
+        candidates = [self.candidate(n) for n in
+                      ("codex-cli", "deepseek-local", "qwen-local", "deterministic")]
+        result = self.select(candidates, approved_external_providers=["codex-cli"],
+                             budget_usd=1)
+        self.assertEqual(result["eligible_providers"],
+                         ["deterministic", "qwen-local", "deepseek-local", "codex-cli"])
+        self.assertEqual(result["selected_provider"], "deterministic")
+        self.assertFalse(result["dispatch"])
+        self.assertTrue(result["admission_required"])
+        self.assertFalse(result["independent_verified"])
+        result = self.select(candidates[0:3], approved_external_providers=["codex-cli"],
+                             budget_usd=1)
+        self.assertEqual(result["selected_provider"], "qwen-local")
+
+    def test_external_budget_approval_and_muse_are_explicit(self):
+        for name in ("codex-cli", "copilot-cli", "muse-cli", "deepseek-api"):
+            with self.subTest(name=name):
+                result = self.select([self.candidate(name)], budget_usd=1)
+                self.assertEqual(result["status"], "BLOCKED")
+                self.assertEqual(result["rejected"][0]["reason"],
+                                 "EXTERNAL_PROVIDER_NOT_APPROVED")
+                result = self.select([self.candidate(name)],
+                                     approved_external_providers=[name])
+                self.assertEqual(result["rejected"][0]["reason"],
+                                 "EXTERNAL_BUDGET_UNPROVEN")
+                result = self.select([self.candidate(name)],
+                                     approved_external_providers=[name], budget_usd=1)
+                self.assertEqual(result["selected_provider"], name)
+
+    def test_context_security_capability_and_freshness_fail_closed(self):
+        cases = [({"context_limit_tokens": 99}, "CONTEXT_CAPACITY_UNPROVEN"),
+                 ({"security_permissions": []}, "SECURITY_PERMISSION_MISSING"),
+                 ({"tested_capabilities": []}, "TESTED_CAPABILITY_EVIDENCE_MISSING"),
+                 ({"capability_evidence_ref": ""}, "TESTED_CAPABILITY_EVIDENCE_MISSING"),
+                 ({"observed_at": 1001}, "AVAILABILITY_STALE_OR_UNPROVEN"),
+                 ({"observed_at": 600}, "AVAILABILITY_STALE_OR_UNPROVEN"),
+                 ({"available": False}, "AVAILABILITY_STALE_OR_UNPROVEN")]
+        for extra, reason in cases:
+            with self.subTest(extra=extra):
+                result = self.select([self.candidate("qwen-local", **extra)])
+                self.assertIsNone(result["selected_provider"])
+                self.assertEqual(result["rejected"][0]["reason"], reason)
+
+    def test_external_quota_must_be_fresh_and_evidenced(self):
+        for extra in ({"quota": "UNKNOWN"}, {"quota_observed_at": 500},
+                      {"quota_evidence_ref": ""}):
+            with self.subTest(extra=extra):
+                result = self.select([self.candidate("codex-cli", **extra)],
+                                     approved_external_providers=["codex-cli"], budget_usd=1)
+                self.assertEqual(result["rejected"][0]["reason"],
+                                 "EXTERNAL_QUOTA_UNPROVEN")
+
+    def test_persisted_cooldown_is_reused_after_restart(self):
+        self.store.save_checkpoint(ProviderResources.KEY, "provider_resources", {
+            "qwen-local": {"blocked_until": 1100, "status": "RATE_LIMITED"}})
+        result = self.select([self.candidate("qwen-local")])
+        self.assertEqual(result["rejected"][0]["reason"], "PROVIDER_COOLDOWN")
+        self.resources = ProviderResources(QueueStore(self.store.base), clock=lambda: 1000)
+        self.assertEqual(self.select([self.candidate("qwen-local")]), result)
+
+    def test_no_probe_inference_dispatch_or_checkpoint_mutation(self):
+        before = {str(p): p.read_bytes() for p in self.store.base.rglob("*") if p.is_file()}
+        with mock.patch("coding_worker_v2.providers.http_json") as http, \
+                mock.patch("subprocess.Popen") as process, \
+                mock.patch.object(self.resources, "invoke") as invoke, \
+                mock.patch.object(self.store, "save_checkpoint") as save:
+            self.select([self.candidate("qwen-local")])
+            for call in (http, process, invoke, save):
+                call.assert_not_called()
+        after = {str(p): p.read_bytes() for p in self.store.base.rglob("*") if p.is_file()}
+        self.assertEqual(before, after)
+
+    def test_unknown_route_and_duplicate_candidate_rejected(self):
+        result = self.select([self.candidate("copilot-cloud")])
+        self.assertEqual(result["rejected"][0]["reason"], "UNSUPPORTED_EXECUTION_ROUTE")
+        with self.assertRaisesRegex(ProviderError, "ADVISORY_PROVIDER_ID_INVALID"):
+            self.select([self.candidate("qwen-local"), self.candidate("qwen-local")])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -128,7 +128,7 @@ def create_handoff(request_dir: Path, task, receipt_path: Path,
 
 
 def read_signed_proof(request_path: Path, proof_path: Path,
-                      public_key_path: Path) -> dict:
+                      public_key_path: Path, *, verified_at=None) -> dict:
     request = _read_json(request_path)
     proof = _read_json(proof_path)
     if not isinstance(request, dict) or not isinstance(proof, dict):
@@ -168,7 +168,11 @@ def read_signed_proof(request_path: Path, proof_path: Path,
             str(attestation["issued_at"]).replace("Z", "+00:00"))
         expires = datetime.fromisoformat(
             str(attestation["expires_at"]).replace("Z", "+00:00"))
-        now = datetime.now(timezone.utc)
+        # Historical receipt readback validates at its immutable recorded time;
+        # normal execution callers always use the actual current time.
+        now = verified_at if verified_at is not None else datetime.now(timezone.utc)
+        if not isinstance(now, datetime) or now.tzinfo is None:
+            raise VerificationError("VERIFIER_PROOF_INVALID")
         if (requested.tzinfo is None or issued.tzinfo is None or expires.tzinfo is None
                 or (now - requested).total_seconds() > MAX_AGE_S
                 or issued < requested

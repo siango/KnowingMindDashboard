@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import subprocess
 import time
@@ -34,6 +35,103 @@ def fingerprint_for(goal: str, repo: str, base_commit: str) -> str:
                             "base": base_commit or ""},
                            ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def execution_context(ctx, source_sha, allowed_paths=(), task_id=None):
+    """Stable comparison evidence, never identity verification or permission.
+
+    Only fingerprints leave this function. Credentials, cookies, tokens, raw
+    environment and adapter reprs are deliberately absent from the inputs.
+    """
+    import platform
+    import sys
+    def digest(value):
+        return hashlib.sha256(json.dumps(value, sort_keys=True,
+            separators=(',', ':'), ensure_ascii=False,
+            default=lambda v: type(v).__module__+'.'+type(v).__qualname__).encode()).hexdigest()
+    root = Path(ctx['workspace']).resolve()
+    paths = {}
+    for rel in allowed_paths:
+        target = root / rel
+        try:
+            paths[rel] = (hashlib.sha256(target.read_bytes()).hexdigest()
+                if not Path(rel).is_absolute() and '..' not in Path(rel).parts
+                and target.resolve().is_relative_to(root) and not target.is_symlink()
+                and target.is_file() and target.stat().st_size <= 1_000_000
+                else 'UNAVAILABLE_OR_OUT_OF_SCOPE')
+        except OSError:
+            paths[rel] = 'UNAVAILABLE'
+    auth_keys = ('authenticated', 'principal_id', 'role', 'issuer', 'audience',
+        'channel', 'method', 'permissions', 'account_id', 'mission_id', 'task_ids',
+        'source_sha', 'issued_at', 'expires_at')
+    auth = {kind: {k:v for k,v in ctx.get(kind, {}).items() if k in auth_keys}
+            if isinstance(ctx.get(kind), dict) else None
+            for kind in ('command_auth', 'database_auth')}
+    channels = {name: {k:v for k,v in value.items()
+        if k in ('qualified', 'method', 'issuer', 'principals')}
+        for name,value in ctx.get('command_channels', {}).items() if isinstance(value, dict)}
+    approval_keys = ('verified', 'readback_confirmed', 'principal_id', 'mission_id',
+        'task_id', 'action', 'source_hash', 'scope_sha256', 'evidence_ref', 'issued_at', 'expires_at')
+    approvals = {name: {k:v for k,v in value.items() if k in approval_keys}
+        for name,value in ctx.get('command_approvals', {}).items() if isinstance(value, dict)}
+    binding_keys = ('qualified', 'resource_ref', 'target_id', 'system', 'authority_ref',
+        'issuer', 'audience', 'account_id', 'mission_id', 'task_id', 'source_sha',
+        'write_authorized', 'maintenance_authorized', 'approval_ref', 'principals')
+    bindings = {kind: {name: {k:v for k,v in b.items() if k in binding_keys}
+        for name,b in ctx.get(kind, {}).items() if isinstance(b, dict)}
+        if isinstance(ctx.get(kind), dict) else {}
+        for kind in ('tool_bindings', 'database_bindings')}
+    artifacts = {}
+    for name in ('KMW2_MISSION_AUDITOR_SNAPSHOT', 'KMW2_INDEPENDENT_VERIFIER_PUBLIC_KEY'):
+        location = os.environ.get(name)
+        try:
+            file = Path(location) if location else None
+            artifacts[name] = (hashlib.sha256(file.read_bytes()).hexdigest()
+                if file and file.is_file() and file.stat().st_size <= 1_000_000 else None)
+        except OSError:
+            artifacts[name] = 'UNAVAILABLE'
+    from urllib.parse import urlsplit
+    try:
+        endpoint = urlsplit(getattr(ctx.get('config'), 'ollama_url', ''))
+        provider_resource = [endpoint.scheme, endpoint.hostname, endpoint.port, endpoint.path]
+    except ValueError:
+        provider_resource = 'INVALID_ENDPOINT'
+    registry = ctx.get('tool_registry')
+    config = ctx.get('pilot') or {}
+    variables = {k:config.get(k) for k in ('worker_id', 'provider', 'test_command',
+        'allowed_paths', 'context_paths', 'authorize_subscription')}
+    facets = {
+        'path': {'workspace': str(root), 'files': paths},
+        'variables': {'config': variables, 'read_only': ctx.get('read_only')},
+        'version': {'source_sha': source_sha,
+            'registry_contract': registry.command_contract()['sha256'] if registry else None,
+            'memory_source': hashlib.sha256(Path(__file__).read_bytes()).hexdigest()},
+        'environment': {'python': list(sys.version_info[:3]), 'executable': sys.executable,
+            'system': platform.system(), 'machine': platform.machine(), 'uid': os.geteuid()},
+        'authority': {'auth': auth, 'bindings': bindings, 'artifacts': artifacts,
+            'channels': channels, 'approvals': approvals,
+            'account_id': ctx.get('account_id'), 'mission_id': ctx.get('mission_id'),
+            'task_id': task_id or ctx.get('task_id')},
+        'resource': {'queue': str(ctx['store'].base.resolve()),
+            'receipts': str(Path(ctx['receipts_dir']).resolve()),
+            'provider_endpoint': provider_resource,
+            'targets': bindings}}
+    return {'schema': 'KMCW_EXECUTION_CONTEXT_V1',
+            'facets': {k:digest(v) for k,v in facets.items()}}
+
+
+def compare_context(previous, current):
+    if (not isinstance(previous, dict) or not isinstance(current, dict)
+            or previous.get('schema') != 'KMCW_EXECUTION_CONTEXT_V1'
+            or current.get('schema') != previous.get('schema')
+            or not isinstance(previous.get('facets'), dict)
+            or not isinstance(current.get('facets'), dict)
+            or set(current['facets']) != {'path','variables','version','environment','authority','resource'}
+            or set(previous.get('facets', {})) != set(current.get('facets', {}))):
+        return {'state': 'UNKNOWN', 'different_facets': []}
+    different = sorted(k for k,v in current['facets'].items()
+                       if previous['facets'].get(k) != v)
+    return {'state': 'DIFFERENT' if different else 'MATCH', 'different_facets': different}
 
 
 def current_base_commit(repo: str) -> str:
@@ -73,14 +171,19 @@ def receipt_verified(receipt: dict) -> bool:
           if isinstance(e, dict) and e.get("event") == "qc_checked"]
     proofs = [e.get("proof", {}) for e in receipt.get("evidence", [])
               if isinstance(e, dict) and e.get("event") == "independent_verification"]
+    # Later failed/revoked checks supersede a historical PASS in the same
+    # receipt. Retrieval/ranking must not promote obsolete acceptance flags.
+    latest_qc = qc[-1] if qc and isinstance(qc[-1], dict) else {}
+    latest_proof = proofs[-1] if proofs and isinstance(proofs[-1], dict) else {}
     return (receipt.get("status") == "DONE"
-            and any(q.get("passed") is True and q.get("independent_verified") is True
-                    for q in qc)
-            and any(p.get("authenticated") is True and p.get("status") == "PASS"
-                    and p.get("source_sha") == source
-                    and p.get("task_id") == receipt.get("task_id")
-                    and re.fullmatch(r"[0-9a-f]{64}", str(p.get("signature_sha256", "")))
-                    for p in proofs))
+            and latest_qc.get("passed") is True
+            and latest_qc.get("independent_verified") is True
+            and latest_proof.get("authenticated") is True
+            and latest_proof.get("status") == "PASS"
+            and latest_proof.get("source_sha") == source
+            and latest_proof.get("task_id") == receipt.get("task_id")
+            and re.fullmatch(r"[0-9a-f]{64}",
+                             str(latest_proof.get("signature_sha256", ""))))
 
 
 def workspace_digest(repo: str, paths: list[str]) -> str:
@@ -102,13 +205,14 @@ def work_case(receipt: dict, reference: str, original_sha256: str) -> dict:
     """Derived four-part view; original receipts/events remain the authority."""
     events = [e for e in receipt.get("evidence", []) if isinstance(e, dict)]
     failures = [e for e in events if e.get("event") in
-                {"edit_failed", "verification_blocked", "provider_paused"}]
+                {"edit_failed", "verification_blocked", "provider_paused", "attempt_feedback"}]
     tests = [e.get("tests", {}) for e in events if e.get("event") == "tests_run"]
     output = receipt.get("output") or {}
     state = ("VERIFIED_PASS" if receipt_verified(receipt) else
              "EXECUTION_DONE" if receipt.get("status") == "DONE" else
              "BLOCKED" if receipt.get("status") in {"BLOCKED", "QC_PENDING"} else "FAILED")
     return {
+        "execution_context": receipt.get("input", {}).get("hints", {}).get("execution_context"),
         "task_id": receipt.get("task_id"), "source_sha": receipt.get("source_sha"),
         "timestamp": receipt.get("recorded_at"),
         "provenance": {"original_ref": reference, "sha256": original_sha256,
@@ -126,7 +230,8 @@ def work_case(receipt: dict, reference: str, original_sha256: str) -> dict:
                           "test_command": receipt.get("input", {}).get("test_command"),
                           "tests": tests, "decision_summary": [
                               e for e in events if e.get("event") in
-                              {"route_selected", "strategy_selected", "provider_switch"}]},
+                              {"route_selected", "strategy_selected", "provider_switch",
+                               "memory_retrieved", "attempt_feedback"}]},
         "RESULT": {"state": state, "next_action": receipt.get("next_action"),
                    "classification": "FACT", "tests": tests},
     }
@@ -140,6 +245,88 @@ def lesson_tags(receipt: dict) -> list[str]:
                  (receipt.get("output") or {}).get("changed", [])
                  if isinstance(path, str) and Path(path).suffix)
     return sorted(words)[:40]
+
+
+def _observed_audit_cases(goal, repo, source_sha, store, account_id):
+    """Read scoped observations through the existing memory projection only.
+
+    An audit annotation is never a receipt, verified solution or grant. Require
+    an explicit error signature, original-record hash and current source bytes.
+    """
+    def digest(value):
+        return hashlib.sha256(json.dumps(value, sort_keys=True,
+            separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
+    try:
+        path = store.checkpoints / '.tool-audit.json'
+        if not path.is_file() or path.stat().st_size > 1_000_000:
+            return []
+        events = store.load_checkpoint('.tool-audit')['data']['events']
+        if not isinstance(events, list):
+            return []
+        originals = {r.get('record_id'): r for r in events if isinstance(r, dict)
+                     and isinstance(r.get('record_id'), str)}
+        cases = []
+        root = Path(repo).resolve()
+        for row in events[-64:]:
+            if not isinstance(row, dict) or row.get('event') != 'memory.indexed':
+                continue
+            scope = row.get('scope', {})
+            signature = row.get('error_signature')
+            if (not isinstance(scope, dict) or not isinstance(signature, str)
+                    or not signature or signature.lower() not in
+                       re.findall(r'[a-z0-9_]+', normalize_goal(goal))
+                    or scope.get('repo') != str(root)
+                    or scope.get('account_id') != account_id
+                    or scope.get('owner_uid') != os.geteuid()
+                    or row.get('classification') != 'OBSERVED'
+                    or digest({k:v for k,v in row.items() if k != 'record_sha256'})
+                       != row.get('record_sha256')):
+                continue
+            original = originals.get(row.get('learning_record_id'))
+            if (not original or original.get('event') != 'learning.recorded'
+                    or original.get('classification') != 'OBSERVED'
+                    or original.get('source_sha') != row.get('source_sha')
+                    or digest({k:v for k,v in original.items() if k != 'record_sha256'})
+                       != row.get('learning_record_sha256')
+                    or original.get('record_sha256') != row.get('learning_record_sha256')
+                    or original.get('learning', {}).get('magga_state') != 'UNPROVEN'):
+                continue
+            sources = row.get('source_files_sha256')
+            if not isinstance(sources, dict) or not 1 <= len(sources) <= 12:
+                continue
+            valid = True
+            for rel, expected in sources.items():
+                target = root / rel
+                if (Path(rel).is_absolute() or '..' in Path(rel).parts
+                        or not target.resolve().is_relative_to(root)
+                        or target.is_symlink()):
+                    valid = None
+                    break
+                if (not target.is_file()
+                        or target.stat().st_size > 200_000
+                        or hashlib.sha256(target.read_bytes()).hexdigest() != expected):
+                    valid = False
+                    break
+            case = row.get('memory_case')
+            if (valid is None or not isinstance(case, dict)
+                    or not all(isinstance(case.get(k), dict) for k in
+                               ('PROBLEM', 'CAUSE', 'RESULT', 'SOLUTION_PATH'))
+                    or not isinstance(case['CAUSE'].get('evidenced'), list)
+                    or case['PROBLEM'].get('failure_class') != signature):
+                continue
+            cases.append({**case, 'source_sha': row.get('source_sha'),
+                'source_context_matches': valid,
+                'execution_context': row.get('execution_context'),
+                'timestamp': row['observed_at'], 'error_signature': signature,
+                'provenance': {'original_ref': str(path)+'#'+row['record_id'],
+                    'sha256': row['record_sha256'],
+                    'learning_record_id': original['record_id'],
+                    'classification': 'DERIVED_OBSERVED_WORK_MEMORY'},
+                'verified_for_current_source': False, 'retrieval_only': True,
+                'tags': [signature.lower()], 'qc_score': 0})
+        return cases
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return []
 
 
 def retrieve_work(goal, repo, source_sha, store, receipts_dir, limit=5, *,
@@ -173,6 +360,10 @@ def retrieve_work(goal, repo, source_sha, store, receipts_dir, limit=5, *,
                  (exact, tag_overlap, case["qc_score"], len(overlap)))
         case["retrieval_score"] = list(score)
         records.append((score, case))
+    for case in _observed_audit_cases(goal, repo, source_sha, store, account_id):
+        score = ((True, 1) if ranking == 'baseline' else (True, 1, 0, 1))
+        case['retrieval_score'] = list(score)
+        records.append((score, case))
     return [case for _, case in sorted(records, key=lambda row: row[0],
                                        reverse=True)[:limit]]
 
@@ -194,6 +385,67 @@ def strategy_effectiveness(store, receipts_dir) -> dict:
         elif receipt.get("status") == "DONE":
             row["execution_done"] += 1
     return outcomes
+
+
+def planning_lessons(goal, repo, source_sha, store, receipts_dir, *, account_id=None,
+                     now=None, plan=None, context=None):
+    """Memory3-compatible local projection; no central write or policy promotion.
+
+    Failed receipts describe observations, never verified root causes. Stale,
+    rejected and hypothesis-only lessons cannot steer a plan or provider route.
+    """
+    from datetime import datetime
+    now = time.time() if now is None else now
+    cases = retrieve_work(goal, repo, source_sha, store, receipts_dir,
+                          account_id=account_id, ranking="qc")
+    lessons, excluded = [], []
+    for case in cases:
+        current_context = context
+        if context is not None and context.get('schema') != 'KMCW_EXECUTION_CONTEXT_V1':
+            from .executor import namespaced_id
+            scope_task = next((t for t in plan.tasks
+                if namespaced_id(plan, t.task_id) == case.get('task_id')), None) if plan else None
+            paths = scope_task.allowed_paths if scope_task else context.get('pilot', {}).get('allowed_paths', [])
+            current_context = execution_context(context, source_sha, paths, case.get('task_id'))
+        comparison = compare_context(case.get('execution_context'), current_context)
+        try:
+            value = case["timestamp"]
+            stamp = (float(value) if type(value) in (int, float) else
+                     datetime.fromisoformat(value).timestamp())
+            fresh = 0 <= now - stamp <= DEFAULT_FRESHNESS_TTL_S
+        except (ValueError, TypeError, KeyError):
+            fresh = False
+        state = ("STALE" if not fresh or case.get("source_sha") != source_sha
+                 or case.get('source_context_matches') is False else
+                 "VERIFIED" if case.get("verified_for_current_source") is True else "OBSERVED")
+        if state == "VERIFIED":
+            from .executor import completion_readback, namespaced_id
+            task = next((t for t in plan.tasks if namespaced_id(plan, t.task_id) == case.get("task_id")),
+                        None) if plan is not None else None
+            # Recorded flags are retrieval hints until the original signature,
+            # candidate bytes and current task scope have actually read back.
+            state = ("VERIFIED" if task is not None and completion_readback(
+                plan, task.task_id, store, receipts_dir, repo, account_id=account_id)["verified"] else "REJECTED")
+        # No user/model supplied lesson status can elevate original receipt QC.
+        if state in {"STALE", "REJECTED"}:
+            excluded.append({"provenance": case["provenance"], "classification": state,
+                'error_signature': case.get('error_signature'),
+                'observed_cause': case.get('CAUSE', {}).get('evidenced', []),
+                'context_comparison': comparison, 'chosen_method': 'REVERIFY_OR_ADAPT_WITH_EVIDENCE'})
+            continue
+        lessons.append({"classification": state, "provenance": case["provenance"],
+                        "context_comparison": comparison,
+                        "error_signature": case.get("error_signature"),
+                        "method_hint": case.get('method_hint'),
+                        "problem": case["PROBLEM"], "observed_cause": case["CAUSE"]["evidenced"],
+                        "hypotheses": [], "outcome": case["RESULT"],
+                        "recommendation": (case["SOLUTION_PATH"] if state == "VERIFIED"
+                            and (context is None or comparison['state'] == 'MATCH') else None),
+                        "avoid_unchanged_failure": case["RESULT"]["state"] in {"FAILED", "BLOCKED"}})
+    return {"lessons": lessons, "excluded": excluded, "central_sync": "UNSYNCED",
+            "backend": "EXISTING_RECEIPTS", "observation_backend": "EXISTING_TOOL_AUDIT",
+            "classifications":
+            ["OBSERVED", "HYPOTHESIS", "VERIFIED", "REJECTED", "STALE"]}
 
 
 def _iter_receipts(receipts_dir: Path):

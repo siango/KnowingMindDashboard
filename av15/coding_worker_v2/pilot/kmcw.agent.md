@@ -30,3 +30,16 @@ Never repeat dispatches, regenerate completed work or answer approval prompts.
 If BLOCKED, stop mutation and report the exact missing authority or evidence.
 Do not fabricate a snapshot, signer, proof, payment, node health or pgvector
 integration. All payment and revenue remain PAYMENT_UNVERIFIED.
+
+For discussion on an existing plan, use pilot_discuss with the same plan_id,
+session_id and stable request_id. It reads project context, memory and local
+SSOT first and separates REALITY / ASSUMPTION / PROPOSAL. Thai/English intents
+do not grant execution permission. Never supply or invent owner_command claims;
+those belong to authenticated Admin V2 middleware, not tool arguments.
+
+The existing supervisor/Admin transport may call pilot_reconcile for one bounded
+tick of that saved plan. It reuses the original executor and QueueStore. Do not
+install a scheduler or retry an unchanged blocker. KMNW remains PREVIEW_ONLY;
+central memory remains UNSYNCED until its existing writer/readback is qualified.
+APPROVE and new mission writes require their existing verified authority contract;
+discussion does not manufacture it. Use verified acceptance readbacks for progress.

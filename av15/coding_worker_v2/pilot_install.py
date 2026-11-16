@@ -77,9 +77,10 @@ def install(args):
     }
     validate_config(data)
     config_path = target / "config.json"
+    from .agent.tools import build_default_registry
     server = {"type": "local", "command": str(SOURCE / "km"),
               "args": ["pilot", "mcp", "--config", str(config_path)],
-              "cwd": str(SOURCE), "tools": list(TOOLS),
+              "cwd": str(SOURCE), "tools": build_default_registry().names(),
               "env": {"KMW2_SOURCE_ROOT": "", "KMW2_SOURCE_SHA": "",
                       "KMW2_OWNER_NODE": args.worker_id}}
     target.mkdir(mode=0o700)
@@ -195,7 +196,7 @@ def add_parser(sub):
     orchestration.add_argument("--plan-id", required=True)
 
 
-def main(args):
+def main(args, *, context_provider=None):
     if args.pilot_action == "orchestration-usage":
         from .agent.pilot import orchestration_usage
         result = orchestration_usage(args.file, args.plan_id)
@@ -206,11 +207,19 @@ def main(args):
         result = {"install": install, "uninstall": uninstall, "package": package}[args.pilot_action](args)
     else:
         ctx = load_context(args.config)
+        from .agent.capabilities import bind_runtime_context
+        # Reuse the caller's existing Pilot/session context. An unrelated host
+        # credential must not silently replace the original local authority.
+        # New channels may explicitly supply their already-verified provider.
+        ctx = bind_runtime_context(ctx, context_provider)
         from .agent.mcp_server import _call, serve
         if args.pilot_action == "mcp":
+            if context_provider is not None:
+                return serve(ctx, context_provider=context_provider)
             return serve(ctx)
         from .agent.tools import build_default_registry
-        result = _call(build_default_registry(),
+        registry = ctx.get("tool_registry") or build_default_registry()
+        result = _call(registry,
                        {"name": args.tool, "arguments": json.loads(args.args)}, ctx)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

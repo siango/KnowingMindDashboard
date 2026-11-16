@@ -18,6 +18,158 @@ from coding_worker_v2.queue_store import QueueStore  # noqa: E402
 
 
 class TestRegistry(unittest.TestCase):
+    def test_runtime_memory_precedes_handler_and_selection_is_audited(self):
+        from coding_worker_v2.agent import memory
+        case={'provenance':{'original_ref':'retained-observation','sha256':'a'*64},
+              'retrieval_only':True,'verified_for_current_source':False}
+        def inspect(args,ctx):
+            self.assertEqual(ctx['work_memory'],[case])
+            self.assertEqual(ctx['evidence'][-1]['event'],'tool_selected')
+            return {'observed':True}
+        self.reg._fns['repo_inspect']=inspect
+        with mock.patch.object(memory,'retrieve_work',return_value=[case]) as retrieve:
+            result=self.reg.call('repo_inspect',{'repo':self.ctx['workspace']},self.ctx)
+        self.assertEqual(result,{'observed':True})
+        retrieve.assert_called_once()
+        events=self.ctx['evidence']
+        self.assertEqual([e['event'] for e in events[-3:]],
+                         ['memory_retrieved','tool_selected','tool_called'])
+        self.assertFalse(events[-3]['grants_authority'])
+        self.assertTrue(events[-1]['ok'])
+
+    def test_denied_runtime_call_cannot_retrieve_or_retain_memory(self):
+        from coding_worker_v2.agent import memory
+        self.ctx.update(command_auth={},tool_bindings={},work_memory=['stale'])
+        handler=mock.Mock(); self.reg._fns['queue_health']=handler
+        with mock.patch.object(memory,'retrieve_work') as retrieve:
+            with self.assertRaisesRegex(ToolError,'MCP_TOOL_SCOPE_DENIED'):
+                self.reg.call('queue_health',{},self.ctx,mcp=True)
+        retrieve.assert_not_called();handler.assert_not_called()
+        self.assertNotIn('work_memory',self.ctx)
+
+    def test_mcp_tool_grant_does_not_imply_receipt_memory_grant(self):
+        from coding_worker_v2.agent import memory, capabilities
+        self.reg._fns['repo_inspect']=lambda args,ctx:{'read':True}
+        with mock.patch.object(capabilities,'authorized',return_value=True), \
+             mock.patch.object(memory,'retrieve_work') as retrieve:
+            self.assertEqual(self.reg.call('repo_inspect',
+                {'repo':self.ctx['workspace']},self.ctx,mcp=True),{'read':True})
+        retrieve.assert_not_called()
+
+    def test_reuse_callable_client_handler_metadata_does_not_replace_client(self):
+        class ExistingCallableReader:
+            def __call__(self,args,ctx):return {'binding_retained':True}
+        client=ExistingCallableReader()
+        self.reg._specs.pop('queue_health');self.reg._fns.pop('queue_health')
+        self.reg.register(ToolSpec('queue_health','existing fixture callable'),client)
+        self.assertIn('ExistingCallableReader',self.reg._specs['queue_health'].source_ref)
+        row=next(r for r in self.reg.discover(self.ctx) if r['tool']=='queue_health')
+        self.assertTrue(row['available'])
+        self.assertIs(self.reg._fns['queue_health'],client)
+        self.assertEqual(self.reg.call('queue_health',{},self.ctx),{'binding_retained':True})
+
+    def test_reuse_plan_and_run_validation_keep_original_registry(self):
+        import argparse
+        from coding_worker_v2.agent import km_main
+        ctx={**self.ctx,'tool_registry':self.reg,
+             'owner_node':self.ctx['config'].owner_node,'state_dir':self.root/'state'}
+        with mock.patch.object(km_main.agent_tools,'build_default_registry',
+                side_effect=AssertionError('must preserve bound registry')), \
+             mock.patch.object(km_main.agent_planner,'simple_plan',
+                side_effect=RuntimeError('STOP_BEFORE_PLAN_WRITE')), \
+             self.assertRaisesRegex(RuntimeError,'STOP_BEFORE_PLAN_WRITE'):
+            km_main.cmd_plan(argparse.Namespace(command='Inspect existing source',
+                plan_id='isolated-validation',revise=None,feedback=None,simple=True,mission=None),ctx)
+        path=self.root/'validation-only.json';path.write_text('{}')
+        with mock.patch.object(km_main.agent_tools,'build_default_registry',
+                side_effect=AssertionError('must preserve bound registry')), \
+             mock.patch.object(km_main.agent_planner,'validate_plan_dict',
+                side_effect=RuntimeError('STOP_BEFORE_EXECUTOR')) as validate, \
+             self.assertRaisesRegex(RuntimeError,'STOP_BEFORE_EXECUTOR'):
+            km_main.cmd_run(argparse.Namespace(provider=None,plan=str(path)),ctx)
+        validate.assert_called_once_with({},self.reg.names())
+        self.assertFalse((self.root/'state').exists())
+
+    def test_replay_bound_client_handler_is_not_replaced(self):
+        import argparse,contextlib,io
+        from coding_worker_v2.agent import km_main
+        original_client=self.ctx['config']
+        original_session=self.ctx['store']
+        handler_calls=[]
+        def bound_read(arguments,forwarded):
+            self.assertIs(forwarded['config'],original_client)
+            self.assertIs(forwarded['store'],original_session)
+            handler_calls.append(arguments)
+            return {'counts':original_session.health(),'binding_retained':True}
+        self.reg._fns['queue_health']=bound_read
+        ctx={**self.ctx,'tool_registry':self.reg,'read_only':True}
+        output=io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(km_main.cmd_tools(
+                argparse.Namespace(call='queue_health',args='{}',yes=False),ctx),0)
+        result=json.loads(output.getvalue())['result']
+        self.assertIs(result.get('binding_retained'),True)
+        self.assertEqual(len(handler_calls),1)
+        self.assertIs(self.reg._fns['queue_health'],bound_read)
+        ctx['command_auth']={};ctx['tool_bindings']={}
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(km_main.cmd_tools(
+                argparse.Namespace(call='queue_health',args='{}',yes=False),ctx),1)
+        self.assertEqual(len(handler_calls),1)
+        self.assertIs(ctx['config'],original_client)
+        self.assertIs(ctx['store'],original_session)
+
+    def test_reuse_cli_preserves_supplied_registry_and_its_acl(self):
+        import argparse
+        from coding_worker_v2.agent import km_main
+        ctx={**self.ctx,'tool_registry':self.reg,'read_only':True}
+        with mock.patch.object(km_main.agent_tools,'build_default_registry',
+                side_effect=AssertionError('must reuse original registry')), \
+             mock.patch('builtins.print'):
+            self.assertEqual(km_main.cmd_tools(
+                argparse.Namespace(call='queue_health',args='{}',yes=False),ctx),0)
+            ctx['command_auth']={};ctx['tool_bindings']={}
+            self.assertEqual(km_main.cmd_tools(
+                argparse.Namespace(call='queue_health',args='{}',yes=False),ctx),1)
+        events=self.ctx['store'].load_checkpoint('.tool-audit')['data']['events']
+        self.assertEqual(events[-1]['error_class'],'MCP_TOOL_SCOPE_DENIED')
+
+    def test_cli_preserves_security_context_and_requests_scoped_registry_checks(self):
+        import argparse
+        from coding_worker_v2.agent import km_main
+        ctx = {**self.ctx, 'command_auth': {}, 'command_channels': {},
+               'tool_bindings': {}, 'account_id': 'isolated-audit',
+               'mission_id': 'isolated-mission', 'task_id': 'isolated-task',
+               'read_only': True}
+        args = argparse.Namespace(call='queue_health', args='{}', yes=False)
+        def denied(name, arguments, forwarded, *, mcp):
+            self.assertTrue(mcp)
+            for field in ('store','command_auth','command_channels','tool_bindings'):
+                self.assertIs(forwarded[field], ctx[field])
+            for field in ('account_id','mission_id','task_id','read_only'):
+                self.assertEqual(forwarded[field], ctx[field])
+            raise ToolError('MCP_TOOL_SCOPE_DENIED')
+        with mock.patch.object(km_main.agent_tools,'build_default_registry',return_value=self.reg), \
+             mock.patch.object(self.reg,'call',side_effect=denied), \
+             mock.patch('builtins.print'):
+            self.assertEqual(km_main.cmd_tools(args,ctx),1)
+
+    def test_cli_unqualified_context_cannot_reach_queue_handler(self):
+        import argparse
+        from coding_worker_v2.agent import km_main
+        ctx = {**self.ctx, 'command_auth': {}, 'tool_bindings': {}}
+        handler = mock.Mock()
+        self.reg._fns['queue_health'] = handler
+        before = self.ctx['store'].health()
+        with mock.patch.object(km_main.agent_tools,'build_default_registry',return_value=self.reg), \
+             mock.patch('builtins.print'):
+            self.assertEqual(km_main.cmd_tools(
+                argparse.Namespace(call='queue_health',args='{}',yes=False),ctx),1)
+        handler.assert_not_called()
+        self.assertEqual(self.ctx['store'].health(),before)
+        events = self.ctx['store'].load_checkpoint('.tool-audit')['data']['events']
+        self.assertEqual(events[-1]['error_class'],'MCP_TOOL_SCOPE_DENIED')
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
@@ -331,52 +483,12 @@ class TestRegistry(unittest.TestCase):
         opener.assert_not_called()
         self.assertNotIn("fixture-secret-never-log", json.dumps(ctx["evidence"]))
 
-    def test_d1_read_schema_freshness_auth_and_outage(self):
-        now = datetime.now(timezone.utc)
-        snapshot = {"component": "KCC_D1_RUNTIME_V2", "authenticated": True,
-                    "runtime_authority": "CLOUDFLARE_D1",
-                    "spreadsheet_runtime_dependency": False,
-                    "generated_at": now.isoformat(),
-                    "source_health": {"kcc_node_task_queue": {"ok": True}},
-                    "tasks": [{"task_id": "existing-task", "lease_id": "existing-lease"}]}
-        opener = mock.Mock()
-        def response(data):
-            result = mock.MagicMock()
-            result.__enter__.return_value.read.return_value = json.dumps(data).encode()
-            return result
-        ctx = {"kcc_runtime_token": "fixture-secret"}
-        with mock.patch.object(tools.request, "build_opener", return_value=opener):
-            opener.open.return_value = response(snapshot)
-            result = tools._kcc_read("task_read", {"task_id": "existing-task"}, ctx)
-            self.assertEqual(result["record"]["lease_id"], "existing-lease")
-            request_sent = opener.open.call_args.args[0]
-            self.assertEqual(request_sent.get_header("Authorization"),
-                             "Bearer " + "fixture-" + "secret")
-            self.assertNotIn("fixture-secret", json.dumps(result))
-            for changed, reason in (
-                ({"generated_at": (now - timedelta(seconds=120)).isoformat()},
-                 "KCC_SNAPSHOT_STALE"),
-                ({"source_health": {"kcc_node_task_queue": {"ok": False}}},
-                 "KCC_D1_UNHEALTHY"),
-                ({"authenticated": False}, "KCC_AUTHORITY_INVALID"),
-            ):
-                opener.open.return_value = response({**snapshot, **changed})
-                with self.subTest(reason=reason), self.assertRaises(ToolError) as caught:
-                    tools._kcc_read("health", {}, ctx)
-                self.assertEqual(caught.exception.reason, reason)
-            for fault, reason in (
-                (error.HTTPError(tools.KCC_RUNTIME_ENDPOINT, 401, "", {}, None),
-                 "KCC_AUTH_DENIED"),
-                (error.HTTPError(tools.KCC_RUNTIME_ENDPOINT, 302, "", {}, None),
-                 "KCC_HTTP_UNAVAILABLE"),
-                (error.URLError("offline"), "KCC_READ_UNAVAILABLE"),
-            ):
-                opener.open.side_effect = fault
-                with self.subTest(reason=reason), self.assertRaises(ToolError) as caught:
-                    tools._kcc_read("health", {}, ctx)
-                self.assertEqual(caught.exception.reason, reason)
-        with self.assertRaises(ToolError):
-            tools._kcc_read("health", {}, {})
+    def test_legacy_kcc_token_never_calls_retired_endpoint(self):
+        with mock.patch.object(tools.request, 'build_opener') as opener:
+            with self.assertRaisesRegex(ToolError, 'MCP_TOOL_SCOPE_DENIED'):
+                tools._kcc_read('task_read', {'task_id': 'existing-task'},
+                                {'kcc_runtime_token': 'legacy-not-authority'})
+        opener.assert_not_called()
 
     def test_result_hash_and_failed_retry_trace(self):
         client = mock.Mock(tools={"session_list": {}}, closed=False)
@@ -395,6 +507,201 @@ class TestRegistry(unittest.TestCase):
         self.assertEqual(events[1]["error_class"], "MCP_TOOL_ERROR")
         self.assertIsNone(events[1]["result_sha256"])
         self.assertEqual(len(events[0]["result_sha256"]), 64)
+
+
+class TestSerenaKMNWContracts(unittest.TestCase):
+    """Synthetic session/node contracts; not native Serena or KMNW qualification."""
+
+    def setUp(self):
+        from types import SimpleNamespace
+        from coding_worker_v2.agent import planner, executor
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        (self.root / "sample.py").write_text("def add(a, b):\n    return a - b\n")
+        self.source = "1" * 40
+        original = planner.simple_plan("fix add", "G0-G1-MINIMUM-SELLABLE-DEMO",
+                                      "pilot-0c3fdc91ed2e2a9011c0cb1d")
+        original.tasks[0].allowed_paths = ["sample.py"]
+        units = [{"task_id": name, "goal": "fix add", "deps": deps,
+                  "allowed_paths": ["sample.py"], "acceptance": ["addition passes"],
+                  "input_contract": ["approved source"], "output_contract": ["patch and tests"],
+                  "evidence_required": ["independent receipt"]}
+                 for name, deps in (("t1", []), ("verify", ["t1"]))]
+        self.plan = planner.decompose_plan(original, units, self.source)
+        self.store = QueueStore(self.root / "q")
+        with mock.patch.object(executor, "current_base_commit", return_value=self.source):
+            self.readiness = executor.plan_readiness(self.plan, self.store,
+                self.root / "receipts", str(self.root))
+        self.session = SimpleNamespace(closed=False, read_only_qualified=True,
+            identity_sha256="a" * 64, workspace=str(self.root),
+            tools={"find_symbol": {}, "get_symbols_overview": {}})
+        self.session.call_tool = mock.Mock(return_value={"result": [{
+            "name_path": "add", "relative_path": "sample.py", "line": 1}]})
+        self.registry = tools.build_default_registry(serena=self.session)
+        self.ctx = {"workspace": str(self.root), "store": self.store}
+
+    def node(self, name="AV15", **over):
+        return {"node_id": name, "authenticated": True, "enrollment_verified": True,
+                "online": True, "heartbeat_at": 990, "capability_observed_at": 990,
+                "capabilities": ["bounded-edit"], "source_sha": self.source,
+                "authorized_scope_digests": [t.execution_contract["scope_digest"] for t in self.plan.tasks],
+                "lease_available": True, "lease_observed_at": 990,
+                "quota": "AVAILABLE", "quota_observed_at": 990, "estimated_cost_usd": 0,
+                **{key: "fixture:" + key for key in (
+                    "enrollment_evidence_ref", "capability_evidence_ref", "authorization_evidence_ref",
+                    "lease_evidence_ref", "ack_contract_ref", "existing_transport_ref")}, **over}
+
+    def routes(self, candidates, **extra):
+        from coding_worker_v2.agent.planner import node_route_preview
+        return node_route_preview(self.plan, candidates, readiness=self.readiness, now=1000, **extra)
+
+    def test_serena_symbol_forwarding_is_bounded_read_only(self):
+        before = (self.root / "sample.py").read_bytes()
+        result = self.registry.call("serena.find_symbol",
+            {"relative_path": "sample.py", "name_path_pattern": "add"}, self.ctx)
+        self.assertEqual(result["result"]["result"][0]["name_path"], "add")
+        forwarded = self.session.call_tool.call_args.args[1]
+        self.assertFalse(forwarded["include_body"])
+        self.assertEqual(forwarded["max_answer_chars"], 8000)
+        self.assertEqual((self.root / "sample.py").read_bytes(), before)
+        self.assertTrue(result["read_only"])
+        self.assertNotIn("serena.execute_shell_command", self.registry.names())
+        self.assertNotIn("serena.replace_symbol_body", self.registry.names())
+
+    def test_serena_missing_qualification_scope_and_symlinks_fail_closed(self):
+        self.session.read_only_qualified = False
+        with self.assertRaisesRegex(ToolError, "QUALIFICATION_REQUIRED"):
+            self.registry.call("serena.find_symbol", {"relative_path": "sample.py",
+                               "name_path_pattern": "add"}, self.ctx)
+        self.session.read_only_qualified = True
+        (self.root / "alias.py").symlink_to(self.root / "sample.py")
+        for relative in ("../sample.py", ".env", "alias.py"):
+            with self.subTest(relative=relative), self.assertRaises(ToolError):
+                self.registry.call("serena.symbol_overview", {"relative_path": relative}, self.ctx)
+        self.session.call_tool.assert_not_called()
+
+    def test_node_capability_selection_rejects_offline_and_waits_for_dependencies(self):
+        from coding_worker_v2.providers import ProviderResources
+        ai = ProviderResources(self.store, clock=lambda: 1000).select_advisory([{
+            "provider": "qwen-local", "available": True, "observed_at": 990,
+            "tested_capabilities": ["bounded-edit"], "capability_evidence_ref": "fixture:AI",
+            "security_permissions": ["repo:approved-paths"], "context_limit_tokens": 2048}],
+            capability="bounded-edit", context_tokens=100,
+            required_permissions=["repo:approved-paths"])
+        self.assertEqual(ai["selected_provider"], "qwen-local")
+        self.assertFalse(ai["dispatch"])
+        result = self.routes([self.node("P02", online=False), self.node()])
+        first, child = result["routes"]
+        self.assertEqual(first["selected_node"], "AV15")
+        self.assertEqual(first["canonical_task_id"], self.plan.plan_id + "-t1")
+        self.assertEqual(first["rejected"][0]["reason"], "OFFLINE_OR_STALE")
+        self.assertEqual(child["status"], "WAIT_DEPENDENCIES")
+        self.assertFalse(first["dispatch"])
+        self.assertEqual(first["ack"], "NOT_SENT")
+        self.assertEqual(first["lease"], "NOT_CLAIMED")
+        resumed = self.routes([self.node()], completed_task_ids=["t1"])
+        self.assertEqual(resumed["routes"][0]["status"], "REUSE_VERIFIED_COMPLETION_INPUT")
+        self.assertEqual(resumed["routes"][1]["selected_node"], "AV15")
+
+    def test_node_auth_scope_quota_cost_lease_and_ack_are_required(self):
+        cases = [(dict(authenticated=False), "ENROLLMENT_OR_AUTH_UNVERIFIED"),
+                 (dict(heartbeat_at=1), "OFFLINE_OR_STALE"),
+                 (dict(capabilities=[]), "CAPABILITY_UNVERIFIED"),
+                 (dict(authorized_scope_digests=[]), "TASK_SCOPE_OR_SOURCE_UNAUTHORIZED"),
+                 (dict(lease_available=False), "LEASE_UNAVAILABLE"),
+                 (dict(quota="UNKNOWN"), "QUOTA_UNVERIFIED"),
+                 (dict(estimated_cost_usd=1), "BUDGET_UNAPPROVED"),
+                 (dict(ack_contract_ref=""), "EXISTING_ACK_OR_TRANSPORT_EVIDENCE_MISSING")]
+        for change, reason in cases:
+            with self.subTest(change=change):
+                route = self.routes([self.node(**change)])["routes"][0]
+                self.assertIsNone(route["selected_node"])
+                self.assertEqual(route["rejected"][0]["reason"], reason)
+
+    def test_node_duplicate_identity_and_missing_memory_rejected(self):
+        from coding_worker_v2.agent import planner
+        with self.assertRaisesRegex(planner.PlanError, "CANDIDATE_INVALID"):
+            self.routes([self.node(), self.node()])
+        with self.assertRaisesRegex(planner.PlanError, "MEMORY_REQUIRED"):
+            planner.node_route_preview(self.plan, [], readiness={
+                "plan_id": self.plan.plan_id, "mission_id": self.plan.mission_id}, now=1000)
+
+    def test_node_routes_use_existing_canonical_namespace_collision_fence(self):
+        from coding_worker_v2.agent import planner
+        raw = self.plan.to_dict()
+        raw["plan_id"] = "p" * 120
+        for task in raw["tasks"]:
+            task.pop("execution_contract")
+        plan = planner.validate_plan_dict(raw)
+        with self.assertRaisesRegex(planner.PlanError, "CANONICAL_TASK_COLLISION"):
+            planner.node_route_preview(plan, [], readiness={
+                "plan_id": plan.plan_id, "mission_id": plan.mission_id,
+                "nodes": []}, now=1000)
+
+    def test_existing_queue_duplicate_claim_and_restart_never_dispatch(self):
+        from coding_worker_v2.tasks import Task
+        from coding_worker_v2.agent import executor
+        identity = self.routes([self.node()])["routes"][0]["canonical_task_id"]
+        envelope = {"mission_id": self.plan.mission_id, "task_id": identity,
+            "owner_node": "AV15", "input": {"repo": str(self.root), "goal": "fix add",
+                                               "hints": {"base_commit": self.source}}}
+        self.assertEqual(self.store.enqueue(Task.from_dict(envelope)), (identity, True))
+        self.assertEqual(self.store.enqueue(Task.from_dict(envelope)), (identity, False))
+        current = self.store.claim(identity)
+        self.assertIsNone(self.store.claim(identity))
+        self.store.checkpoint_task(current, "generated", {"fixture": "no-repeat"})
+        lease = self.store.doing / (identity + ".lease.json")
+        data = json.loads(lease.read_text()); data["expires_at"] = 0
+        lease.write_text(json.dumps(data))
+        restarted = QueueStore(self.store.base); restarted.recover()
+        resumed = restarted.claim(identity)
+        self.assertIsNotNone(resumed)
+        self.assertFalse(restarted.heartbeat(identity, current.lease_token))
+        self.assertEqual(restarted.load_checkpoint(identity)["data"]["fixture"], "no-repeat")
+        with mock.patch.object(executor, "current_base_commit", return_value=self.source), \
+                mock.patch.object(executor, "run_task") as execute:
+            readiness = executor.plan_readiness(self.plan, restarted, self.root / "receipts", str(self.root))
+            from coding_worker_v2.agent.planner import node_route_preview
+            result = node_route_preview(self.plan, [self.node()], readiness=readiness, now=1000)
+            self.assertEqual(result["routes"][0]["status"], "ATTACH_EXISTING_CHECKPOINT")
+            execute.assert_not_called()
+
+    def test_existing_independent_qc_gate_rejects_invalid_patch_binding(self):
+        import hashlib
+        from coding_worker_v2.agent import qc
+        from coding_worker_v2.tasks import Task
+        from coding_worker_v2.receipts import write_receipt
+        task = Task.from_dict({"mission_id": self.plan.mission_id, "task_id": "fixture-invalid",
+            "owner_node": "AV15", "input": {"repo": str(self.root), "goal": "fix add",
+                "hints": {"base_commit": self.source, "plan_id": self.plan.plan_id,
+                          "plan_digest": "b" * 64, "scope_digest": "fixture-scope",
+                          "approved_scope": {"allowed_paths": ["sample.py"]}}}})
+        invalid_patch = b"def add(:\n    return 0\n"
+        (self.root / "sample.py").write_bytes(invalid_patch)
+        task.output = {"patch_digest": hashlib.sha256(invalid_patch).hexdigest(),
+                       "changed": ["sample.py"]}
+        receipt = write_receipt(self.root / "receipts", task)
+        raw = receipt.read_bytes()
+        saved = json.loads(raw)
+        report = qc.run_qc(task, {"repo": str(self.root), "receipt_path": str(receipt), "executor_id": "AV15",
+            "executor_runner_id": "fixture-exec", "independent_verification": {
+                "schema": qc.VERIFICATION_SCHEMA, "authenticated": True,
+                "signature_sha256": "a" * 64, "verifier_id": "fixture-other",
+                "runner_id": "fixture-other-runner", "status": "PASS", "source_sha": self.source,
+                "task_id": task.task_id, "mission_id": task.mission_id,
+                "plan_id": self.plan.plan_id, "plan_digest": "b" * 64,
+                "scope_digest": "fixture-scope", "allowed_paths": ["sample.py"],
+                "receipt_sha256": hashlib.sha256(raw).hexdigest(),
+                "receipt_version": saved.get("receipt_version"),
+                "lease_token_sha256": saved.get("lease_token_sha256"),
+                "evidence_refs": ["fixture:receipt"],
+                "patch_digest": "a-different-patch"}}, only=["syntax", "independent_verification"])
+        self.assertFalse(report["passed"])
+        checks = {check["name"]: check for check in report["checks"]}
+        self.assertFalse(checks["syntax"]["passed"])
+        self.assertFalse(checks["independent_verification"]["passed"])
+        self.assertIn("patch", checks["independent_verification"]["detail"])
 
 
 if __name__ == "__main__":

@@ -73,10 +73,10 @@ def run_task(task: Task, store: QueueStore, config: WorkerConfig,
              ledger_path: Path | None = None,
              chain: list | None = None,
              history: list[dict] | None = None,
-             before_mutation_fn=None, progress=None) -> Task:
+             before_mutation_fn=None, progress=None, deterministic_edits=None) -> Task:
     with store.keepalive(task) as lease_lost:
         result = _run_task_inner(task, store, config, ledger_path, chain,
-                                 history, lease_lost, before_mutation_fn, progress)
+                                 history, lease_lost, before_mutation_fn, progress, deterministic_edits)
     if lease_lost.is_set() and result.status == "DONE":
         return _fail(result, "LEASE_LOST", "RECONCILE_LEASE")
     return result
@@ -85,7 +85,7 @@ def run_task(task: Task, store: QueueStore, config: WorkerConfig,
 def _run_task_inner(task: Task, store: QueueStore, config: WorkerConfig,
                     ledger_path: Path | None, chain: list | None,
                     history: list[dict] | None, lease_lost,
-                    before_mutation_fn=None, progress=None) -> Task:
+                    before_mutation_fn=None, progress=None, deterministic_edits=None) -> Task:
     """Execute one task. Optional chain/history are V3 agent injections.
 
     chain=None preserves V2 routing; history=None preserves V2 prompts.
@@ -182,11 +182,47 @@ def _run_task_inner(task: Task, store: QueueStore, config: WorkerConfig,
     if not saved:
         checkpoint("inspected", phase="inspected")
 
+    if deterministic_edits is not None:
+        # The existing executor supplies only a scope-digest-bound reviewed
+        # proposal inside its owned candidate. This grants no admission rights.
+        from coding_worker_v2.agent.self_development import validate
+        proposal = (task.task_input.hints.get('task_execution_contract') or {}).get('self_development')
+        try:
+            validate(proposal, allowed_paths, source_sha)
+        except ValueError:
+            return _fail(task, "POLICY_DENY", "SELF_REPAIR_PROPOSAL_INVALID")
+        if (deterministic_edits != proposal['edits']
+                or task.task_input.test_command != proposal['test_command']
+                or task.task_input.hints.get('isolated_worktree') is not True
+                or Path(task.task_input.hints.get('workspace', '')).resolve() == Path(task.task_input.repo).resolve()):
+            return _fail(task, "POLICY_DENY", "SELF_REPAIR_ISOLATED_SCOPE_REQUIRED")
+        if phase == 'tested':
+            if (not task.output.get('candidate_content_sha256')
+                    or workspace_digest(task.task_input.repo, list(proposal['source_files'])) != task.output['candidate_content_sha256']):
+                return _fail(task, 'POLICY_DENY', 'SELF_REPAIR_TEST_CHECKPOINT_CONTENT_MISMATCH')
+            task.status, task.next_action = 'DONE', 'REVIEW_PATCH'
+            task.evidence.append({'event': 'candidate_test_checkpoint_reused', 'proposal_sha256': proposal['proposal_sha256']})
+            return task
+        if before_mutation_fn is None:
+            return _fail(task, 'POLICY_DENY', 'SELF_REPAIR_AUDIT_CALLBACK_REQUIRED')
+        for rel, expected in proposal['source_files'].items():
+            if rel not in allowed_paths:
+                path = Path(task.task_input.repo) / rel
+                if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+                    return _fail(task, 'POLICY_DENY', 'SELF_REPAIR_TEST_SOURCE_DRIFT')
+        if phase == 'inspected':
+            for rel, expected in proposal['source_files'].items():
+                path = Path(task.task_input.repo) / rel
+                if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+                    return _fail(task, 'POLICY_DENY', 'SELF_REPAIR_SOURCE_DRIFT')
+            checkpoint('generated', phase='generated', pending_edits=deterministic_edits, repair_round=0)
+            phase = 'generated'
+
     if chain is None:
         chain = route_chain(config, task.task_input.preferred_provider, ledger_path)
     task.evidence.append({"event": "route_selected",
                           "chain": [p.name for p in chain]})
-    if not chain:
+    if not chain and deterministic_edits is None:
         return _fail(task, "PROVIDER_FAIL", "NO_PROVIDER_AVAILABLE")
 
     clipped_history = [m for m in (history or [])
@@ -218,6 +254,8 @@ def _run_task_inner(task: Task, store: QueueStore, config: WorkerConfig,
         prompt = ([base_prompt[0]] + clipped_history + base_prompt[1:]
                   if clipped_history else base_prompt)
         edits = resume.get("pending_edits") if phase == "generated" else None
+        if deterministic_edits is not None and phase == 'generated':
+            edits = deterministic_edits
         if phase not in {"generated", "edited", "tested"}:
             try:
                 gen, trace = generate_with_fallback(
@@ -338,7 +376,9 @@ def _run_task_inner(task: Task, store: QueueStore, config: WorkerConfig,
             progress(phase="TEST", state="RUNNING", tool="test_run")
             test_result = run_tests(
                 task.task_input.repo, task.task_input.test_command,
-                config.test_timeout_s, env=scrubbed_env())
+                config.test_timeout_s, env=scrubbed_env(
+                    {'PYTHONPATH': task.task_input.repo, 'PYTHONDONTWRITEBYTECODE': '1'}
+                    if deterministic_edits is not None else None))
         except PipelineError as exc:
             return _fail(task, exc.failure_class, f"FIX_{exc.failure_class}")
         task.evidence.append({"event": "tests_run", "tests": {
@@ -366,6 +406,11 @@ def _run_task_inner(task: Task, store: QueueStore, config: WorkerConfig,
                        "model": task.output.get("model"),
                        "repairs_used": repairs_used,
                        "duration_ms": int((time.monotonic() - started) * 1000)}
+        if deterministic_edits is not None:
+            # Bind the first durable passing checkpoint itself, before returning
+            # to the executor; a crash must not require replaying edits/tests.
+            task.output.update(candidate_source_sha=source_sha,
+                candidate_content_sha256=workspace_digest(task.task_input.repo, list(proposal['source_files'])))
         task.status = "DONE"
         task.next_action = "REVIEW_PATCH"
         checkpoint("tested", phase="tested", changed=changed)

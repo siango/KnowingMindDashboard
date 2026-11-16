@@ -15,7 +15,7 @@ from pathlib import Path
 
 from ..pipeline import syntax_check
 from ..providers import http_json, require_loopback
-from .sandbox import run_isolated
+from .sandbox import run_isolated, policy_decision
 from .verification import SCHEMA as VERIFICATION_SCHEMA
 
 SCHEMA = "KM_QC_REPORT_V1"
@@ -29,6 +29,65 @@ class QCError(Exception):
         super().__init__(f"{reason}: {detail[:300]}" if detail else reason)
         self.reason = reason
         self.detail = detail[:2000]
+
+
+def evaluate_task_io(planned, repo, *, phase, output=None, evidence=()):
+    """Evaluate explicit bounded IO rules; no inference, tests or authority grant."""
+    from .planner import validate_io_checks, PlanError
+    contract = planned.execution_contract or {}
+    checks = contract.get("io_checks")
+    if checks is None:
+        return {"status": "NOT_CONFIGURED", "passed": None,
+                "independent_verified": False, "checks": []}
+    if phase not in {"input", "output"}:
+        raise QCError("TASK_IO_PHASE_INVALID")
+    try:
+        validate_io_checks(checks, planned.allowed_paths)
+    except PlanError as exc:
+        return {"status": "FAIL", "passed": False, "independent_verified": False,
+                "checks": [{"name": "schema", "passed": False, "reason": exc.reason}]}
+    results = []
+    root = Path(repo).resolve()
+    expected = checks["input_sha256" if phase == "input" else "artifact_sha256"]
+    for relative, digest in expected.items():
+        target = root / relative
+        allowed = policy_decision("inspect", planned.task_id, str(root), paths=[relative])
+        valid = False
+        try:
+            if (allowed["decision"] == "AUTO_APPROVE" and target.is_file()
+                    and target.stat().st_size <= 1024 * 1024
+                    and not any(root.joinpath(*Path(relative).parts[:i]).is_symlink()
+                                for i in range(1, len(Path(relative).parts) + 1))):
+                valid = hashlib.sha256(target.read_bytes()).hexdigest() == digest
+        except (OSError, RuntimeError):
+            pass
+        results.append({"name": f"{phase}_hash:{relative}", "passed": valid})
+    if phase == "output":
+        types = {"str": str, "int": int, "bool": bool, "list": list, "dict": dict}
+        for key, kind in checks["output_fields"].items():
+            value = output.get(key) if isinstance(output, dict) else None
+            valid = (isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+                     if kind == "sha256" else type(value) is types[kind])
+            if key == "changed":
+                expected_changes = {p for p, digest in checks["artifact_sha256"].items()
+                                    if checks["input_sha256"].get(p) != digest}
+                valid = (valid and isinstance(value, list)
+                         and all(isinstance(p, str) and p in planned.allowed_paths for p in value)
+                         and len(value) == len(set(value)) and set(value) == expected_changes)
+            results.append({"name": f"output_field:{key}", "passed": valid})
+        rows = [e for e in evidence if isinstance(e, dict)] if isinstance(evidence, (list, tuple)) else []
+        for event in checks["required_events"]:
+            matching = [e for e in rows if e.get("event") == event]
+            valid = bool(matching)
+            if event == "tests_run":
+                valid = bool(matching) and all(
+                    isinstance(e.get("tests"), dict) and e["tests"].get("ran") is True
+                    and type(e["tests"].get("rc")) is int and e["tests"]["rc"] == 0
+                    for e in matching)
+            results.append({"name": f"evidence:{event}", "passed": valid})
+    passed = all(row["passed"] is True for row in results)
+    return {"status": "PASS" if passed else "FAIL", "passed": passed,
+            "phase": phase, "independent_verified": False, "checks": results}
 
 
 def _check(name: str, passed, detail: str = "") -> dict:

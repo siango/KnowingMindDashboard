@@ -17,7 +17,7 @@ from .sandbox import policy_decision
 
 SCHEMA = "KMCW_PROJECT_PILOT_V1"
 TOOLS = ("pilot_search", "pilot_context", "pilot_submit", "pilot_run",
-         "pilot_read", "account_work", "pilot_events")
+         "pilot_read", "account_work", "pilot_events", "pilot_discuss", "pilot_reconcile")
 
 
 def _error(reason):
@@ -134,8 +134,8 @@ def _plan(plan_id, ctx):
         _error("PILOT_ACCOUNT_OR_PROJECT_DENIED")
     plan = planner.validate_plan_dict(raw)
     config = _config(ctx)
-    if (len(plan.tasks) != 1
-            or not set(plan.tasks[0].allowed_paths).issubset(config["allowed_paths"])
+    if (any(not set(task.allowed_paths).issubset(config["allowed_paths"])
+            for task in plan.tasks)
             or binding.get("test_command") != config["test_command"]):
         _error("PILOT_SCOPE_CHANGED")
     return plan, binding
@@ -197,9 +197,21 @@ def submit(args, ctx):
                             allowed_paths=paths, max_repairs=1)],
                         engine="copilot-custom-agent")
     planner.validate_plan_dict(plan.to_dict())
+    if "work_units" in args:
+        plan = planner.decompose_plan(
+            plan, args["work_units"], memory.current_base_commit(ctx["workspace"]))
+        if not any(task.task_id == "t1" for task in plan.tasks):
+            _error("PILOT_ORIGINAL_TASK_ID_REQUIRED")
     binding = {"account_id": ctx["account_id"], "workspace": ctx["workspace"],
                "request_id": request_id, "after_task_id": predecessor,
                "test_command": config["test_command"]}
+    # Memory is read before a new plan is saved; execution still rechecks it.
+    from .executor import plan_readiness
+    readiness = plan_readiness(plan, ctx["store"], ctx["receipts_dir"],
+                               ctx["workspace"], account_id=ctx["account_id"])
+    held = any(node["decision"] in {"MONITOR", "BLOCKED"}
+           or node["reason"] == "RETAIN_BLOCKED_CHECKPOINT"
+           for node in readiness["nodes"])
     payload = {**plan.to_dict(), "pilot_binding": binding}
     path = ctx["state_dir"] / "plans" / f"{plan_id}.json"
     with ctx["store"]._locked():
@@ -210,11 +222,17 @@ def submit(args, ctx):
                 _error("PILOT_IDEMPOTENCY_CONFLICT")
             created = False
         else:
+            if held:
+                _error("PILOT_EXISTING_CHECKPOINT_REQUIRES_RECONCILIATION")
             temp = path.with_suffix(".tmp")
             temp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
             temp.replace(path)
             created = True
     saved = _json(path)
+    if held:
+        return {"plan_id": plan_id, "task_id": f"{plan_id}-t1", "created": False,
+                "status": "CHECKPOINT_RETAINED", "after_task_id": predecessor,
+                "next_action": "READ_EXISTING_CHECKPOINT"}
     plan_digest = hashlib.sha256(json.dumps(saved, sort_keys=True).encode()).hexdigest()
     ctx["store"].append_event(
         f"{plan_id}-t1", "plan.saved", "SAVED", hashlib.sha256(f"plan|{plan_digest}".encode()).hexdigest(),
@@ -254,16 +272,40 @@ def run(args, ctx):
             "external_authorized": config.get("authorize_subscription", False),
             "billing_mode": "existing-subscription" if config["provider"] == "copilot-cli" else "",
             "max_provider_dispatches": 1, "test_command": config["test_command"],
+            "context_paths": list(config['context_paths']),
             "memory_ranking": config.get("memory_ranking", "baseline")})
     report["elapsed_ms"] = round((time.monotonic() - started) * 1000, 3)
     return _record_report(plan.plan_id, report, ctx)
+
+
+def discuss(args, ctx):
+    from .conversation import discuss as conversation_discuss
+    return conversation_discuss(args, ctx)
+
+
+def reconcile(args, ctx):
+    """Existing supervisor/Admin transport entry; no polling loop or service."""
+    from .executor import reconcile_once
+    validate_config(_config(ctx))
+    plan, binding = _plan(args["plan_id"], ctx)
+    predecessor = binding.get("after_task_id")
+    if predecessor:
+        path = ctx["receipts_dir"] / f"{predecessor}.json"
+        if not path.is_file():
+            return {"status": "BLOCKED", "reason": "PREDECESSOR_RECEIPT_MISSING", "dispatch": False}
+        receipt = read_receipt(path)
+        _owned(receipt, ctx)
+        if not memory.receipt_verified(receipt) or memory.terminal_conflicts(ctx["store"], receipt):
+            return {"status": "BLOCKED", "reason": "PREDECESSOR_NOT_VERIFIED", "dispatch": False}
+    return reconcile_once(plan, ctx)
 
 
 def _node_evidence(plan_id, config, ctx):
     """Observed local node/tool/skill identity for this run; no remote health is implied."""
     import socket
     from .tools import build_default_registry
-    contract = build_default_registry().command_contract()
+    registry = ctx.get("tool_registry") or build_default_registry()
+    contract = registry.command_contract()
     agent = ctx["workspace"] and Path(ctx["workspace"]) / ".github" / "agents" / "kmcw.agent.md"
     skill_sha = hashlib.sha256(agent.read_bytes()).hexdigest() if agent and agent.is_file() else None
     evidence = {"node_id": config["worker_id"], "hostname": socket.gethostname()[:80],
@@ -414,6 +456,35 @@ def read(args, ctx):
     result = {"plan_id": plan.plan_id, "task_id": task_id,
               "run": (checkpoint or {}).get("data", {}).get("report"),
               "receipt": None, "payment_status": "PAYMENT_UNVERIFIED"}
+    if any(task.execution_contract for task in plan.tasks):
+        from .executor import plan_readiness
+        result["orchestration"] = plan_readiness(
+            plan, ctx["store"], ctx["receipts_dir"], ctx["workspace"],
+            account_id=ctx["account_id"])
+        result["orchestration"]["task_ids"] = [f"{plan.plan_id}-{t.task_id}" for t in plan.tasks]
+        result["orchestration"]["receipts"] = {}
+        for child in result["orchestration"]["task_ids"]:
+            child_path = ctx["receipts_dir"] / f"{child}.json"
+            if child_path.is_file():
+                child_receipt = read_receipt(child_path)
+                _owned(child_receipt, ctx)
+                child_task = next(t for t in plan.tasks if f"{plan.plan_id}-{t.task_id}" == child)
+                hints = child_receipt.get("input", {}).get("hints", {})
+                current_binding = (child_task.execution_contract is not None
+                    and child_receipt.get("source_sha") == child_task.execution_contract["source_sha"]
+                    and child_receipt.get("mission_id") == plan.mission_id
+                    and hints.get("plan_id") == plan.plan_id
+                    and hints.get("task_execution_contract") == child_task.execution_contract)
+                result["orchestration"]["receipts"][child] = {
+                    "status": child_receipt["status"],
+                    "sha256": hashlib.sha256(child_path.read_bytes()).hexdigest(),
+                    "independent_verified": current_binding and memory.receipt_verified(child_receipt)
+                    and not memory.terminal_conflicts(ctx["store"], child_receipt)}
+        completed = [t.task_id for t in plan.tasks if result["orchestration"]["receipts"].get(
+            f"{plan.plan_id}-{t.task_id}", {}).get("independent_verified") is True]
+        result["orchestration"]["node_routing"] = planner.node_route_preview(
+            plan, ctx.get("kmnw_candidates", []), readiness=result["orchestration"],
+            now=time.time(), completed_task_ids=completed)
     if path.is_file():
         receipt = read_receipt(path)
         _owned(receipt, ctx)
@@ -457,11 +528,14 @@ def register_pilot_tools(registry):
         ("pilot_search", search, {"goal": "str"}, {"ranking": "str"}, "read"),
         ("pilot_context", context, {}, {"paths": "list"}, "read"),
         ("pilot_submit", submit, {"request_id": "str", "goal": "str", "allowed_paths": "list",
-                                 "acceptance": "list"}, {"after_task_id": "str"}, "write"),
+                                 "acceptance": "list"}, {"after_task_id": "str", "work_units": "list"}, "write"),
         ("pilot_run", run, {"plan_id": "str"}, {}, "write"),
         ("pilot_read", read, {"plan_id": "str"}, {}, "read"),
         ("account_work", account_work, {"task_id": "str"}, {}, "read"),
         ("pilot_events", events, {"task_id": "str"}, {"limit": "int"}, "read"),
+        ("pilot_discuss", discuss, {"plan_id": "str", "session_id": "str",
+                                    "request_id": "str", "text": "str"}, {}, "write"),
+        ("pilot_reconcile", reconcile, {"plan_id": "str"}, {}, "write"),
     )
     for name, fn, required, optional, permission in specs:
         registry.register(ToolSpec(

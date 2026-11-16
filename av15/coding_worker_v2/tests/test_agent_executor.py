@@ -61,6 +61,11 @@ def simple_plan_for(command: str) -> planner.Plan:
 
 class TestExecutor(FakeBackend):
     def setUp(self):
+        self.fixture_state = tempfile.TemporaryDirectory()
+        self.addCleanup(self.fixture_state.cleanup)
+        state_patch = mock.patch.dict(os.environ, {'KMW2_STATE_DIR': self.fixture_state.name})
+        state_patch.start()
+        self.addCleanup(state_patch.stop)
         FakeState.chat_queue = []
         FakeState.chat_content = FIX
         self.audit_stages = []
@@ -105,6 +110,35 @@ class TestExecutor(FakeBackend):
             chain = executor.qwen_chain(config)
             self.assertEqual(len(chain), 1)
             self.assertEqual(chain[0].name, "qwen-local")
+
+    def test_each_claim_refreshes_memory_without_model_dispatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = fixture_repo(root)
+            store = QueueStore(root / "q")
+            calls = []
+            original_retrieve = executor.retrieve_work
+            original_claim = store.claim
+            def retrieve(*args, **kwargs):
+                calls.append("memory")
+                return original_retrieve(*args, **kwargs)
+            def claim(*args, **kwargs):
+                calls.append("claim")
+                return original_claim(*args, **kwargs)
+            def blocked(task, *args, **kwargs):
+                task.status = "BLOCKED"
+                task.next_action = "FIXTURE_WAIT"
+                return task
+            with mock.patch.object(executor, "retrieve_work", side_effect=retrieve), \
+                    mock.patch.object(store, "claim", side_effect=claim), \
+                    mock.patch.object(executor, "qwen_chain", return_value=[]), \
+                    mock.patch.object(executor, "run_task", side_effect=blocked) as dispatch:
+                result = executor.execute_plan(simple_plan_for("fix add"), config_for(self.port),
+                    store, root / "receipts", root / "state", repo)
+            self.assertEqual(result["status"], "BLOCKED")
+            self.assertEqual(calls.count("claim"), 1)
+            self.assertEqual(calls[calls.index("claim") - 1], "memory")
+            self.assertEqual(dispatch.call_count, 1)  # A blocked stub, no provider call.
 
     def test_nonisolated_edit_requires_human_before_enqueue(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -231,6 +265,53 @@ class TestExecutor(FakeBackend):
             archived = json.loads((store.done / "ptest-t1" / "task.json").read_text())
             self.assertTrue(any(e.get("event") == "checkpoint_resumed"
                                 for e in archived["evidence"]))
+
+    def test_changed_source_allows_one_retry_then_unchanged_failure_defers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);repo=fixture_repo(root);store=QueueStore(root/'q');calls=[];sleeps=[]
+            def failure(task,*args,**kwargs):
+                calls.append(task.task_id)
+                if len(calls)==1:
+                    (Path(task.task_input.repo)/'calc.py').write_text('def add(a,b): return a+b # changed evidence\n')
+                task.status='FAILED';task.failure_class='TIMEOUT';task.next_action='RETRY'
+                return task
+            with mock.patch.dict(os.environ,{'KMW2_STATE_DIR':tmp}), \
+                 mock.patch.object(executor,'qwen_chain',return_value=[]), \
+                 mock.patch.object(executor,'run_task',side_effect=failure):
+                report=executor.execute_plan(simple_plan_for('fix add'),config_for(self.port),
+                    store,root/'receipts',root/'state',repo,sleep_fn=sleeps.append)
+            self.assertEqual(len(calls),2)
+            self.assertEqual(len(sleeps),1)
+            row=report['tasks'][0];self.assertEqual(row['next_action'],'UNCHANGED_FAILURE_INPUT')
+            receipt=json.loads(Path(row['receipt']).read_text())
+            changes=[e['cause_evidence']['context_comparison']['state'] for e in receipt['evidence']
+                     if e.get('event')=='attempt_feedback' and 'cause_evidence' in e]
+            self.assertIn('DIFFERENT',changes);self.assertIn('MATCH',changes)
+
+    def test_same_input_timeout_defers_before_requeue_or_repeat(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);repo=fixture_repo(root);store=QueueStore(root/'q')
+            def fail_once(task,*args,**kwargs):
+                task.status='FAILED';task.failure_class='TIMEOUT';task.next_action='RETRY'
+                return task
+            with mock.patch.dict(os.environ,{'KMW2_STATE_DIR':tmp}), \
+                 mock.patch.object(executor,'qwen_chain',return_value=[]), \
+                 mock.patch.object(executor,'run_task',side_effect=fail_once) as run:
+                report=executor.execute_plan(simple_plan_for('fix add'),config_for(self.port),
+                    store,root/'receipts',root/'state',repo,
+                    sleep_fn=lambda _:self.fail('unchanged input must not sleep/retry'))
+                repeated=executor.execute_plan(simple_plan_for('fix add'),config_for(self.port),
+                    store,root/'receipts',root/'state',repo,
+                    sleep_fn=lambda _:self.fail('unchanged restart must not retry'))
+            self.assertEqual(run.call_count,1)
+            self.assertEqual(repeated['status'],'BLOCKED')
+            row=report['tasks'][0]
+            self.assertEqual(row['status'],'BLOCKED')
+            self.assertEqual(row['next_action'],'UNCHANGED_FAILURE_INPUT')
+            receipt=json.loads(Path(row['receipt']).read_text())
+            self.assertEqual(receipt['status'],'BLOCKED')
+            self.assertTrue(any(e.get('event')=='attempt_feedback' for e in receipt['evidence']))
+            self.assertFalse(any(store.doing.glob('*.lease.json')))
 
     def test_stagnation_stops_outer_queue_retry_as_well(self):
         from coding_worker_v2.providers import Generation
@@ -439,6 +520,36 @@ class TestExecutor(FakeBackend):
             self.assertEqual(report["status"], "FAILED")
             self.assertEqual(store.health()["done"], 0)
             self.assertEqual(store.health()["failed"], 1)
+
+    def test_contracted_qc_failure_archives_same_bounded_repair_as_receipt(self):
+        from coding_worker_v2.agent.memory import terminal_conflicts
+        from coding_worker_v2.receipts import read_receipt
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = fixture_repo(root)
+            original = simple_plan_for("fix addition")
+            plan = planner.decompose_plan(original, [{
+                "task_id": "t1", "goal": "fix addition", "deps": [],
+                "allowed_paths": ["calc.py"], "acceptance": ["addition tests pass"],
+                "input_contract": ["approved fixture source"],
+                "output_contract": ["bounded patch"], "evidence_required": ["fixture tests"]}],
+                executor.current_base_commit(repo))
+            store = QueueStore(root / "q")
+            with mock.patch.dict(os.environ, {"KMW2_STATE_DIR": tmp}), \
+                    mock.patch.object(executor, "wait_signed_proof", side_effect=self.verified_proof):
+                report = executor.execute_plan(plan, config_for(self.port), store,
+                    root / "receipts", root / "state", repo,
+                    qc_fn=lambda *_: {"passed": False, "independent_verified": False,
+                                     "checks": [{"name": "scope", "passed": False}]},
+                    sleep_fn=lambda _: None)
+            self.assertEqual(report["status"], "FAILED")
+            receipt = read_receipt(Path(report["tasks"][0]["receipt"]))
+            self.assertEqual(terminal_conflicts(store, receipt), [])
+            proposal = receipt["output"]["repair_task_proposal"]
+            self.assertEqual(proposal["mission_id"], plan.mission_id)
+            self.assertEqual(proposal["status"], "PROPOSED_NOT_ENQUEUED")
+            self.assertEqual(store.health()["inbox"], 0)
+            self.assertEqual(store.health()["done"], 0)
 
     def test_qc_without_independent_verifier_never_completes_queue_task(self):
         with tempfile.TemporaryDirectory() as tmp:

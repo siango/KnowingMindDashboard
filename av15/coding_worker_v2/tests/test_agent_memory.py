@@ -52,6 +52,80 @@ class TestClassify(unittest.TestCase):
         self._patch.stop()
         self.tmp.cleanup()
 
+    def test_execution_context_compares_six_facets_without_credentials(self):
+        import copy
+        from types import SimpleNamespace
+        source=self.root/'repo'/'source.py';source.write_text('# first')
+        ctx={'workspace':str(self.root/'repo'),'store':self.store,'receipts_dir':self.receipts,
+            'pilot':{'test_command':'python3 -m unittest'},
+            'config':SimpleNamespace(ollama_url='http://127.0.0.1:11434'),
+            'km_admin_binding':{'session_cookie':'secret-sentinel-never-exported'}}
+        first=memory.execution_context(ctx,'a'*40,['source.py'])
+        self.assertEqual(set(first['facets']),{'path','variables','version','environment','authority','resource'})
+        self.assertEqual(memory.compare_context(first,memory.execution_context(ctx,'a'*40,['source.py']))['state'],'MATCH')
+        self.assertNotIn('secret-sentinel',json.dumps(first))
+        variants=[]
+        source.write_text('# second');variants.append(('path',memory.execution_context(ctx,'a'*40,['source.py'])));source.write_text('# first')
+        other={**ctx,'pilot':{'test_command':'python3 -m unittest changed'}}
+        variants.append(('variables',memory.execution_context(other,'a'*40,['source.py'])))
+        variants.append(('version',memory.execution_context(ctx,'b'*40,['source.py'])))
+        with mock.patch('platform.machine',return_value='isolated-new-machine'):
+            variants.append(('environment',memory.execution_context(ctx,'a'*40,['source.py'])))
+        other={**ctx,'command_auth':{'authenticated':False,'principal_id':'fixture-denied'}}
+        variants.append(('authority',memory.execution_context(other,'a'*40,['source.py'])))
+        other={**ctx,'receipts_dir':self.root/'different-receipts'}
+        variants.append(('resource',memory.execution_context(other,'a'*40,['source.py'])))
+        for facet,value in variants:
+            self.assertIn(facet,memory.compare_context(first,value)['different_facets'])
+        self.assertEqual(memory.compare_context(None,first)['state'],'UNKNOWN')
+
+    def test_scoped_observed_learning_retrieval_keeps_original_qc_boundary(self):
+        import copy,datetime
+        from coding_worker_v2.agent.executor import learning_record
+        from coding_worker_v2.agent.self_development import digest
+        root=self.root/'repo';source=root/'source.py';source.write_text('# isolated source')
+        original={'event':'learning.recorded','record_id':'isolated-observation',
+            'classification':'OBSERVED','source_sha':'a'*40,
+            'learning':learning_record(problem='registry binding loss',cause=[],criterion='retain client')}
+        original['record_sha256']=digest(original)
+        row={'event':'memory.indexed','record_id':'isolated-index','classification':'OBSERVED',
+            'error_signature':'REGISTRY_REBUILT_BINDING_LOSS','scope':{
+                'repo':str(root),'account_id':None,'owner_uid':os.geteuid()},'source_sha':'a'*40,
+            'source_files_sha256':{'source.py':hashlib.sha256(source.read_bytes()).hexdigest()},
+            'observed_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'learning_record_id':original['record_id'],
+            'learning_record_sha256':original['record_sha256'],
+            'memory_case':{'PROBLEM':{'failure_class':'REGISTRY_REBUILT_BINDING_LOSS'},
+                'CAUSE':{'evidenced':[]},'RESULT':{'state':'ISOLATED_PASS'},
+                'SOLUTION_PATH':{'rule':'reuse supplied registry'}}}
+        def save(value,first=None):
+            value['record_sha256']=digest({k:v for k,v in value.items() if k!='record_sha256'})
+            self.store.save_checkpoint('.tool-audit','tool_policy_audit',{'events':[first or original,value]})
+        def read(query='REGISTRY_REBUILT_BINDING_LOSS',account=None,sha='a'*40):
+            return memory.planning_lessons(query,str(root),sha,self.store,self.receipts,account_id=account)
+        save(row)
+        found=read()['lessons'];self.assertEqual(len(found),1)
+        self.assertEqual(found[0]['classification'],'OBSERVED')
+        self.assertIsNone(found[0]['recommendation'])
+        self.assertEqual(read('prefixREGISTRY_REBUILT_BINDING_LOSS')['lessons'],[])
+        self.assertEqual(read(account='different-account')['lessons'],[])
+        self.assertEqual(read(sha='b'*40)['lessons'],[])
+        for field,value in [('repo','/another-workspace'),('owner_uid',os.geteuid()+1)]:
+            changed=copy.deepcopy(row);changed['scope'][field]=value;save(changed)
+            self.assertEqual(read()['lessons'],[])
+        save(row);source.write_text('# changed source')
+        self.assertEqual(read()['lessons'],[]);source.write_text('# isolated source')
+        changed=copy.deepcopy(row);changed['observed_at']='2000-01-01T00:00:00+00:00';save(changed)
+        stale=read();self.assertEqual(stale['lessons'],[])
+        self.assertEqual(stale['excluded'][0]['classification'],'STALE')
+        changed=copy.deepcopy(original);changed['learning']['magga_state']='PROVEN_BY_VERIFIED_RECEIPT'
+        changed['record_sha256']=digest({k:v for k,v in changed.items() if k!='record_sha256'})
+        altered=copy.deepcopy(row);altered['learning_record_sha256']=changed['record_sha256'];save(altered,changed)
+        self.assertEqual(read()['lessons'],[])
+        save(row);saved=self.store.load_checkpoint('.tool-audit');saved['data']['events'][0]['source_sha']='tampered'
+        self.store.save_checkpoint('.tool-audit','tool_policy_audit',saved['data'])
+        self.assertEqual(read()['lessons'],[])
+
     def _archive_terminal(self, task, folder):
         task.lease_token = "memory-test-lease"
         record = task.to_dict()
@@ -92,7 +166,7 @@ class TestClassify(unittest.TestCase):
                               self.store, self.receipts)
         self.assertEqual(out.decision, "RESUME")
 
-    def _done_receipt(self, goal, base, qc_pass=True):
+    def _done_receipt(self, goal, base, qc_pass=True, later_evidence=()):
         task = make_task(goal, str(self.root / "repo"), base)
         task.status = "DONE"
         task.output = {"changed": ["a.py"]}
@@ -102,8 +176,31 @@ class TestClassify(unittest.TestCase):
             task.evidence.append({"event": "independent_verification", "proof": {
                 "authenticated": True, "status": "PASS", "task_id": task.task_id,
                 "source_sha": base, "signature_sha256": "a" * 64}})
+        task.evidence.extend(later_evidence)
         self._archive_terminal(task, self.store.done)
         return write_receipt(self.receipts, task)
+
+    def test_latest_failed_qc_demotes_previously_verified_work_memory(self):
+        self._done_receipt('changed QC outcome', '1' * 40, later_evidence=[
+            {'event':'qc_checked','qc':{'passed':False,'independent_verified':True}}])
+        records=memory.retrieve_work('changed QC outcome',str(self.root/'repo'),
+            '1'*40,self.store,self.receipts,ranking='qc')
+        self.assertEqual(len(records),1)
+        self.assertEqual(records[0]['RESULT']['state'],'EXECUTION_DONE')
+        self.assertFalse(records[0]['verified_for_current_source'])
+        self.assertEqual(records[0]['qc_score'],0)
+
+    def test_latest_failed_independent_proof_demotes_work_memory(self):
+        self._done_receipt('changed verifier outcome', '1' * 40, later_evidence=[
+            {'event':'independent_verification','proof':{
+                'authenticated':True,'status':'FAIL','task_id':'t1',
+                'source_sha':'1'*40,'signature_sha256':'a'*64}}])
+        records=memory.retrieve_work('changed verifier outcome',str(self.root/'repo'),
+            '1'*40,self.store,self.receipts,ranking='qc')
+        self.assertEqual(len(records),1)
+        self.assertEqual(records[0]['RESULT']['state'],'EXECUTION_DONE')
+        self.assertFalse(records[0]['verified_for_current_source'])
+        self.assertEqual(records[0]['qc_score'],0)
 
     def test_reuse_exact_match(self):
         self._done_receipt("reuse me", "1" * 40)

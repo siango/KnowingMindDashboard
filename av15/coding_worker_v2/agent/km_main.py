@@ -55,7 +55,7 @@ def cmd_plan(args, ctx) -> int:
     workspace = ctx["workspace"]
     repo_info = inspect_repo(workspace)
     progress(done=1, tool="-", phase="PREPARE_PLAN")
-    registry = agent_tools.build_default_registry()
+    registry = ctx.get("tool_registry") or agent_tools.build_default_registry()
     allowed = registry.names()
     history: list[dict] = []
     plan_id = args.plan_id or f"p{time.strftime('%Y%m%dT%H%M%S')}"
@@ -151,7 +151,7 @@ def cmd_run(args, ctx) -> int:
     plan_path = Path(args.plan)
     if not plan_path.is_file():
         plan_path = ctx["state_dir"] / "plans" / f"{args.plan}.json"
-    registry = agent_tools.build_default_registry()
+    registry = ctx.get("tool_registry") or agent_tools.build_default_registry()
     plan = agent_planner.validate_plan_dict(
         json.loads(plan_path.read_text(encoding="utf-8")), registry.names())
 
@@ -230,8 +230,8 @@ def cmd_providers(args, ctx) -> int:
 
 
 def cmd_tools(args, ctx) -> int:
-    registry = agent_tools.build_default_registry()
-    tool_ctx = {"workspace": ctx["workspace"], "store": ctx["store"],
+    registry = ctx.get("tool_registry") or agent_tools.build_default_registry()
+    tool_ctx = {**ctx, "workspace": ctx["workspace"], "store": ctx["store"],
                 "receipts_dir": str(ctx["receipts_dir"]),
                 "config": ctx["config"], "evidence": [],
                 "authorize_destructive": bool(args.yes)}
@@ -239,7 +239,10 @@ def cmd_tools(args, ctx) -> int:
         print(json.dumps(registry.discover(tool_ctx), ensure_ascii=False, indent=2))
         return 0
     try:
-        result = registry.call(args.call, json.loads(args.args or "{}"), tool_ctx)
+        scoped = any(key in ctx for key in ('command_auth', 'command_channels',
+                     'tool_bindings', 'database_auth', 'database_bindings'))
+        result = registry.call(args.call, json.loads(args.args or "{}"), tool_ctx,
+                               mcp=scoped)
     except agent_tools.ToolError as exc:
         print(json.dumps({"ok": False, "reason": exc.reason, "detail": exc.detail}))
         return 1
@@ -346,14 +349,16 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, context_provider=None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
         if args.cmd == "pilot":
             from coding_worker_v2.pilot_install import main as pilot_main
-            return pilot_main(args)
+            return pilot_main(args, context_provider=context_provider)
         ctx = _ctx(args)
+        from coding_worker_v2.agent.capabilities import bind_runtime_context
+        ctx = bind_runtime_context(ctx, context_provider)
         if args.cmd in ("plan", "run"):
             with LiveProgress(args.cmd) as display:
                 ctx["progress"] = display.update

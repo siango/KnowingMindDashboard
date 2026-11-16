@@ -12,11 +12,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import selectors
 import shutil
 import subprocess
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+import inspect
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib import error, request
@@ -47,6 +49,11 @@ class ToolSpec:
     permission: str = "read"
     side_effects: str = "none"
     limits: str = ""
+    output_schema: dict = field(default_factory=lambda: {"type": "object"})
+    required_permissions: tuple = ()
+    audit: str = "ToolRegistry.call outcome digest and policy evidence"
+    source_ref: str = ""
+    backend_ref: str = ""
 
 
 def _run(argv: list[str], cwd: str, timeout: int = 60) -> tuple[int, str]:
@@ -76,6 +83,9 @@ class ToolRegistry:
                 or spec.permission not in PERMISSIONS
                 or not isinstance(spec.required, dict)
                 or not isinstance(spec.optional, dict)
+                or not isinstance(spec.output_schema, dict)
+                or not isinstance(spec.required_permissions, tuple)
+                or any(not isinstance(p, str) or not p for p in spec.required_permissions)
                 or set(spec.required) & set(spec.optional)
                 or any(not isinstance(key, str) or not key
                        or type_name not in TYPE_MAP
@@ -83,6 +93,37 @@ class ToolRegistry:
                        for key, type_name in mapping.items())
                 or not callable(fn)):
             raise ToolError("TOOL_SPEC_INVALID", str(spec.name))
+        # Describe the existing handler and its configuration dependency. These
+        # locators are not connections, credentials or execution grants.
+        name = spec.name
+        if name.startswith('db.'):
+            backend = 'database_bindings:system=' + name.split('.')[1]
+        elif name.startswith('kmcw.'):
+            backend = 'command_channels + command_auth; existing KMCW handlers'
+        elif name.startswith('kcc.'):
+            backend = ('km_admin_binding.origin + existing session_cookie; GET ' +
+                       ('/v1/control/backend-read-health; bounded project.health read'
+                        if name.endswith('.health') else '/v1/control/overview; projection only'))
+        elif name.startswith('serena.'):
+            backend = 'build_default_registry(serena): existing qualified session'
+        elif name == 'gui_test':
+            backend = 'gui_binding.run + evidence_path + screenshot_path'
+        elif name.startswith('pilot_') or name == 'account_work':
+            backend = 'pilot configuration + existing QueueStore/Memory/receipts'
+        elif name in {'queue_health', 'task_enqueue'}:
+            backend = 'context.store:QueueStore'
+        elif name == 'receipt_read':
+            backend = 'context.receipts_dir'
+        elif name == 'ollama_inventory':
+            backend = 'context.config.ollama_url; loopback required'
+        elif name in {'ci_status', 'pr_checks', 'pr_create'}:
+            backend = 'existing gh executable and repository authentication'
+        else:
+            backend = 'existing workspace handler:' + name
+        spec = replace(spec, source_ref=spec.source_ref or
+                       f'{getattr(fn, "__module__", type(fn).__module__)}:'
+                       f'{getattr(fn, "__qualname__", type(fn).__qualname__)}',
+                       backend_ref=spec.backend_ref or backend)
         self._specs[spec.name] = spec
         self._fns[spec.name] = fn
         if health is not None:
@@ -101,7 +142,16 @@ class ToolRegistry:
             {"name":spec.name, "capability":spec.capability,
              "required":dict(spec.required), "optional":dict(spec.optional),
              "permission":spec.permission, "side_effects":spec.side_effects,
-             "limits":spec.limits}
+             "source_ref":spec.source_ref, "backend_ref":spec.backend_ref,
+             "limits":spec.limits, "output_schema":spec.output_schema,
+             "input_schema":{"type":"object", "additionalProperties":False,
+                "required":list(spec.required), "properties":{
+                    k:{"type":{"str":"string","int":"integer","bool":"boolean",
+                                "list":"array","dict":"object"}[v]}
+                    for k,v in {**spec.required, **spec.optional}.items()}},
+             "required_permissions":list(spec.required_permissions), "audit":spec.audit,
+             "health":"registered probe" if spec.name in self._health else "local handler",
+             "evidence":"tool_called outcome digest plus policy evidence"}
             for spec in (self._specs[name] for name in self.names())
         ]
         raw = json.dumps(commands, sort_keys=True, separators=(",", ":"),
@@ -122,21 +172,35 @@ class ToolRegistry:
                     available, reason = probe(ctx)
                 except Exception as exc:
                     available, reason = False, f"PROBE_CRASH_{type(exc).__name__}"
+            try:
+                source_file = inspect.getsourcefile(self._fns[name])
+            except TypeError:
+                try:
+                    source_file = inspect.getsourcefile(type(self._fns[name]))
+                except TypeError:
+                    source_file = None
             out.append({"tool": name, "capability": spec.capability,
+                        "source_ref": spec.source_ref,
+                        "source_file": source_file,
+                        "backend_ref": spec.backend_ref,
                         "permission": spec.permission, "available": available,
                         "reason": redact(reason),
                         "required": dict(spec.required),
                         "optional": dict(spec.optional),
-                        "side_effects": spec.side_effects, "limits": spec.limits})
+                        "side_effects": spec.side_effects, "limits": spec.limits,
+                        "output_schema": spec.output_schema,
+                        "required_permissions": list(spec.required_permissions),
+                        "audit": spec.audit})
         return out
 
-    def call(self, name: str, args: dict, ctx: dict) -> dict:
+    def call(self, name: str, args: dict, ctx: dict, *, mcp=False) -> dict:
         started = time.monotonic()
         success = False
         result_hash, error_class = None, None
         ctx.pop(f"_{name}_ok", None)  # prevent stale success from a prior call
+        ctx.pop('work_memory', None)
         try:
-            result = self._call_inner(name, args, ctx)
+            result = self._call_inner(name, args, ctx, mcp=mcp)
             result_hash = hashlib.sha256(json.dumps(
                 result, sort_keys=True, separators=(",", ":"),
                 ensure_ascii=False).encode("utf-8")).hexdigest()
@@ -161,10 +225,24 @@ class ToolRegistry:
                                  "task_id": ctx.get("task_id"),
                                  "mission_id": ctx.get("mission_id")})
 
-    def _call_inner(self, name: str, args: dict, ctx: dict) -> dict:
+    def _call_inner(self, name: str, args: dict, ctx: dict, *, mcp=False) -> dict:
         spec = self._specs.get(name)
         if spec is None:
             raise ToolError("TOOL_UNKNOWN", name[:80])
+        if mcp:
+            from .pilot import TOOLS
+            from .ingress import CATALOG
+            from .capabilities import authorized
+            local_pilot = (name in TOOLS and 'pilot' in ctx
+                and not any(k in ctx for k in ('command_channels', 'command_auth',
+                                               'database_auth', 'tool_bindings')))
+            # Command envelopes and database adapters enforce their own scoped
+            # identities, operation grants and approvals in the existing handler.
+            if not local_pilot and name not in CATALOG and not name.startswith('db.'):
+                contract = next(s for s in self.command_contract()['commands']
+                                if s['name'] == name)
+                if not authorized(contract, ctx, args):
+                    raise ToolError('MCP_TOOL_SCOPE_DENIED')
         if ctx.get("read_only") and spec.permission != "read":
             raise ToolError("PERMISSION_DENIED", "read-only task")
         if name == "pr_create" and ctx.get("allow_new_pr") is not True:
@@ -192,7 +270,9 @@ class ToolRegistry:
             except ValueError:
                 paths = ["../outside-workspace"]
         action = ("test" if name == "test_run" else
-                  "checkpoint" if name in {"task_enqueue", "pilot_submit", "pilot_run"} else
+                  "checkpoint" if name.startswith(("kmcw.", "db.")) and spec.permission != 'read' else
+                  "checkpoint" if name in {"task_enqueue", "pilot_submit", "pilot_run",
+                                           "pilot_discuss", "pilot_reconcile", "gui_test"} else
                   "inspect" if spec.permission == "read" else name)
         approval = policy_decision(
             action, ctx.get("task_id", "operator"), workspace,
@@ -211,6 +291,31 @@ class ToolRegistry:
             available, reason = probe(ctx)
             if not available:
                 raise ToolError("TOOL_UNAVAILABLE", f"{name} {reason}")
+        # Reuse original work memory only after this request passes the existing
+        # policy gates. Retrieval never authorizes a tool or reuses its result.
+        # Limit this handoff to the authorized local operator interface.
+        # An MCP tool grant is not a grant to scan receipt memory. Other
+        # handlers retain their own memory and deferred authority boundaries.
+        if (not mcp and name in {'repo_inspect', 'code_search'}
+                and all(ctx.get(k) is not None for k in
+                        ('workspace', 'store', 'receipts_dir'))):
+            from .memory import current_base_commit, retrieve_work
+            cases = retrieve_work(name, workspace, current_base_commit(workspace),
+                ctx['store'], Path(ctx['receipts_dir']),
+                account_id=ctx.get('account_id'))
+            ctx['work_memory'] = cases
+            ctx.setdefault('evidence', []).append({'event':'memory_retrieved',
+                'tool':name, 'cases':len(cases), 'grants_authority':False,
+                'evidence_refs':[case.get('provenance', {}) for case in cases]})
+        ctx.setdefault('evidence', []).append({'event':'tool_selected',
+            'tool':name, 'selection':'EXPLICIT_REQUEST_AFTER_POLICY_CHECKS',
+            'registry_sha256':self.command_contract()['sha256'],
+            # Supplied V4 context does not trigger a remote read or acquire
+            # memory permission from a tool grant. Keep source status intact.
+            'memory_context_sha256':hashlib.sha256(json.dumps(
+                ctx['memory_context'],sort_keys=True,separators=(',', ':'),
+                ensure_ascii=False).encode()).hexdigest()
+                if isinstance(ctx.get('memory_context'),dict) else None})
         result = self._fns[name](args, ctx)
         if not isinstance(result, dict):
             raise ToolError("TOOL_RESULT_INVALID", name)
@@ -250,6 +355,7 @@ def search_code(repo: str, pattern: str, max_matches: int = 30) -> list[dict]:
                 return out
             proc = subprocess.run(
                 [rg, "--no-heading", "--with-filename", "--line-number",
+                 "--sort", "path",
                  "--max-count", "5",
                  "-e", pattern, "--", *files],
                 cwd=repo, capture_output=True, text=True, timeout=30, check=False)
@@ -282,10 +388,12 @@ def search_code(repo: str, pattern: str, max_matches: int = 30) -> list[dict]:
     return out
 
 
-def build_default_registry(photocraft=None) -> ToolRegistry:
+def build_default_registry(photocraft=None, serena=None) -> ToolRegistry:
     reg = ToolRegistry()
     from .pilot import register_pilot_tools
     register_pilot_tools(reg)
+    from .ingress import register as register_ingress
+    register_ingress(reg)
 
     def health_repo(ctx):
         return (True, "OK") if ctx.get("workspace") else (False, "WORKSPACE_UNSET")
@@ -308,6 +416,58 @@ def build_default_registry(photocraft=None) -> ToolRegistry:
                  lambda a, c: {"matches": search_code(
                      _repo(a), a["pattern"], min(int(a.get("max_matches", 30)), 100))},
                  health_repo)
+    # Reuse an existing qualified Serena session; never launch/install one here.
+    # Only bounded symbol reads are exposed. No edit, memory or shell forwarding.
+    def serena_health(ctx):
+        if serena is None or getattr(serena, "closed", True):
+            return False, "SERENA_READ_ONLY_SESSION_UNAVAILABLE"
+        if (getattr(serena, "read_only_qualified", False) is not True
+                or not isinstance(getattr(serena, "identity_sha256", None), str)
+                or not re.fullmatch(r"[0-9a-f]{64}", serena.identity_sha256)
+                or Path(getattr(serena, "workspace", "")).resolve()
+                != Path(ctx.get("workspace", "")).resolve()):
+            return False, "SERENA_READ_ONLY_QUALIFICATION_REQUIRED"
+        return True, "QUALIFIED_SESSION_CLAIMS_REQUIRE_TRUSTED_BINDING"
+
+    def serena_read(args, ctx, remote):
+        relative = args["relative_path"]
+        root = Path(ctx["workspace"]).resolve()
+        path = root / relative
+        approval = policy_decision("inspect", ctx.get("task_id", "operator"),
+                                   str(root), paths=[relative])
+        if (approval["decision"] != "AUTO_APPROVE" or not path.is_file()
+                or path.stat().st_size > MCP_MAX_BYTES
+                or any(root.joinpath(*Path(relative).parts[:i]).is_symlink()
+                       for i in range(1, len(Path(relative).parts) + 1))):
+            raise ToolError("SERENA_SCOPE_DENIED")
+        if remote not in getattr(serena, "tools", {}):
+            raise ToolError("SERENA_TOOL_NOT_DISCOVERED")
+        before = hashlib.sha256(path.read_bytes()).hexdigest()
+        forwarded = {**args, "max_answer_chars": 8000}
+        if remote == "find_symbol":
+            pattern = args["name_path_pattern"]
+            if not pattern.strip() or len(pattern) > 200:
+                raise ToolError("SERENA_SYMBOL_PATTERN_INVALID")
+            forwarded.update(include_body=False, depth=0)
+        result = serena.call_tool(remote, forwarded)
+        if hashlib.sha256(path.read_bytes()).hexdigest() != before:
+            raise ToolError("SERENA_READ_MUTATED_SOURCE")
+        if not isinstance(result, dict) or result.get("isError"):
+            raise ToolError("SERENA_TOOL_ERROR")
+        if len(json.dumps(result).encode()) > 16000:
+            raise ToolError("SERENA_RESULT_TOO_LARGE")
+        return {"result": result, "source_sha256": before, "read_only": True,
+                "tool": remote, "adapter_identity_sha256": serena.identity_sha256,
+                "runtime_authority": False}
+
+    for local, remote, required in (
+        ("symbol_overview", "get_symbols_overview", {"relative_path": "str"}),
+        ("find_symbol", "find_symbol", {"relative_path": "str", "name_path_pattern": "str"}),
+    ):
+        reg.register(ToolSpec("serena." + local, "existing Serena symbol read",
+                              required, {}, "read", "none",
+                              "qualified existing session only; file scope; 8000 chars; no edits/shell"),
+                     lambda a, c, remote=remote: serena_read(a, c, remote), serena_health)
     reg.register(ToolSpec("git_diff", "working tree diff (bounded)",
                           {"repo": "str"}, {"max_bytes": "int"}, "read", "none",
                           "default 32k chars"),
@@ -389,16 +549,22 @@ def build_default_registry(photocraft=None) -> ToolRegistry:
         field_name = {"task_read": "task_id", "mission_read": "mission_id",
                       "node_read": "node_id"}.get(kind)
         reg.register(ToolSpec(
-            f"kcc.d1.{kind}", f"kcc.d1.{kind}",
+            f"kcc.d1.{kind}", ("KM AI Admin bounded backend read health (legacy tool ID)"
+                              if kind == "health" else f"KM AI Admin {kind} read-only projection (legacy tool ID)"),
             {field_name: "str"} if field_name else {}, {}, "read", "none",
-            "authenticated existing D1 snapshot; 1 MiB, 10s, freshness 60s; no SQL"),
+            "KM AI Admin bounded read contract; no execution authority; deployment must be verified",
+            source_ref=KM_ADMIN_SOURCE_REF),
             lambda a, c, kind=kind: _kcc_read(kind, a, c),
-            lambda c: (False, "KCC_LEAST_PRIVILEGE_READ_AUTH_UNVERIFIED"))
+            lambda c, kind=kind: _km_admin_health(kind, c))
+    from .database_tools import register_database_tools
+    register_database_tools(reg)
+    from .capabilities import register_gui
+    register_gui(reg)
     return reg
 
 
 ARTCRAFT_ROOT = Path.home() / ".local/share/knowingmind/artcraft"
-KCC_RUNTIME_ENDPOINT = "https://control-app.kebunate.com/api/control/runtime-v2"
+KM_ADMIN_SOURCE_REF = "https://github.com/siango/KnowingMindApp/blob/7707371a9a4da9126eb70a409b1f1592bd44cf83/cloudflare_workers/knowingmind-line-webhook/admin_control.js"
 MCP_MAX_BYTES = 1024 * 1024
 
 
@@ -557,61 +723,104 @@ class PhotoCraftStdio:
             pipe.close()
 
 
+def _km_admin_health(kind, ctx):
+    from .ingress import qualified
+    if not qualified(ctx) or ctx['command_auth'].get('role') not in {'OWNER', 'ADMIN'}:
+        return False, 'KM_ADMIN_OWNER_ADMIN_SESSION_REQUIRED'
+    binding = ctx.get('km_admin_binding', {})
+    if binding.get('qualified') is not True:
+        return False, 'KM_ADMIN_QUALIFIED_ORIGIN_SESSION_BINDING_REQUIRED'
+    from urllib.parse import urlsplit
+    try:
+        origin = urlsplit(binding.get('origin', ''))
+        if (origin.scheme != 'https' or not origin.hostname or origin.username
+                or origin.password or origin.query or origin.fragment
+                or origin.path not in {'', '/'}):
+            return False, 'KM_ADMIN_ORIGIN_INVALID'
+    except (ValueError, TypeError):
+        return False, 'KM_ADMIN_ORIGIN_INVALID'
+    cookie = binding.get('session_cookie')
+    if not isinstance(cookie, str) or not re.fullmatch(r'__Host-km_web=[a-f0-9]{64}', cookie):
+        return False, 'KM_ADMIN_EXISTING_SESSION_COOKIE_REQUIRED'
+    return True, 'KM_ADMIN_PROJECTION_BINDING_REMOTE_NOT_PROBED'
+
+
 def _kcc_read(kind, args, ctx):
-    token = _need(ctx, "kcc_runtime_token")
-    if not isinstance(token, str) or not token:
-        raise ToolError("KCC_AUTH_MISSING")
+    """Compatibility locator/IDs; only current KM AI Admin is contacted.
+
+    Uses the existing authenticated session, never the retired KCC bearer.
+    Overview is a projection and cannot admit, dispatch or verify execution.
+    """
+    from .capabilities import authorized
+    spec = {'name': f'kcc.d1.{kind}', 'permission': 'read', 'required_permissions': []}
+    if not authorized(spec, ctx, args):
+        raise ToolError('MCP_TOOL_SCOPE_DENIED')
+    available, reason = _km_admin_health(kind, ctx)
+    if not available:
+        raise ToolError('TOOL_UNAVAILABLE', reason)
+    key = {'task_read': 'task_id', 'mission_read': 'mission_id', 'node_read': 'node_id'}.get(kind)
+    if key and not ID_RE.fullmatch(args.get(key, '')):
+        raise ToolError('TOOL_ARGS_INVALID', key)
+    binding = ctx['km_admin_binding']
+    endpoint = binding['origin'].rstrip('/') + (
+        '/v1/control/backend-read-health' if kind == 'health' else '/v1/control/overview')
     class NoRedirect(request.HTTPRedirectHandler):
         def redirect_request(self, req, fp, code, msg, headers, newurl):
             return None
-    req = request.Request(KCC_RUNTIME_ENDPOINT, headers={
-        "Authorization": f"Bearer {token}", "Accept": "application/json"})
+    req = request.Request(endpoint, method='GET', headers={
+        'Cookie': binding['session_cookie'], 'Accept': 'application/json',
+        'Cache-Control': 'no-store'})
     try:
         with request.build_opener(NoRedirect).open(req, timeout=10) as response:
             raw = response.read(MCP_MAX_BYTES + 1)
         if len(raw) > MCP_MAX_BYTES:
-            raise ToolError("KCC_RESPONSE_TOO_LARGE")
+            raise ToolError('KM_ADMIN_RESPONSE_TOO_LARGE')
         snapshot = json.loads(raw)
     except error.HTTPError as exc:
-        raise ToolError("KCC_AUTH_DENIED" if exc.code in (401, 403)
-                        else "KCC_HTTP_UNAVAILABLE", str(exc.code)) from None
+        raise ToolError('KM_ADMIN_AUTH_DENIED' if exc.code in (401, 403)
+                        else 'KM_ADMIN_HTTP_UNAVAILABLE', str(exc.code)) from None
     except (error.URLError, TimeoutError, ValueError):
-        raise ToolError("KCC_READ_UNAVAILABLE") from None
-    if (not isinstance(snapshot, dict)
-            or snapshot.get("component") != "KCC_D1_RUNTIME_V2"
-            or snapshot.get("authenticated") is not True
-            or snapshot.get("runtime_authority") != "CLOUDFLARE_D1"
-            or snapshot.get("spreadsheet_runtime_dependency") is not False):
-        raise ToolError("KCC_AUTHORITY_INVALID")
+        raise ToolError('KM_ADMIN_READ_UNAVAILABLE') from None
+    if kind == 'health':
+        if (not isinstance(snapshot, dict)
+                or snapshot.get('schema') != 'KM_AI_ADMIN_BACKEND_READ_HEALTH_V1'
+                or snapshot.get('status') != 'READ_VERIFIED'
+                or snapshot.get('backend_read_verified') is not True
+                or snapshot.get('execution_authority') is not False):
+            raise ToolError('KM_ADMIN_BACKEND_HEALTH_CONTRACT_INVALID')
+        try:
+            age = (datetime.now(timezone.utc) - datetime.fromisoformat(
+                snapshot['observed_at'].replace('Z', '+00:00'))).total_seconds()
+        except (KeyError, TypeError, ValueError):
+            raise ToolError('KM_ADMIN_FRESHNESS_INVALID') from None
+        if not 0 <= age <= 60:
+            raise ToolError('KM_ADMIN_BACKEND_HEALTH_STALE')
+        return {'source': 'KM_AI_ADMIN_BOUNDED_BACKEND_READ',
+                'status': 'READ_VERIFIED', 'backend_scope': 'project.health',
+                'observed_at': snapshot['observed_at'], 'execution_authority': False,
+                'limitations': 'One project.health read; not fleet/database-wide health'}
+    if (not isinstance(snapshot, dict) or snapshot.get('projection_only') is not True
+            or snapshot.get('authority') is not False):
+        raise ToolError('KM_ADMIN_PROJECTION_CONTRACT_INVALID')
     try:
         age = (datetime.now(timezone.utc) - datetime.fromisoformat(
-            snapshot["generated_at"].replace("Z", "+00:00"))).total_seconds()
+            snapshot['observed_at'].replace('Z', '+00:00'))).total_seconds()
     except (KeyError, TypeError, ValueError):
-        raise ToolError("KCC_FRESHNESS_INVALID") from None
+        raise ToolError('KM_ADMIN_FRESHNESS_INVALID') from None
     if not 0 <= age <= 60:
-        raise ToolError("KCC_SNAPSHOT_STALE")
-    sources = snapshot.get("source_health")
-    if not isinstance(sources, dict) or not sources or any(
-            not isinstance(s, dict) or s.get("ok") is not True
-            for s in sources.values()):
-        raise ToolError("KCC_D1_UNHEALTHY")
-    metadata = {"endpoint": KCC_RUNTIME_ENDPOINT, "source": "CLOUDFLARE_D1",
-                "generated_at": snapshot["generated_at"], "age_s": age,
-                "execution_policy": "READ_ONLY_NO_EXECUTION_CLAIM_NO_STATUS_ASSUMPTION"}
-    if kind == "health":
-        return {**metadata, "sources": sources}
-    table, key = {"task_read": ("tasks", "task_id"),
-                  "mission_read": ("missions", "mission_id"),
-                  "node_read": ("nodes", "node_id")}[kind]
-    if not ID_RE.fullmatch(args[key]):
-        raise ToolError("TOOL_ARGS_INVALID", key)
+        raise ToolError('KM_ADMIN_OVERVIEW_STALE')
+    # Pinned control.py:_mission_rows exposes task_id inside missions.
+    table = {'task_read': 'missions', 'mission_read': 'missions', 'node_read': 'runtimes'}[kind]
     rows = snapshot.get(table)
-    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
-        raise ToolError("KCC_READ_MODEL_INVALID")
-    matches = [row for row in rows if row.get(key) == args[key]]
+    if not isinstance(rows, list) or any(not isinstance(r, dict) for r in rows):
+        raise ToolError('MISSING_CONTRACT', f'KM AI Admin overview.{table}')
+    matches = [r for r in rows if r.get(key) == args[key]]
     if len(matches) != 1:
-        raise ToolError("KCC_RECORD_NOT_IN_BOUNDED_SNAPSHOT")
-    return {**metadata, "record": matches[0]}
+        raise ToolError('KM_ADMIN_PROJECTED_RECORD_MISSING_OR_AMBIGUOUS')
+    return {'record': matches[0], 'source': 'KM_AI_ADMIN_OVERVIEW_PROJECTION',
+            'source_ref': KM_ADMIN_SOURCE_REF, 'observed_at': snapshot['observed_at'],
+            'projection_only': True, 'execution_authority': False,
+            'row_freshness': 'NOT_INFERRED_FROM_OVERVIEW_TIMESTAMP'}
 
 
 def _git_diff(args: dict) -> dict:

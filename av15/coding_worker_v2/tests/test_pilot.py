@@ -21,7 +21,116 @@ from coding_worker_v2.tasks import Task
 from coding_worker_v2.tests.test_agent_executor import fixture_repo
 
 
+class CheckpointPreparationTest(unittest.TestCase):
+    """Pure contract fixtures, not authenticated production writer evidence."""
+
+    def setUp(self):
+        self.binding = {
+            "mission_id": "G0-G1-MINIMUM-SELLABLE-DEMO",
+            "task_id": "pilot-0c3fdc91ed2e2a9011c0cb1d-t1",
+            "owner_node": "AV15",
+            "source_sha": "55a0ff55d718defa9365482540e025122aa0cdd0",
+            "worker_source_sha": "e9cb91af05ab42066afc854dfc7b436ce173ca6b",
+            "scope_digest": "sha256:c81a571e9f7437846f5bcc5c1db1096e04e22128b20ecda85e10f5b7d906a8e0",
+            "plan_digest": "8598597ce5f050f8ec0995c078061fda02cd254da775d0171bbacebd47e813ef",
+        }
+        identity = hashlib.sha256(json.dumps(
+            self.binding, sort_keys=True, separators=(",", ":"),
+            ensure_ascii=False).encode()).hexdigest()
+        self.principal = {"authenticated": True, "subject": "FIXTURE_ONLY",
+                          "owner_node": "AV15", "checkpoint_id": identity,
+                          "permissions": ["checkpoint:append"]}
+        self.payload = {**self.binding, "status": "ADMIT_BLOCKED",
+                        "qc": "NOT_RUN", "receipt": None,
+                        "evidence_refs": [{"uri": "fixture:ledger",
+                                           "sha256": hashlib.sha256(b"fixture").hexdigest()}]}
+
+    def prepare(self, payload=None, principal=None, binding=None):
+        return mcp_server.prepare_execution_checkpoint(
+            self.payload if payload is None else payload,
+            binding=self.binding if binding is None else binding,
+            principal=self.principal if principal is None else principal)
+
+    def test_identical_preparation_has_one_identity_and_no_side_effects(self):
+        with mock.patch("subprocess.Popen") as process, \
+                mock.patch("pathlib.Path.open") as file_open, \
+                mock.patch("coding_worker_v2.queue_store.QueueStore.append_event") as append:
+            first, second = self.prepare(), self.prepare(dict(self.payload))
+            self.assertEqual(first, second)
+            self.assertEqual(first["checkpoint_id"], self.principal["checkpoint_id"])
+            self.assertEqual(first["central_sync"], "UNSYNCED")
+            self.assertFalse(first["persisted"])
+            self.assertFalse(first["independent_verified"])
+            self.assertTrue(first["independent_verification_required"])
+            process.assert_not_called()
+            file_open.assert_not_called()
+            append.assert_not_called()
+
+    def test_missing_auth_overbroad_or_other_identity_denied(self):
+        for change in ({"authenticated": False}, {"subject": ""},
+                       {"permissions": ["checkpoint:append", "admin"]},
+                       {"checkpoint_id": "another-task"}, {"owner_node": "P02"}):
+            with self.subTest(change=change), self.assertRaisesRegex(
+                    tools.ToolError, "CHECKPOINT_WRITER_NOT_AUTHORIZED"):
+                self.prepare(principal={**self.principal, **change})
+
+    def test_every_binding_field_is_enforced_without_alias_rewrite(self):
+        for field in self.binding:
+            with self.subTest(field=field), self.assertRaisesRegex(
+                    tools.ToolError, "CHECKPOINT_SCOPE_MISMATCH"):
+                self.prepare(payload={**self.payload, field: "different"})
+        with self.assertRaisesRegex(tools.ToolError, "BINDING_UNAVAILABLE"):
+            self.prepare(binding={})
+
+    def test_no_admission_qc_or_receipt_promotion(self):
+        for change in ({"status": "PASS"}, {"qc": "PASS"},
+                       {"receipt": {"signed": True}}):
+            with self.subTest(change=change), self.assertRaisesRegex(
+                    tools.ToolError, "AUTHORITY_PROMOTION_DENIED"):
+                self.prepare(payload={**self.payload, **change})
+
+    def test_evidence_content_changes_key_without_changing_identity(self):
+        first = self.prepare()
+        second = self.prepare(payload={**self.payload, "evidence_refs": [
+            {"uri": "fixture:ledger", "sha256": "a" * 64}]})
+        self.assertEqual(first["checkpoint_id"], second["checkpoint_id"])
+        self.assertNotEqual(first["idempotency_key"], second["idempotency_key"])
+        self.assertEqual(first["record"]["evidence_refs"], self.payload["evidence_refs"])
+
+    def test_hashes_duplicate_refs_and_caller_authority_fields_rejected(self):
+        for refs in ([], [{"uri": "fixture:ledger", "sha256": "missing"}],
+                     self.payload["evidence_refs"] * 2):
+            with self.subTest(refs=refs), self.assertRaises(tools.ToolError):
+                self.prepare(payload={**self.payload, "evidence_refs": refs})
+        with self.assertRaisesRegex(tools.ToolError, "PAYLOAD_INVALID"):
+            self.prepare(payload={**self.payload, "principal": self.principal})
+
+    def test_preparation_is_not_exposed_as_a_writable_mcp_tool(self):
+        registry = tools.build_default_registry()
+        names = {entry["name"] for entry in mcp_server._schemas(registry)}
+        self.assertNotIn("prepare_execution_checkpoint", names)
+        with self.assertRaisesRegex(tools.ToolError, "PILOT_TOOL_NOT_EXPOSED"):
+            mcp_server._call(registry, {"name": "prepare_execution_checkpoint"}, {})
+
+
 class PilotTest(unittest.TestCase):
+    def test_review_installer_exposes_registry_without_issuing_grants(self):
+        parser=build_parser()
+        result=install(parser.parse_args(['pilot','install','--workspace',self.repo,
+            '--runtime-base',str(self.root/'runtime'),'--account-id','pilot-a',
+            '--allowed-path','calc.py']))
+        server=json.loads((Path(self.repo)/'.mcp.json').read_text())['mcpServers']['kmcw']
+        self.assertEqual(len(server['tools']),67)
+        self.assertEqual(set(server['tools']),set(self.reg.names()))
+        self.assertTrue(set(pilot.TOOLS).issubset(server['tools']))
+        ctx=pilot.load_context(result['config'])
+        before=ctx['store'].health()
+        with mock.patch.dict(self.reg._fns,{'queue_health':mock.Mock()}) as handlers:
+            with self.assertRaisesRegex(tools.ToolError,'MCP_TOOL_SCOPE_DENIED'):
+                mcp_server._call(self.reg,{'name':'queue_health','arguments':{}},ctx)
+            handlers['queue_health'].assert_not_called()
+        self.assertEqual(ctx['store'].health(),before)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -81,6 +190,39 @@ class PilotTest(unittest.TestCase):
         with self.assertRaisesRegex(tools.ToolError, "IDEMPOTENCY_CONFLICT"):
             self.submit(goal="fix a different problem")
         self.assertEqual(self.ctx["store"].health()["inbox"], 0)
+
+    def test_decomposed_intake_is_idempotent_and_mcp_readiness_is_read_only(self):
+        units = [{"task_id": name, "goal": "fix arithmetic addition",
+                  "deps": deps, "allowed_paths": ["calc.py"],
+                  "acceptance": ["addition tests pass"],
+                  "input_contract": ["approved source"],
+                  "output_contract": ["bounded patch and check result"],
+                  "evidence_required": ["source SHA", "independent receipt"]}
+                 for name, deps in (("t1", []), ("check", ["t1"]))]
+        first = self.submit(work_units=units)
+        second = self.submit(work_units=units)
+        self.assertEqual(first["task_id"], second["task_id"])
+        self.assertFalse(second["created"])
+        with mock.patch("coding_worker_v2.agent.executor.run_task") as dispatch:
+            read = self.call("pilot_read", {"plan_id": first["plan_id"]})
+            nodes = read["orchestration"]["nodes"]
+            self.assertEqual([node["task_id"] for node in nodes], ["t1", "check"])
+            self.assertTrue(all(not node["dispatch_authorized"] for node in nodes))
+            self.assertTrue(all(node["task_scope_digest"] for node in nodes))
+            self.assertIsNone(read["receipt"])
+            self.assertEqual(self.ctx["store"].health()["inbox"], 0)
+            dispatch.assert_not_called()
+        self.ctx["store"].save_checkpoint(f".pilot-{first['plan_id']}", "pilot_run_readback",
+                                          {"report": {"status": "BLOCKED"}})
+        events = self.ctx["store"].events / f"{first['task_id']}.jsonl"
+        before = events.read_bytes()
+        held = self.submit(work_units=units)
+        self.assertEqual(held["task_id"], first["task_id"])
+        self.assertFalse(held["created"])
+        self.assertEqual(held["status"], "CHECKPOINT_RETAINED")
+        self.assertEqual(events.read_bytes(), before)
+        with self.assertRaisesRegex(tools.ToolError, "ORIGINAL_TASK_ID_REQUIRED"):
+            self.submit(request_id="bad-root", work_units=[{**units[0], "task_id": "other"}])
 
     def test_context_and_submission_deny_unapproved_or_protected_paths(self):
         for name, args in (
@@ -275,7 +417,7 @@ class PilotTest(unittest.TestCase):
         responses = [json.loads(line) for line in sink.getvalue().splitlines()]
         self.assertEqual(len(responses), 5)
         self.assertIn("error", responses[0])
-        self.assertEqual({t["name"] for t in responses[2]["result"]["tools"]}, set(pilot.TOOLS))
+        self.assertEqual({t["name"] for t in responses[2]["result"]["tools"]}, set(tools.build_default_registry().names()))
         self.assertTrue(responses[3]["result"]["isError"])
         self.assertFalse(responses[4]["result"]["isError"])
         events = self.ctx["store"].load_checkpoint(".tool-audit")["data"]["events"]
@@ -355,4 +497,4 @@ class PilotTest(unittest.TestCase):
         transport = subprocess.run(argv + ["pilot", "mcp", "--config", config],
                                    cwd=source, env=clean_env, input=wire, capture_output=True,
                                    text=True, timeout=30, check=True)
-        self.assertEqual(len(json.loads(transport.stdout.splitlines()[1])["result"]["tools"]), len(pilot.TOOLS))
+        self.assertEqual(len(json.loads(transport.stdout.splitlines()[1])["result"]["tools"]), 67)

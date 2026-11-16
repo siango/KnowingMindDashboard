@@ -15,12 +15,32 @@ Never install against untrusted repositories or a shared-user runtime.
 `account_id` is an explicit local binding, **not authenticated multi-tenancy**.
 Use a separate OS identity/runtime for another customer's data.
 
-The existing ToolRegistry exposes six bounded MCP tools; execution still uses
+The existing ToolRegistry advertises 67 tool definitions, including the original
+nine Pilot contracts. The installer derives its host tool list from that registry;
+visibility does not grant access. Every invocation retains its own principal,
+scope, source, approval and backend checks. Execution still uses
 `execute_plan`, QueueStore, receipt history and the original memory. The original
-Mission Auditor's global scope and signed external verifier remain mandatory;
-they are not replaced with a pilot-shaped PASS. Without their authorized
+Mission Auditor scope and signed external verifier remain mandatory where the
+coding task's acceptance requires them; they do not become a global gate on
+independently authorized readers. They are not replaced with a pilot-shaped PASS.
+Without their authorized
 configuration, coding acceptance is BLOCKED before dispatch or at verification.
 There is no automatic signing service in this kit.
+
+The KM AI Admin context issuer is disabled unless its explicit read-delegation
+activation flag and exact grant policy are approved. Neither a web role nor the
+host's tool list grants tool access. Credentials are supplied only through the
+existing protected in-process integration, never tool arguments or CLI JSON.
+Existing Pilot callers reuse their original config/context after Source Guard;
+the entrypoint does not discover or load new Admin credentials automatically.
+An explicitly integrated new Admin channel may call the retained
+`KMAdminContextProducer.from_runtime_credentials()` and pass it through the
+existing `context_provider` argument. That optional resolver consumes only an
+existing private named credential; it creates no session, grant or installation.
+Its presence is not a requirement for the original local Pilot path.
+For the new issuer, `queue_health` also requires `resource_ref` equal to
+`queue-store:` plus the resolved installed QueueStore base path. Each call checks
+that exact resource. Public arguments remain `{}`; no queue grant is inferred.
 
 ## Install / configure / remove
 

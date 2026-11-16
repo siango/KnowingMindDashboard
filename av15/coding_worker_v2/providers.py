@@ -13,6 +13,7 @@ logs, receipts, or exceptions.
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import fcntl
 import os
@@ -702,6 +703,177 @@ class ProviderResources:
                     row.get("mean_latency_ms", float("inf")),
                     row.get("mean_cost_usd", float("inf")))
         return sorted(chain, key=rank)
+
+    def select_advisory(self, candidates, *, capability, context_tokens,
+                        required_permissions, approved_external_providers=(),
+                        budget_usd=0, max_age_s=300):
+        """Rank supplied capability evidence without probing or dispatching.
+
+        Evidence claims must come from the existing trusted discovery boundary;
+        this method checks their contract/freshness, not their authenticity.
+        Selection grants no permission and never satisfies ADMIT or QC.
+        """
+        if (not isinstance(candidates, list) or len(candidates) > 20
+                or not isinstance(capability, str) or not capability.strip()
+                or type(context_tokens) is not int or context_tokens < 0
+                or not isinstance(required_permissions, list)
+                or any(not isinstance(p, str) or not p for p in required_permissions)
+                or not isinstance(approved_external_providers, (list, tuple))
+                or any(not isinstance(p, str) for p in approved_external_providers)
+                or type(budget_usd) not in (int, float)
+                or not math.isfinite(budget_usd) or budget_usd < 0
+                or type(max_age_s) not in (int, float)
+                or not math.isfinite(max_age_s) or not 0 < max_age_s <= 300):
+            raise ProviderError("ADVISORY_ROUTING_INPUT_INVALID")
+        now = self.clock()
+        allowed_routes = {"deterministic", "qwen-local", "deepseek-local",
+                          "codex-cli", "copilot-cli", "muse-cli", "deepseek-api"}
+        selected, rejected, seen = [], [], set()
+
+        def fresh(value):
+            return (type(value) in (int, float) and math.isfinite(value)
+                    and 0 <= now - value <= max_age_s)
+
+        for item in candidates:
+            if not isinstance(item, dict):
+                raise ProviderError("ADVISORY_ROUTING_INPUT_INVALID")
+            name = item.get("provider")
+            if not isinstance(name, str) or name in seen:
+                raise ProviderError("ADVISORY_PROVIDER_ID_INVALID")
+            seen.add(name)
+            reason = None
+            local = name in {"deterministic", "qwen-local", "deepseek-local"}
+            capabilities = item.get("tested_capabilities")
+            permissions = item.get("security_permissions")
+            capacity = item.get("context_limit_tokens")
+            if name not in allowed_routes:
+                reason = "UNSUPPORTED_EXECUTION_ROUTE"
+            elif (not isinstance(capabilities, list)
+                  or any(not isinstance(c, str) for c in capabilities)
+                  or capability not in capabilities
+                  or not isinstance(item.get("capability_evidence_ref"), str)
+                  or not item["capability_evidence_ref"].strip()):
+                reason = "TESTED_CAPABILITY_EVIDENCE_MISSING"
+            elif item.get("available") is not True or not fresh(item.get("observed_at")):
+                reason = "AVAILABILITY_STALE_OR_UNPROVEN"
+            elif (type(capacity) is not int or capacity < context_tokens):
+                reason = "CONTEXT_CAPACITY_UNPROVEN"
+            elif (not isinstance(permissions, list)
+                  or any(not isinstance(p, str) for p in permissions)
+                  or not set(required_permissions).issubset(permissions)):
+                reason = "SECURITY_PERMISSION_MISSING"
+            elif not self.gate(name)[0]:
+                reason = "PROVIDER_COOLDOWN"
+            elif not local:
+                estimate = item.get("estimated_cost_usd")
+                if name not in approved_external_providers:
+                    reason = "EXTERNAL_PROVIDER_NOT_APPROVED"
+                elif (budget_usd <= 0 or type(estimate) not in (int, float)
+                      or not math.isfinite(estimate) or estimate < 0
+                      or estimate > budget_usd):
+                    reason = "EXTERNAL_BUDGET_UNPROVEN"
+                elif (item.get("quota") != "AVAILABLE"
+                      or not fresh(item.get("quota_observed_at"))
+                      or not isinstance(item.get("quota_evidence_ref"), str)
+                      or not item["quota_evidence_ref"].strip()):
+                    reason = "EXTERNAL_QUOTA_UNPROVEN"
+            if reason:
+                rejected.append({"provider": name, "reason": reason})
+            else:
+                selected.append(SimpleNamespace(name=name, local=local))
+        # Reuse measured outcome/cost/latency ranking; deterministic is first.
+        ordered = self.ordered(selected)
+        ordered.sort(key=lambda p: p.name != "deterministic")
+        name = ordered[0].name if ordered else None
+        return {"status": "READY_ADVISORY" if name else "BLOCKED",
+                "selected_provider": name,
+                "eligible_providers": [p.name for p in ordered],
+                "rejected": rejected, "dispatch": False,
+                "admission_required": True, "independent_verified": False,
+                "basis": "SUPPLIED_EVIDENCE_CONTRACT_AND_PERSISTED_RESOURCE_HISTORY"}
+
+    def select_authenticated_advisory(self, raw, *, binding, authentication,
+                                      capability, context_tokens, required_permissions):
+        """Read-only input boundary over existing authenticated middleware.
+
+        Runtime injects owner-approved binding and verified transport metadata;
+        neither is accepted from model/tool payloads. No new authentication
+        scheme, endpoint, credential or provider invocation is introduced.
+        Production producer/ACL qualification remains external to this helper.
+        """
+        identity_fields = {"mission_id", "task_id", "owner_node", "source_sha", "scope_digest"}
+        if (not isinstance(binding, dict)
+                or set(binding) != identity_fields | {"endpoint", "subject"}
+                or any(not isinstance(v, str) or not v.strip() for v in binding.values())
+                or binding["owner_node"] != "AV15"
+                or not re.fullmatch(r"[0-9a-f]{40}", binding["source_sha"])
+                or not re.fullmatch(r"sha256:[0-9a-f]{64}", binding["scope_digest"])):
+            raise ProviderError("CAPABILITY_BINDING_UNAVAILABLE")
+        origin = urlsplit(binding["endpoint"])
+        if (origin.scheme != "https" or not origin.hostname or origin.username
+                or origin.password or origin.query or origin.fragment):
+            raise ProviderError("CAPABILITY_ENDPOINT_INVALID")
+        if not isinstance(raw, bytes) or not 1 <= len(raw) <= 65536:
+            raise ProviderError("CAPABILITY_PAYLOAD_SIZE_INVALID")
+        digest = hashlib.sha256(raw).hexdigest()
+        if (not isinstance(authentication, dict)
+                or authentication.get("authenticated") is not True
+                or authentication.get("subject") != binding["subject"]
+                or authentication.get("endpoint") != binding["endpoint"]
+                or authentication.get("permissions") != ["capability:read"]
+                or authentication.get("body_sha256") != digest):
+            raise ProviderError("CAPABILITY_AUTHENTICATION_REQUIRED")
+        try:
+            payload = json.loads(raw)
+        except (ValueError, UnicodeDecodeError):
+            raise ProviderError("CAPABILITY_PAYLOAD_INVALID") from None
+        expected = identity_fields | {"schema", "observed_at", "expires_at", "candidates"}
+        if (not isinstance(payload, dict) or set(payload) != expected
+                or payload.get("schema") != "KMCW_CAPABILITY_EVIDENCE_V1"
+                or any(payload.get(k) != binding[k] for k in identity_fields)):
+            raise ProviderError("CAPABILITY_SCOPE_MISMATCH")
+        now = self.clock()
+        observed, expires = payload["observed_at"], payload["expires_at"]
+        if (any(type(v) not in (int, float) or not math.isfinite(v)
+                for v in (observed, expires))
+                or not 0 <= now - observed <= 60
+                or not observed < expires <= observed + 60 or now >= expires):
+            raise ProviderError("CAPABILITY_EXPIRED_OR_STALE")
+        candidates = payload["candidates"]
+        if not isinstance(candidates, list) or len(candidates) > 20:
+            raise ProviderError("CAPABILITY_PAYLOAD_INVALID")
+        accepted, rejected = [], []
+        seen = set()
+        for item in candidates:
+            if (not isinstance(item, dict) or not isinstance(item.get("provider"), str)
+                    or item["provider"] in seen or not isinstance(item.get("node_id"), str)):
+                raise ProviderError("CAPABILITY_CANDIDATE_INVALID")
+            seen.add(item["provider"])
+            heartbeat = item.get("heartbeat_at")
+            if (item.get("node_online") is not True
+                    or type(heartbeat) not in (int, float) or not math.isfinite(heartbeat)
+                    or not 0 <= now - heartbeat <= 60):
+                rejected.append({"provider": item["provider"], "reason": "OFFLINE_OR_STALE_NODE"})
+            elif (item.get("qualification_status") != "PASS"
+                  or any(not isinstance(item.get(k), str)
+                         or not re.fullmatch(r"[0-9a-f]{64}", item[k])
+                         for k in ("capability_evidence_sha256", "runtime_artifact_sha256"))):
+                rejected.append({"provider": item["provider"], "reason": "CAPABILITY_QUALIFICATION_UNPROVEN"})
+            else:
+                accepted.append(item)
+        # This input boundary has no authority to approve external spending.
+        result = self.select_advisory(accepted, capability=capability,
+            context_tokens=context_tokens, required_permissions=required_permissions,
+            approved_external_providers=(), budget_usd=0, max_age_s=60)
+        result["rejected"] = rejected + result["rejected"]
+        identity = {k: binding[k] for k in sorted(identity_fields)}
+        result.update(evidence_sha256=digest, authenticated_subject=binding["subject"],
+                      task_binding=identity,
+                      idempotency_key=hashlib.sha256(json.dumps(
+                          [identity, digest], sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
+                      live_producer_qualification="REQUIRES_EXISTING_AUTHORIZED_TRANSPORT",
+                      central_sync="UNSYNCED")
+        return result
 
     def failed(self, name, error):
         def change(row):
