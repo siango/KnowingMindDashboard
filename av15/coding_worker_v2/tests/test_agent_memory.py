@@ -202,6 +202,17 @@ class TestClassify(unittest.TestCase):
         self.assertFalse(records[0]['verified_for_current_source'])
         self.assertEqual(records[0]['qc_score'],0)
 
+    def test_receipt_verification_flags_are_strict_booleans_for_json_context(self):
+        path=self._done_receipt('strict verification flag','1'*40)
+        receipt=json.loads(path.read_text())
+        self.assertIs(memory.receipt_verified(receipt),True)
+        records=memory.retrieve_work('strict verification flag',str(self.root/'repo'),
+            '1'*40,self.store,self.receipts,ranking='qc')
+        self.assertIs(records[0]['verified_for_current_source'],True)
+        self.assertEqual(json.loads(json.dumps(records))[0]['RESULT']['state'],'VERIFIED_PASS')
+        receipt['evidence'].append({'event':'qc_checked','qc':{'passed':False}})
+        self.assertIs(memory.receipt_verified(receipt),False)
+
     def test_reuse_exact_match(self):
         self._done_receipt("reuse me", "1" * 40)
         out = memory.classify("reuse me", str(self.root / "repo"), "1" * 40,

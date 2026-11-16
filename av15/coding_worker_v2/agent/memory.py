@@ -183,7 +183,7 @@ def receipt_verified(receipt: dict) -> bool:
             and latest_proof.get("source_sha") == source
             and latest_proof.get("task_id") == receipt.get("task_id")
             and re.fullmatch(r"[0-9a-f]{64}",
-                             str(latest_proof.get("signature_sha256", ""))))
+                             str(latest_proof.get("signature_sha256", ""))) is not None)
 
 
 def workspace_digest(repo: str, paths: list[str]) -> str:

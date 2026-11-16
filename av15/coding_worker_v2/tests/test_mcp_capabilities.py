@@ -14,6 +14,15 @@ from coding_worker_v2.agent.memory import current_base_commit
 
 
 class CapabilityTest(unittest.TestCase):
+    def metadata_fixture(self, observation):
+        """Supply fixture observations without depending on AV15 state files."""
+        original = Path.read_text
+        def read(path, *args, **kwargs):
+            if path.name == 'GO-G1-mcp-v5-integration.json':
+                return json.dumps({'metadata_observation':observation})
+            return original(path, *args, **kwargs)
+        return mock.patch.object(Path, 'read_text', autospec=True, side_effect=read)
+
     def test_admin_runtime_main_recovers_late_credential_and_rotation(self):
         from coding_worker_v2.agent import km_main
         requests = [{'jsonrpc':'2.0','id':1,'method':'initialize'},
@@ -601,7 +610,9 @@ class CapabilityTest(unittest.TestCase):
         self.ctx = original
 
     def test_status_dimensions_do_not_promote_fixture_or_block_other_tools(self):
-        listed = self.rpc([('tools/list', {})])[0]['result']
+        with self.metadata_fixture({'isolated_tool_evidence':{
+                'queue_health':{'evidence_ref':'isolated-fixture-only'}}}):
+            listed = self.rpc([('tools/list', {})])[0]['result']
         rows = {r['name']: r for r in listed['_meta']['kmcw/capabilities']['tools']}
         self.assertEqual(len(rows), 67)
         self.assertTrue(rows['queue_health']['callable'])
@@ -631,7 +642,10 @@ class CapabilityTest(unittest.TestCase):
 
     def test_metadata_related_staging_and_gui_evidence_do_not_grant_access(self):
         ctx = {'workspace': self.ctx['workspace'], 'tool_bindings': {}}
-        catalog = mcp_server._catalog(self.reg, ctx, mcp_server._schemas(self.reg, ctx))
+        observation = {'dhamma_readback':{'write_authorized':False,
+            'result':{'runtime_identity':{'database_identity':{'read_only':'on'}}}}}
+        with self.metadata_fixture(observation):
+            catalog = mcp_server._catalog(self.reg, ctx, mcp_server._schemas(self.reg, ctx))
         rows = {r['name']: r for r in catalog['tools']}
         self.assertEqual(catalog['callable_count'], 0)
         for name in ('db.postgres.select', 'db.postgres.write', 'db.pgvector.write', 'gui_test'):
@@ -642,6 +656,16 @@ class CapabilityTest(unittest.TestCase):
         candidate = rows['db.postgres.select']['backend']['related_evidence']
         self.assertEqual(candidate['result']['runtime_identity']['database_identity']['read_only'], 'on')
         self.assertFalse(candidate['write_authorized'])
+
+    def test_missing_metadata_observation_keeps_real_read_binding_callable(self):
+        with self.metadata_fixture({}):
+            listed = self.rpc([('tools/list', {})])[0]['result']
+        rows = {r['name']:r for r in listed['_meta']['kmcw/capabilities']['tools']}
+        self.assertTrue(rows['queue_health']['callable'])
+        self.assertFalse(rows['queue_health']['status_flags']['TESTED_ISOLATED'])
+        self.assertFalse(rows['queue_health']['status_flags']['LIVE_VERIFIED'])
+        self.assertIsNone(rows['db.postgres.select']['backend']['related_evidence'])
+        self.assertFalse(rows['db.postgres.select']['authorized'])
 
     def test_metadata_tools_list_carries_current_readiness(self):
         listed = self.rpc([('tools/list', {})])[0]['result']
