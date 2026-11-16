@@ -75,6 +75,8 @@ def install(args):
         "source_root": str(SOURCE),
         "source_files": {str(p.relative_to(SOURCE)): _hash(p) for p in source_files()},
     }
+    if getattr(args, "mission_id", None) is not None:
+        data["mission_id"] = args.mission_id
     validate_config(data)
     config_path = target / "config.json"
     from .agent.tools import build_default_registry
@@ -162,6 +164,7 @@ def add_parser(sub):
     setup.add_argument("--workspace", required=True)
     setup.add_argument("--runtime-base", required=True)
     setup.add_argument("--account-id", required=True)
+    setup.add_argument("--mission-id", help="Existing mission scope; does not grant execution authority")
     setup.add_argument("--worker-id", default="AV15")
     setup.add_argument("--allowed-path", action="append", required=True)
     setup.add_argument("--context-path", action="append")

@@ -114,6 +114,48 @@ class CheckpointPreparationTest(unittest.TestCase):
 
 
 class PilotTest(unittest.TestCase):
+    def test_explicit_installed_mission_scope_propagates_without_grant(self):
+        parser=build_parser()
+        result=install(parser.parse_args(['pilot','install','--workspace',self.repo,
+            '--runtime-base',str(self.root/'scoped-runtime'),'--account-id','pilot-a',
+            '--mission-id','fixture-existing-open-mission','--allowed-path','calc.py']))
+        scoped=pilot.load_context(result['config'])
+        self.assertEqual(scoped['pilot']['mission_id'],'fixture-existing-open-mission')
+        self.assertEqual(scoped['mission_id'],'fixture-existing-open-mission')
+        self.assertFalse(any(k in scoped for k in
+            ('command_auth','command_channels','tool_bindings','command_approvals')))
+        before=scoped['store'].health()
+        with mock.patch.dict(self.reg._fns,{'queue_health':mock.Mock()}) as handlers:
+            with self.assertRaisesRegex(tools.ToolError,'MCP_TOOL_SCOPE_DENIED'):
+                mcp_server._call(self.reg,{'name':'queue_health','arguments':{}},scoped)
+            handlers['queue_health'].assert_not_called()
+        self.assertEqual(scoped['store'].health(),before)
+
+    def test_saved_plan_cannot_cross_explicit_or_runtime_mission_scope(self):
+        self.config['mission_id']='fixture-existing-open-mission'
+        self.path.write_text(json.dumps(self.config))
+        self.ctx=pilot.load_context(self.path)
+        saved=self.submit(request_id='fixture-scoped-plan')
+        plan,_=pilot._plan(saved['plan_id'],self.ctx)
+        self.assertEqual(plan.mission_id,'fixture-existing-open-mission')
+        path=self.ctx['state_dir']/'plans'/(saved['plan_id']+'.json')
+        raw=json.loads(path.read_text());raw['mission_id']='fixture-other-mission'
+        path.write_text(json.dumps(raw))
+        with self.assertRaisesRegex(tools.ToolError,'PILOT_MISSION_SCOPE_MISMATCH'):
+            pilot._plan(saved['plan_id'],self.ctx)
+        with self.assertRaisesRegex(tools.ToolError,'PILOT_MISSION_SCOPE_MISMATCH'):
+            pilot._plan(saved['plan_id'],{**self.ctx,'mission_id':'fixture-other-mission'})
+
+    def test_mission_scope_is_optional_but_explicit_values_are_validated(self):
+        self.assertNotIn('mission_id',self.config)
+        self.assertEqual(self.ctx['mission_id'],'G0-G1-MINIMUM-SELLABLE-DEMO')
+        self.assertEqual(pilot.validate_config({**self.config,'mission_id':'x'*121})[
+            'mission_id'],'x'*121)
+        for mission in (None,'','invalid mission',[],'x'*122):
+            with self.subTest(mission=mission),self.assertRaisesRegex(
+                    tools.ToolError,'PILOT_ID_INVALID'):
+                pilot.validate_config({**self.config,'mission_id':mission})
+
     def test_review_installer_exposes_registry_without_issuing_grants(self):
         parser=build_parser()
         result=install(parser.parse_args(['pilot','install','--workspace',self.repo,

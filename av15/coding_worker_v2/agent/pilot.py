@@ -45,6 +45,8 @@ def validate_config(data):
         _error("PILOT_CONFIG_INVALID")
     _identifier(data.get("account_id"))
     _identifier(data.get("worker_id"))
+    if "mission_id" in data:
+        _identifier(data["mission_id"])
     for key in ("workspace", "runtime_base"):
         if not isinstance(data.get(key), str) or not Path(data[key]).is_absolute():
             _error("PILOT_ABSOLUTE_PATH_REQUIRED")
@@ -109,7 +111,10 @@ def load_context(path):
     return {"pilot": data, "workspace": str(Path(data["workspace"]).resolve()),
             "store": QueueStore(base / "queue"), "receipts_dir": base / "receipts",
             "state_dir": state, "config": config, "evidence": [],
-            "account_id": data["account_id"], "mission_id": "G0-G1-MINIMUM-SELLABLE-DEMO"}
+            "account_id": data["account_id"],
+            # Installation scope is not an authenticated grant or task claim.
+            # Preserve old configs; explicit existing missions need no alias.
+            "mission_id": data.get("mission_id", "G0-G1-MINIMUM-SELLABLE-DEMO")}
 
 
 def _config(ctx):
@@ -134,6 +139,9 @@ def _plan(plan_id, ctx):
         _error("PILOT_ACCOUNT_OR_PROJECT_DENIED")
     plan = planner.validate_plan_dict(raw)
     config = _config(ctx)
+    if (plan.mission_id != ctx.get("mission_id")
+            or ("mission_id" in config and config["mission_id"] != ctx.get("mission_id"))):
+        _error("PILOT_MISSION_SCOPE_MISMATCH")
     if (any(not set(task.allowed_paths).issubset(config["allowed_paths"])
             for task in plan.tasks)
             or binding.get("test_command") != config["test_command"]):
