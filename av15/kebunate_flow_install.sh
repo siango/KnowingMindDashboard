@@ -68,6 +68,25 @@ PY
 fi
 if [ -z "$SUBJECT" ]; then echo "BLOCKED=ACCESS_SUB_MISSING"; exit 6; fi
 echo "ACCESS_SUBJECT=RESOLVED_NOT_PRINTED"
+echo "=== DB READ-ONLY OBSERVATION PERMISSIONS ==="
+sudo -v
+sudo -u postgres psql -X -w -d km_microops -v ON_ERROR_STOP=1 <<'SQL'
+BEGIN;
+DO $
+BEGIN
+ IF current_database() <> 'km_microops'
+ OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='siango' AND rolsuper=FALSE)
+ OR to_regclass('circuit.registry') IS NULL
+ OR to_regclass('circuit.bindings') IS NULL
+ OR to_regclass('circuit.relations') IS NULL
+ OR to_regclass('circuit.routes') IS NULL
+ THEN RAISE EXCEPTION 'FLOW_DB_AUTH_OR_SCHEMA_NOT_VERIFIED';
+ END IF;
+END $;
+GRANT SELECT ON circuit.registry, circuit.bindings, circuit.relations,
+ circuit.routes, circuit.usage_events, circuit.core_memory TO siango;
+COMMIT;
+SQL
 echo "=== DB SERVICE CHECK ==="
 if ! KMCO_PG_SERVICE=kmco_runtime PYTHONDONTWRITEBYTECODE=1 python3 - <<'PY'
 from av15.kebunate_flow_ui import _pg_snapshot
