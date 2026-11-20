@@ -123,6 +123,49 @@ def validate_route(catalog, steps):
     return order
 
 
+def dispatch_readonly(registry, catalog, steps, ctx):
+    """Execute a bounded circuit using only already-authorized KMCW read handlers.
+
+    Full preflight happens before any handler call. Results never imply QC pass.
+    Write, deploy, and destructive operations are deliberately out of scope.
+    """
+    from .tools import ToolError
+    from .capabilities import qualified, authorized
+    from .memory import current_base_commit
+
+    try:
+        order = validate_route(catalog, steps)
+    except KMCOError as exc:
+        raise ToolError(exc.code) from None
+    if len(order) > 8 or not qualified(ctx):
+        raise ToolError("KMCO_READ_EXECUTION_NOT_AUTHORIZED")
+    bindings = ctx.get("kmco_handler_bindings")
+    if not isinstance(bindings, dict):
+        raise ToolError("KMCO_HANDLER_BINDINGS_MISSING")
+    sha = current_base_commit(ctx.get("workspace", ""))
+    prepared = []
+    contracts = {x["name"]: x for x in registry.command_contract()["commands"]}
+    for op in order:
+        binding = bindings.get(op)
+        if not isinstance(binding, dict) or set(binding) != {"tool", "arguments", "source_sha"}:
+            raise ToolError("KMCO_HANDLER_BINDING_INVALID")
+        name, args = binding["tool"], binding["arguments"]
+        contract = contracts.get(name) if isinstance(name, str) else None
+        if (contract is None or name.startswith("kmco.")
+                or contract["permission"] != "read"
+                or not isinstance(args, dict) or binding["source_sha"] != sha):
+            raise ToolError("KMCO_HANDLER_UNQUALIFIED")
+        if not authorized(contract, ctx, args):
+            raise ToolError("KMCO_HANDLER_SCOPE_DENIED")
+        prepared.append((op, name, args))
+    results = []
+    for op, name, args in prepared:
+        result = registry.call(name, args, ctx, mcp=True)
+        results.append({"operation_id": op, "handler": name, "result": result})
+    return {"status": "EXECUTED_UNVERIFIED", "independent_qc": "NOT_RUN",
+            "receipt_verified": False, "operations": results}
+
+
 def register_kmco_tools(registry, catalog):
     """Opt-in integration; original ToolRegistry performs every MCP ACL check.
 
@@ -155,3 +198,8 @@ def register_kmco_tools(registry, catalog):
                  {"steps": "list"}, {}, "read", "none",
                  "32 steps max; no group-edge extrapolation; no execution"),
         plan)
+    registry.register(
+        ToolSpec("kmco.run_readonly", "KMCO scoped read-only circuit dispatch",
+                 {"steps": "list"}, {}, "read", "read-only existing handlers",
+                 "max 8 operations; authenticated per-handler grants; no QC promotion"),
+        lambda a, c: dispatch_readonly(registry, catalog, a["steps"], c))
