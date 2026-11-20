@@ -49,7 +49,7 @@ BEGIN
 END $$;
 GRANT CONNECT ON DATABASE km_microops TO siango;
 GRANT USAGE ON SCHEMA circuit TO siango;
-GRANT INSERT ON circuit.usage_events TO siango;
+GRANT SELECT, INSERT ON circuit.usage_events TO siango;
 GRANT SELECT, INSERT, UPDATE ON circuit.core_memory TO siango;
 GRANT USAGE ON SEQUENCE circuit.usage_events_id_seq TO siango;
 GRANT USAGE ON SEQUENCE circuit.core_memory_case_id_seq TO siango;
