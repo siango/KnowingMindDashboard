@@ -58,7 +58,7 @@ class KMCOUsageTests(unittest.TestCase):
                     {"mission_id":"m","task_id":"t"},ok=True,
                     result_sha256="a"*64)
         self.assertEqual(state, "PERSISTED_UNVERIFIED")
-        self.assertEqual(len(captured), 3)
+        self.assertEqual(len(captured), 4)
         sql, params = captured[2]
         self.assertIn("INSERT INTO circuit.usage_events", sql)
         self.assertNotIn("NEVER_STORE_THIS_QUOTE", str(params))
