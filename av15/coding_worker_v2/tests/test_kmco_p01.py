@@ -13,7 +13,7 @@ class P01RuntimeTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        (self.root / "real.txt").write_text("alpha\\nbeta evidence\\ngamma\\n", encoding="utf-8")
+        (self.root / "real.txt").write_text("alpha\nbeta evidence\ngamma\n", encoding="utf-8")
 
     def test_real_five_step_positive(self):
         result = run_p01(self.root, "real.txt", "beta evidence")
