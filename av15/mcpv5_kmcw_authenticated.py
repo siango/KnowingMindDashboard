@@ -83,6 +83,9 @@ def execute_bound_read(name, claims, runtime):
         raise ToolError("MCP_CLOUDFLARE_ADMIN_IDENTITY_MISMATCH")
 
     call_ctx = bind_runtime_context(ctx, provider)
+    # Session rotation between the two Admin calls must not cross identities.
+    if not _identity_match(claims, provider._read("/api/session")):
+        raise ToolError("MCP_CLOUDFLARE_ADMIN_IDENTITY_MISMATCH")
     auth = call_ctx.get("command_auth", {})
     if name not in auth.get("permissions", []):
         raise ToolError("MCP_TOOL_SCOPE_DENIED")
