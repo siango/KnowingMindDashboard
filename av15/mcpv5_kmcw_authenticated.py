@@ -138,7 +138,7 @@ class IdentityGate(secure.AccessGate):
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
-        if scope.get("path") != "/mcp":
+        if scope.get("path") not in ("/mcp", "/flow", "/flow/api"):
             return await self._reject(send, 404)
         headers = scope.get("headers", [])
         # Detect duplicate security headers, not only differing values.
@@ -157,6 +157,9 @@ class IdentityGate(secure.AccessGate):
             secure.validate_access_jwt(assertion.decode("ascii"))
         except Exception:
             return await self._reject(send, 401)
+        if scope.get("path", "").startswith("/flow"):
+            from av15.kebunate_flow_ui import handle
+            return await handle(scope, receive, send)
         return await self.app(scope, receive, send)
 
 
