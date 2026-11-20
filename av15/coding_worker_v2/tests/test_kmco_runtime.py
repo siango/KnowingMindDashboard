@@ -1,6 +1,8 @@
 """KMCO contract and existing ToolRegistry integration: fail closed."""
 import hashlib
+import tempfile
 import unittest
+from pathlib import Path
 
 from coding_worker_v2.agent.kmco_runtime import KMCOCatalog, KMCOError, validate_route, register_kmco_tools
 from coding_worker_v2.agent.tools import ToolRegistry, ToolError
@@ -50,7 +52,7 @@ class KMCOIntegrationTests(unittest.TestCase):
     def test_registry_integration_without_execution(self):
         reg = ToolRegistry()
         register_kmco_tools(reg, catalog())
-        self.assertEqual(reg.names(), ["kmco.inspect", "kmco.plan", "kmco.run_readonly"])
+        self.assertEqual(reg.names(), ["kmco.inspect", "kmco.p01.evidence", "kmco.plan", "kmco.run_readonly"])
         ctx = {"evidence": []}
         item = reg.call("kmco.inspect", {"operation_id": "D01-M01"}, ctx)
         self.assertEqual(item["state"], "DESIGN_REGISTERED")
@@ -62,6 +64,36 @@ class KMCOIntegrationTests(unittest.TestCase):
             reg.call("kmco.run_readonly", {"steps": [{"op_id": "D01-M01", "after": []}]}, ctx)
         with self.assertRaises(ToolError):
             reg.call("kmco.execute", {}, ctx)
+
+
+    def test_p01_permanent_registry_executes_real_file(self):
+        reg = ToolRegistry()
+        register_kmco_tools(reg, catalog())
+        with tempfile.TemporaryDirectory() as d:
+            source = Path(d) / "evidence.txt"
+            source.write_text("one\\nverified line\\nthree\\n", encoding="utf-8")
+            ctx = {"workspace": d, "read_only": True, "evidence": []}
+            args = {"file": "evidence.txt", "quote": "verified line"}
+            result = reg.call("kmco.p01.evidence", args, ctx)
+            self.assertEqual(result["steps_completed"], [
+                "P01-M01", "P01-M02", "P01-M03", "P01-M04", "P01-M05"])
+            self.assertEqual(result["output"]["citation"]["line"], 2)
+            self.assertEqual(
+                result["output"]["citation"]["sha256"],
+                hashlib.sha256(source.read_bytes()).hexdigest())
+            self.assertFalse(result["output"]["semantic_truth_verified"])
+            with self.assertRaisesRegex(ToolError, "KMCO_P01_DENIED"):
+                reg.call("kmco.p01.evidence",
+                         {"file": "evidence.txt", "quote": "not present"}, ctx)
+            with self.assertRaisesRegex(ToolError, "KMCO_P01_DENIED"):
+                reg.call("kmco.p01.evidence",
+                         {"file": "../outside.txt", "quote": "verified line"}, ctx)
+            # A local circuit pass is never an MCP authorization grant.
+            with self.assertRaisesRegex(ToolError, "MCP_TOOL_SCOPE_DENIED"):
+                reg.call("kmco.p01.evidence", args, ctx, mcp=True)
+            self.assertEqual(
+                [e["ok"] for e in ctx["evidence"] if e.get("tool") == "kmco.p01.evidence"
+                 and e.get("event") == "tool_called"], [True, False, False, False])
 
 
 if __name__ == "__main__":
