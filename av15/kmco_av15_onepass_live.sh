@@ -74,7 +74,6 @@ else
 fi
 chmod 600 "$SERVICE_FILE"
 export KMCO_PG_SERVICE=kmco_runtime
-AUTH="$(psql -X -w -At -v ON_ERROR_STOP=1 'service=kmco_runtime' -c  'SELECT current_database()||'':' '||current_user' 2>/dev/null)" || AUTH=""
 # Use an exact check independent of display formatting.
 IDENTITY="$(psql -X -w -At -v ON_ERROR_STOP=1 'service=kmco_runtime' -c   "SELECT current_database() || ':' || current_user;")" || {
  echo "BLOCKED=LOCAL_PEER_DB_CONNECTION"; exit 33;
