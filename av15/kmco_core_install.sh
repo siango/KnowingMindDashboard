@@ -41,6 +41,9 @@ for file in "${FILES[@]}"; do
     case "$file" in
        av15/coding_worker_v2/agent/kmco_runtime.py)
           prior_sha="503b5cbc8636c179f29d4abec5e3f79fc82f6165" ;;
+       av15/coding_worker_v2/tests/test_kmco_runtime.py)
+          # Known prior P01 permanent-binding test, verified in GitHub.
+          prior_sha="52dd4b66a977c2ed5103c5cfec9359533a3bf412" ;;
     esac
     if ! git cat-file -e "HEAD:$file" 2>/dev/null; then
       echo "BLOCKED=LOCAL_FILE_NOT_TRACKED:$file"; exit 4
