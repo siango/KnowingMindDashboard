@@ -38,8 +38,11 @@ except Exception: pass
 for base in (pathlib.Path.home()/".cloudflared",pathlib.Path("/etc/cloudflared")):
  for name in ("config.yml","config.yaml"):
   path=base/name
-  if path.is_file():
-   result["tunnel_config_files"].append(str(path))
+  try:
+   if path.is_file():
+    result["tunnel_config_files"].append(str(path))
+  except (PermissionError, OSError):
+   result.setdefault("tunnel_config_inaccessible", []).append(str(path))
 # Status code only; do not send tokens, cookies, credentials, POST or tool calls.
 try:
  req=urllib.request.Request("https://mcp.knowingmind.app/",method="HEAD",headers={"User-Agent":"kebunate-read-only-route-preflight/1"})
