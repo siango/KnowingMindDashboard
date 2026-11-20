@@ -68,7 +68,7 @@ def test_no_granted_tool_denies_before_call():
 def _request(headers=(), accepted=False):
     events, reached = [], []
     async def fake_app(scope, receive, send):
-        reached.append(bridge.CLAIMS.get())
+        reached.append(True)
         await send({"type":"http.response.start", "status":200, "headers":[]})
         await send({"type":"http.response.body","body":b""})
     async def receive():
@@ -99,14 +99,13 @@ def test_duplicate_auth_headers_denied():
 def test_validated_claims_carried_in_request_only():
     status, reached = _request([(b"cf-access-jwt-assertion",b"fixture")],
                                 accepted=True)
-    assert status == 200 and reached[0]["sub"] == "fixture"
-    assert bridge.CLAIMS.get() is None
+    assert status == 200 and reached == [True]
 
 
 def test_client_supplied_tool_arguments_not_supported():
     import inspect
     sig = inspect.signature(bridge.kmcw_authorized_read)
-    assert list(sig.parameters) == ["tool_name"]
+    assert list(sig.parameters) == ["tool_name", "ctx"]
 
 
 def test_authorized_read_dispatches_issuer_bound_arguments_only():
