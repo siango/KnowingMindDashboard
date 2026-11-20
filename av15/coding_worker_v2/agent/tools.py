@@ -224,6 +224,25 @@ class ToolRegistry:
                                  "error_class": error_class,
                                  "task_id": ctx.get("task_id"),
                                  "mission_id": ctx.get("mission_id")})
+            # KMCO events are durable only with an owner-provisioned libpq
+            # service. Never silently promote in-memory evidence into a DB
+            # receipt. A configured but broken sink fails closed.
+            if name.startswith("kmco."):
+                from .kmco_usage import record as record_kmco_usage
+                try:
+                    usage_state = record_kmco_usage(
+                        name, args, ctx, ok=success,
+                        result_sha256=result_hash, error_class=error_class)
+                except RuntimeError as exc:
+                    if isinstance(evidence, list):
+                        evidence.append({"event": "kmco_usage_audit",
+                                         "tool": name, "state": str(exc),
+                                         "durable": False})
+                    raise ToolError(str(exc)) from None
+                if isinstance(evidence, list):
+                    evidence.append({"event": "kmco_usage_audit",
+                                     "tool": name, "state": usage_state,
+                                     "durable": usage_state == "PERSISTED_UNVERIFIED"})
 
     def _call_inner(self, name: str, args: dict, ctx: dict, *, mcp=False) -> dict:
         spec = self._specs.get(name)
