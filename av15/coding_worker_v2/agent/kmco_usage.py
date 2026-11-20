@@ -74,6 +74,9 @@ def record(name, args, ctx, *, ok, result_sha256=None, error_class=None):
     try:
         with psycopg.connect("service=" + service, connect_timeout=3) as conn:
             with conn.cursor() as cur:
+                cur.execute("SELECT current_database()")
+                if cur.fetchone() != ("km_microops",):
+                    raise RuntimeError("KMCO_DB_TARGET_MISMATCH")
                 cur.execute("SET LOCAL statement_timeout = '3000ms'")
                 cur.execute("""
                     INSERT INTO circuit.usage_events
