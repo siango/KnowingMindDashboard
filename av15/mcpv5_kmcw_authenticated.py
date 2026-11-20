@@ -8,15 +8,14 @@ If either identity is unavailable, execution is denied.
 """
 from __future__ import annotations
 
-import contextvars
 import hashlib
 import json
 import os
 from pathlib import Path
 
 from av15 import mcpv5_secure_http_readback as secure
+from mcp.server.mcpserver import Context
 
-CLAIMS = contextvars.ContextVar("kebunate_verified_claims", default=None)
 ROOT = Path(__file__).resolve().parent.parent
 mcp = secure.mcp
 
@@ -115,13 +114,18 @@ def execute_bound_read(name, claims, runtime):
 
 
 @mcp.tool()
-async def kmcw_authorized_read(tool_name: str) -> dict:
-    """Call exactly one read tool bound by the existing Admin V2 issuer."""
+async def kmcw_authorized_read(tool_name: str, ctx: Context) -> dict:
+    """Call one issuer-bound read tool using SDK request-scoped HTTP headers."""
     from coding_worker_v2.agent.tools import ToolError
-    claims = CLAIMS.get()
-    if claims is None:
-        raise ToolError("MCP_ACCESS_IDENTITY_REQUIRED")
     try:
+        # MCP SDK v2 injects per-request Context. Do not rely on a ContextVar
+        # propagated from ASGI middleware to the SDK's independent task group.
+        headers = ctx.headers or {}
+        assertion = headers.get("cf-access-jwt-assertion", "")
+        auth = headers.get("authorization", "")
+        if not assertion and auth.startswith("Bearer "):
+            assertion = auth[7:]
+        claims = secure.validate_access_jwt(assertion)
         runtime = _runtime()
         return execute_bound_read(tool_name, claims, runtime)
     except (ToolError, ValueError, OSError) as exc:
@@ -145,22 +149,15 @@ class IdentityGate(secure.AccessGate):
         hdr = {k.lower(): v for k, v in headers}
         assertion = hdr.get(b"cf-access-jwt-assertion", b"")
         authorization = hdr.get(b"authorization", b"")
-        if authorization:
-            if not authorization.startswith(b"Bearer "):
-                return await self._reject(send, 401)
-            bearer = authorization[7:]
-            if assertion and assertion != bearer:
-                return await self._reject(send, 401)
-            assertion = bearer
+        # Managed OAuth may use a different Authorization bearer value.
+        # Prefer Cloudflare's signed Access assertion if provided.
+        if not assertion and authorization.startswith(b"Bearer "):
+            assertion = authorization[7:]
         try:
-            claims = secure.validate_access_jwt(assertion.decode("ascii"))
+            secure.validate_access_jwt(assertion.decode("ascii"))
         except Exception:
             return await self._reject(send, 401)
-        marker = CLAIMS.set(claims)
-        try:
-            return await self.app(scope, receive, send)
-        finally:
-            CLAIMS.reset(marker)
+        return await self.app(scope, receive, send)
 
 
 def main():
