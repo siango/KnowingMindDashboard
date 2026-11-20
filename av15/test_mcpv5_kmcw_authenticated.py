@@ -107,3 +107,29 @@ def test_client_supplied_tool_arguments_not_supported():
     import inspect
     sig = inspect.signature(bridge.kmcw_authorized_read)
     assert list(sig.parameters) == ["tool_name"]
+
+
+def test_authorized_read_dispatches_issuer_bound_arguments_only():
+    from coding_worker_v2.agent.capabilities import KMAdminContextProducer
+    producer = mock.Mock()
+    producer._read.return_value = {"authenticated": True, "email": "a@example.org"}
+    ctx = {"command_auth": {"permissions": ["queue_health"]},
+           "tool_bindings": {"queue_health": {"arguments": {"issuer_bound": True}}}}
+    registry = mock.Mock()
+    registry.command_contract.return_value = {
+        "commands": [{"name": "queue_health", "permission": "read"}]}
+    with mock.patch.object(KMAdminContextProducer, "from_runtime_credentials",
+                           return_value=producer), \
+         mock.patch("coding_worker_v2.agent.capabilities.bind_runtime_context",
+                    return_value=ctx), \
+         mock.patch("coding_worker_v2.agent.capabilities.authorized", return_value=True), \
+         mock.patch("coding_worker_v2.agent.mcp_server._call",
+                    return_value={"ok":True}) as dispatcher:
+        output = bridge.execute_bound_read("queue_health",
+                     {"email":"a@example.org"}, ({}, registry))
+    assert output["ok"] is True
+    assert output["verified_receipt"] is False
+    args = dispatcher.call_args.args
+    assert args[1] == {"name":"queue_health",
+                       "arguments":{"issuer_bound":True}}
+    assert args[2]["read_only"] is True
