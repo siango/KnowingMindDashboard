@@ -44,9 +44,15 @@ if new not in gate:
         raise SystemExit("BLOCKED=UNKNOWN_SECURITY_GATE_ROUTE_ANCHOR")
     gate=gate.replace(old,new,1)
 if new_return not in gate:
-    if gate.count(old_return)!=1:
-        raise SystemExit("BLOCKED=UNKNOWN_SECURITY_GATE_DISPATCH_ANCHOR")
-    gate=gate.replace(old_return,new_return,1)
+    # Gate has two legitimate dispatches: one for non-HTTP requests
+    # and exactly one after signed JWT validation. Never replace the former.
+    verified=gate.rfind('        return await self.app(scope, receive, send)')
+    jwt_gate=gate.find('validate_access_jwt(supplied.decode("ascii"))')
+    if jwt_gate < 0 or verified < jwt_gate:
+        raise SystemExit("BLOCKED=AUTHENTICATED_DISPATCH_NOT_FOUND")
+    if gate.count(old_return, jwt_gate)!=1:
+        raise SystemExit("BLOCKED=AUTHENTICATED_DISPATCH_AMBIGUOUS")
+    gate=gate[:verified]+new_return+gate[verified+len(old_return):]
 candidate=prefix+gate+suffix
 ast.parse(candidate)
 (pathlib.Path(sys.argv[1])/"gate.py").write_text(candidate,encoding="utf-8")
