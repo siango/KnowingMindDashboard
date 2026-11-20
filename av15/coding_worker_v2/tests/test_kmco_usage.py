@@ -44,6 +44,8 @@ class KMCOUsageTests(unittest.TestCase):
             def __exit__(self, *a): return False
             def execute(self, sql, params=None):
                 captured.append((sql, params))
+            def fetchone(self):
+                return ("km_microops",)
         class Conn:
             def __enter__(self): return self
             def __exit__(self, *a): return False
@@ -56,8 +58,8 @@ class KMCOUsageTests(unittest.TestCase):
                     {"mission_id":"m","task_id":"t"},ok=True,
                     result_sha256="a"*64)
         self.assertEqual(state, "PERSISTED_UNVERIFIED")
-        self.assertEqual(len(captured), 2)
-        sql, params = captured[1]
+        self.assertEqual(len(captured), 3)
+        sql, params = captured[2]
         self.assertIn("INSERT INTO circuit.usage_events", sql)
         self.assertNotIn("NEVER_STORE_THIS_QUOTE", str(params))
         self.assertEqual(params["operation_ids"],
