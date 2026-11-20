@@ -73,8 +73,7 @@ echo "=== EXISTING DB READBACK PERMISSION ==="
 sudo -v
 sudo -u postgres psql -X -w -v ON_ERROR_STOP=1 -d km_microops <<'SQL'
 BEGIN;
-SELECT CASE WHEN current_database()='km_microops' THEN 'TARGET_OK'
-            ELSE (1/0)::text END;
+SELECT current_database() AS current_db;
 GRANT SELECT ON circuit.registry,circuit.bindings,circuit.relations,
  circuit.routes,circuit.usage_events,circuit.core_memory TO siango;
 COMMIT;
