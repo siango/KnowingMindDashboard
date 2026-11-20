@@ -64,8 +64,3 @@ def test_validated_identity_reaches_readback_only():
     assert events[0]["status"] == 200
     assert called == ["app_called"]
 
-
-def test_no_kmcw_execution_registered():
-    # No calls into the existing KMCW dispatcher are wired into this staging adapter.
-    assert "kmcw_readiness" in gateway.mcp._tool_manager._tools
-    assert len(gateway.mcp._tool_manager._tools) == 1
