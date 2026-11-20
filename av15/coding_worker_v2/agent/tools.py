@@ -388,7 +388,7 @@ def search_code(repo: str, pattern: str, max_matches: int = 30) -> list[dict]:
     return out
 
 
-def build_default_registry(photocraft=None, serena=None) -> ToolRegistry:
+def build_default_registry(photocraft=None, serena=None, kmco_catalog=None) -> ToolRegistry:
     reg = ToolRegistry()
     from .pilot import register_pilot_tools
     register_pilot_tools(reg)
@@ -560,6 +560,11 @@ def build_default_registry(photocraft=None, serena=None) -> ToolRegistry:
     register_database_tools(reg)
     from .capabilities import register_gui
     register_gui(reg)
+    # KMCO attaches only when the owner supplies an integrity-checked catalog.
+    # Default registry / 67-tool contract remains unchanged.
+    if kmco_catalog is not None:
+        from .kmco_runtime import register_kmco_tools
+        register_kmco_tools(reg, kmco_catalog)
     return reg
 
 
