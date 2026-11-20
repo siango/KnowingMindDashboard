@@ -2,8 +2,8 @@
 import hashlib
 import unittest
 
-from av15.coding_worker_v2.agent.kmco_runtime import KMCOCatalog, KMCOError, validate_route, register_kmco_tools
-from av15.coding_worker_v2.agent.tools import ToolRegistry, ToolError
+from coding_worker_v2.agent.kmco_runtime import KMCOCatalog, KMCOError, validate_route, register_kmco_tools
+from coding_worker_v2.agent.tools import ToolRegistry, ToolError
 
 
 def catalog():
