@@ -130,7 +130,8 @@ def dispatch_readonly(registry, catalog, steps, ctx):
     Write, deploy, and destructive operations are deliberately out of scope.
     """
     from .tools import ToolError
-    from .capabilities import qualified, authorized
+    from .capabilities import authorized
+    from .ingress import qualified
     from .memory import current_base_commit
 
     try:
