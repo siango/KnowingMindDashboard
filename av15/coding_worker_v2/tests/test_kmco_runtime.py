@@ -50,7 +50,7 @@ class KMCOIntegrationTests(unittest.TestCase):
     def test_registry_integration_without_execution(self):
         reg = ToolRegistry()
         register_kmco_tools(reg, catalog())
-        self.assertEqual(reg.names(), ["kmco.inspect", "kmco.plan"])
+        self.assertEqual(reg.names(), ["kmco.inspect", "kmco.plan", "kmco.run_readonly"])
         ctx = {"evidence": []}
         item = reg.call("kmco.inspect", {"operation_id": "D01-M01"}, ctx)
         self.assertEqual(item["state"], "DESIGN_REGISTERED")
@@ -58,6 +58,8 @@ class KMCOIntegrationTests(unittest.TestCase):
         ordered = reg.call("kmco.plan", {"steps": [{"op_id": "D01-M01", "after": []}]}, ctx)
         self.assertFalse(ordered["executed"])
         self.assertEqual(sum(e.get("event") == "tool_called" for e in ctx["evidence"]), 2)
+        with self.assertRaises(ToolError):
+            reg.call("kmco.run_readonly", {"steps": [{"op_id": "D01-M01", "after": []}]}, ctx)
         with self.assertRaises(ToolError):
             reg.call("kmco.execute", {}, ctx)
 
