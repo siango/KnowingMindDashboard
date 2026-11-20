@@ -86,6 +86,12 @@ def record(name, args, ctx, *, ok, result_sha256=None, error_class=None):
                             %(task_id)s, %(source_sha)s, %(args_sha256)s,
                             %(result_sha256)s, %(success)s, %(error_class)s)
                 """, params)
+                # Same DB transaction as the usage event. Never save a derived
+                # four-part case if its original execution event was not saved.
+                from .kmco_core import observe
+                observe(cur, name, params["args_sha256"],
+                        params["operation_ids"], ctx, ok=ok,
+                        result_sha256=result_sha256, error_class=error_class)
     except Exception:
         # Never print connection URL, driver exception or SQL credentials.
         raise RuntimeError("KMCO_DB_AUDIT_WRITE_FAILED") from None
