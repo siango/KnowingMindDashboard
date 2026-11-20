@@ -204,3 +204,33 @@ def register_kmco_tools(registry, catalog):
                  {"steps": "list"}, {}, "read", "read-only existing handlers",
                  "max 8 operations; authenticated per-handler grants; no QC promotion"),
         lambda a, c: dispatch_readonly(registry, catalog, a["steps"], c))
+
+    # Permanent P01 circuit binding to its existing five-step implementation.
+    # Registration is opt-in with the integrity-checked catalog, not a grant.
+    # The original ToolRegistry still enforces MCP identity, exact arguments,
+    # workspace policy and read-only permission before invoking this handler.
+    def p01_evidence(args, ctx):
+        from .kmco_p01 import run_p01, P01Blocked
+
+        if any(f"P01-M{i:02d}" not in catalog._operations for i in range(1, 6)):
+            raise ToolError("KMCO_P01_CATALOG_INCOMPLETE")
+        workspace = ctx.get("workspace")
+        if not isinstance(workspace, str) or not workspace:
+            raise ToolError("KMCO_P01_WORKSPACE_REQUIRED")
+        try:
+            return run_p01(
+                Path(workspace), args["file"], args["quote"],
+                args.get("assertions", []),
+            )
+        except (P01Blocked, OSError, ValueError) as exc:
+            # Never turn the failure into a fabricated successful receipt.
+            raise ToolError("KMCO_P01_DENIED", type(exc).__name__) from None
+
+    registry.register(
+        ToolSpec("kmco.p01.evidence",
+                 "Execute canonical P01-M01..M05 against a real workspace file",
+                 {"file": "str", "quote": "str"},
+                 {"assertions": "list"}, "read", "none",
+                 "one real UTF-8 file <=1 MiB, exact quote, no network/write; "
+                 "MCP requires issuer-bound tool arguments; no execution receipt"),
+        p01_evidence)
