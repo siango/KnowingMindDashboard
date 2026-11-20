@@ -13,7 +13,7 @@ import re
 
 SERVICE_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]{0,63}$")
 DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
-OP_RE = re.compile(r"^(?:P|D)\\d{2}-M\\d{2}$")
+OP_RE = re.compile(r"^(?:P|D)\d{2}-M\d{2}$")
 
 
 def _digest(value):
