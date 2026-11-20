@@ -90,10 +90,10 @@ def recall(ctx, *, limit=10):
     try:
         with psycopg.connect("service=" + service, connect_timeout=3) as conn:
             with conn.cursor() as cur:
+                cur.execute("SET TRANSACTION READ ONLY")
                 cur.execute("SELECT current_database()")
                 if cur.fetchone() != ("km_microops",):
                     raise RuntimeError("KMCO_CORE_DB_TARGET_MISMATCH")
-                cur.execute("SET TRANSACTION READ ONLY")
                 cur.execute("SET LOCAL statement_timeout = '3000ms'")
                 cur.execute("""
                     SELECT operation,operation_ids,source_sha,dukkha,
