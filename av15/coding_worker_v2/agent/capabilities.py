@@ -152,7 +152,16 @@ class KMAdminContextProducer:
                 or not qualified(candidate) or auth.get('issuer') != self.ORIGIN
                 or auth.get('role') != session['role']):
             raise ToolError('KM_ADMIN_DELEGATION_IDENTITY_DENIED')
-        specs = {s['name']:s for s in build_default_registry().command_contract()['commands']}
+        # Use the trusted runtime's pinned registry (including opt-in KMCO).
+        # This only validates a server-issued delegation; it grants nothing.
+        from .tools import ToolRegistry
+        runtime_registry = base.get('tool_registry')
+        if runtime_registry is None:
+            runtime_registry = build_default_registry()
+        elif not isinstance(runtime_registry, ToolRegistry):
+            raise ToolError('KM_ADMIN_RUNTIME_REGISTRY_INVALID')
+        specs = {s['name']: s for s in
+                 runtime_registry.command_contract()['commands']}
         channels = [n for n in auth['permissions'] if n in CATALOG]
         if len(channels) > 1:
             raise ToolError('KM_ADMIN_ONE_CHANNEL_READ_PER_CONTEXT')
