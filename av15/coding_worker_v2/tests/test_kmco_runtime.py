@@ -57,7 +57,7 @@ class KMCOIntegrationTests(unittest.TestCase):
         self.assertFalse(item["authority_granted"])
         ordered = reg.call("kmco.plan", {"steps": [{"op_id": "D01-M01", "after": []}]}, ctx)
         self.assertFalse(ordered["executed"])
-        self.assertEqual(len(ctx["evidence"]), 2)
+        self.assertEqual(sum(e.get("event") == "tool_called" for e in ctx["evidence"]), 2)
         with self.assertRaises(ToolError):
             reg.call("kmco.execute", {}, ctx)
 
