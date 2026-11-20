@@ -71,7 +71,7 @@ class KMCOIntegrationTests(unittest.TestCase):
         register_kmco_tools(reg, catalog())
         with tempfile.TemporaryDirectory() as d:
             source = Path(d) / "evidence.txt"
-            source.write_text("one\\nverified line\\nthree\\n", encoding="utf-8")
+            source.write_text(chr(10).join(["one", "verified line", "three", ""]), encoding="utf-8")
             ctx = {"workspace": d, "read_only": True, "evidence": []}
             args = {"file": "evidence.txt", "quote": "verified line"}
             result = reg.call("kmco.p01.evidence", args, ctx)
