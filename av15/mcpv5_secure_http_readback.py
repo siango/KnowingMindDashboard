@@ -66,7 +66,7 @@ class AccessGate:
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
         path = scope.get("path", "")
-        if path != "/mcp":
+        if path not in ("/mcp", "/flow", "/flow/api"):
             return await self._reject(send, 404)
         headers = {k.lower(): v for k, v in scope.get("headers", [])}
         # Require an actual signed Access JWT; never trust identity headers.
@@ -81,6 +81,11 @@ class AccessGate:
             validate_access_jwt(supplied.decode("ascii"))
         except Exception:
             return await self._reject(send, 401)
+        if path.startswith("/flow"):
+            # Keep the very same signed Access gate; never expose an
+            # unauthenticated monitoring endpoint on the existing origin.
+            from av15.kebunate_flow_ui import handle
+            return await handle(scope, receive, send)
         return await self.app(scope, receive, send)
 
     @staticmethod
