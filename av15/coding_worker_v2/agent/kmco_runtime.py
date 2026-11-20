@@ -234,3 +234,19 @@ def register_kmco_tools(registry, catalog):
                  "one real UTF-8 file <=1 MiB, exact quote, no network/write; "
                  "MCP requires issuer-bound tool arguments; no execution receipt"),
         p01_evidence)
+
+    def core_recall(args, ctx):
+        from .kmco_core import recall
+        try:
+            return recall(ctx, limit=args.get("limit", 10))
+        except RuntimeError as exc:
+            # Public diagnostics are fixed error codes, not DB/secret strings.
+            raise ToolError(str(exc)) from None
+
+    registry.register(
+        ToolSpec("kmco.core.recall",
+                 "Read bounded same-mission/task KEBUNATE four-part work memory",
+                 {}, {"limit": "int"}, "read", "none",
+                 "uses existing km_microops and libpq service only; "
+                 "retrieval is not verification or authority"),
+        core_recall)
