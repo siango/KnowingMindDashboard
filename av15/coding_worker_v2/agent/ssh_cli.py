@@ -90,6 +90,14 @@ def converse(config, session_id, text, request_id, *, client=None):
 
 
 def main(argv=None):
+    # 'kmcw mcp --config ... local-check' forwards option flags to the
+    # existing circuit_cli parser rather than treating them as unknown options
+    # of the SSH CLI. All other subcommands retain strict argparse validation.
+    import sys
+    raw_args = list(sys.argv[1:] if argv is None else argv)
+    if raw_args[:1] == ['mcp']:
+        from .circuit_cli import main as mcp_main
+        return mcp_main(raw_args[1:])
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='action', required=True)
     for name in ('chat', 'ask'):
