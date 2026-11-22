@@ -73,7 +73,7 @@ class HttpBridgeTests(unittest.TestCase):
                     if x["permission"] == "read")
         # Test issuer is injected by the host, not copied from user JSON.
         def issuer(base):
-            return {**base, "read_only": True, "trusted_test_issuer": True}
+            return {"read_only": True, "account_id": "test-account"}
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(timeout=5)
@@ -88,7 +88,7 @@ class HttpBridgeTests(unittest.TestCase):
             status, body = self.rpc("tools/call", {"name": name, "arguments": {}})
         self.assertEqual(status, 200)
         self.assertFalse(body["result"]["isError"])
-        self.assertTrue(called.call_args.args[2]["trusted_test_issuer"])
+        self.assertEqual(called.call_args.args[2]["account_id"], "test-account")
         self.assertTrue(called.call_args.args[2]["read_only"])
 
     def test_json_cannot_grant_write(self):
