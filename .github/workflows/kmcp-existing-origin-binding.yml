@@ -94,5 +94,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: kmcp-existing-origin-binding-${{ github.run_id }}
-          path: |\n            ${{ runner.temp }}/kmcp-existing-origin-binding.json\n            ${{ runner.temp }}/kmcp-http-registry-readonly-gate.json
+          path: |
+            ${{ runner.temp }}/kmcp-existing-origin-binding.json
+            ${{ runner.temp }}/kmcp-http-registry-readonly-gate.json
           retention-days: 14
