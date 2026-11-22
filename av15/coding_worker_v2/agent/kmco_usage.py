@@ -44,7 +44,7 @@ def record(name, args, ctx, *, ok, result_sha256=None, error_class=None):
     If service is absent, returns NOT_CONFIGURED (no pretend persistence).
     When configured, a failure raises and caller must disclose audit failure.
     """
-    if not name.startswith("kmco."):
+    if not name.startswith("kmco.") and ctx.get("audit_all_tools") is not True:
         return "NOT_KMCO"
     service = ctx.get("kmco_pg_service", os.environ.get("KMCO_PG_SERVICE", ""))
     if not service:
