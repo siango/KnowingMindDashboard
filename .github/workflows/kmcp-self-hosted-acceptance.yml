@@ -1,0 +1,60 @@
+name: kmcp-self-hosted-acceptance
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths: ['.github/workflows/kmcp-self-hosted-acceptance.yml']
+permissions:
+  contents: read
+concurrency:
+  group: kmcp-ubuntu-usb-acceptance
+  cancel-in-progress: false
+jobs:
+  host-receipt:
+    if: >-
+      github.repository == 'siango/KnowingMindDashboard' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'feature/kmcp-portable-circuits-20261122' &&
+      github.event.pull_request.user.login == 'siango'
+    runs-on: [self-hosted, Linux, X64, kmcp, nonprod]
+    timeout-minutes: 3
+    steps:
+      # No checkout, package installation, model, sudo, deploy or MCP mutation.
+      - name: Verify the intended host and write a bounded receipt
+        shell: bash
+        env:
+          EXPECTED_RUNNER: ubuntu-usb
+        run: |
+          python3 - <<'PY'
+          import json, os, platform, socket, sys
+          from datetime import datetime, timezone
+          from pathlib import Path
+          assert os.environ['RUNNER_NAME'] == os.environ['EXPECTED_RUNNER'], 'Unexpected runner; no host action performed'
+          assert platform.system() == 'Linux', 'Linux required'
+          assert os.geteuid() != 0, 'Runner must execute as an ordinary user'
+          receipt = {
+              'schema': 'KMCP_HOST_RUNNER_ACCEPTANCE_V1',
+              'mission_id': 'KMCP-V5-PRODUCTION',
+              'status': 'HOST_JOB_EXECUTED',
+              'runner_name': os.environ['RUNNER_NAME'],
+              'hostname': socket.gethostname(),
+              'architecture': platform.machine(),
+              'python': sys.version.split()[0],
+              'uid': os.geteuid(),
+              'workflow_source_sha': os.environ['GITHUB_SHA'],
+              'run_id': os.environ['GITHUB_RUN_ID'],
+              'observed_at': datetime.now(timezone.utc).isoformat(),
+              'reboot_persistence': 'NOT_VERIFIED',
+              'kmcp_runtime_acceptance': 'NOT_PERFORMED',
+              'cloudflare_deployment': 'NOT_PERFORMED'
+          }
+          path = Path(os.environ['RUNNER_TEMP']) / 'kmcp-host-acceptance.json'
+          path.write_text(json.dumps(receipt, indent=2)+'\n')
+          print(json.dumps(receipt, indent=2))
+          PY
+      - name: Return host receipt to GitHub
+        uses: actions/upload-artifact@v4
+        with:
+          name: kmcp-ubuntu-usb-receipt-${{ github.run_id }}
+          path: ${{ runner.temp }}/kmcp-host-acceptance.json
+          if-no-files-found: error
+          retention-days: 14
