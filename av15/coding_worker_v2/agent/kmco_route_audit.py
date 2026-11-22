@@ -43,6 +43,23 @@ def audit_routes(catalog, registry, ctx):
         "P01": "kmco.p01.evidence",
         "P02": "kmco.p02.resume",
     }
+    operations = []
+    native_ops = 0
+    for op_id, item in sorted(catalog._operations.items()):
+        bound = source_handlers.get(item.group_id)
+        registered = bool(bound and bound in commands)
+        native_ops += int(registered)
+        operations.append({
+            "operation_id": op_id,
+            "group_id": item.group_id,
+            "design_name": item.name,
+            "source_sha256": item.source_sha256,
+            "source_handler": bound if registered else None,
+            "source_state": ("NATIVE_HANDLER_REGISTERED_NOT_LIVE_VERIFIED"
+                             if registered else "DESIGN_ONLY"),
+            "actual_tools_call": "NOT_TESTED",
+            "independent_qc": "NOT_RUN",
+        })
     rows = []
     for rid, nodes in ROUTES.items():
         actual = {}  # No K capability or D domain is directly bound by P01/P02.
@@ -64,6 +81,9 @@ def audit_routes(catalog, registry, ctx):
         "source": "EXISTING_CANONICAL_PR1_REGISTRY",
         "design_route_count": len(rows),
         "design_operations": len(catalog._operations),
+        "native_operation_source_bound": native_ops,
+        "design_only_operations": len(operations) - native_ops,
+        "operation_coverage": operations,
         "native_problem_circuit_handlers": {
             group: tool for group, tool in source_handlers.items() if tool in commands
         },
