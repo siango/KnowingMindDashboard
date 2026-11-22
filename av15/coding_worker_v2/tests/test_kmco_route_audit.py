@@ -13,6 +13,18 @@ class CanonicalRouteReadinessTests(unittest.TestCase):
         self.assertEqual(len(ROUTES), 13)
         self.assertEqual(out["design_route_count"], 13)
         self.assertEqual(out["design_operations"], 132)
+        self.assertEqual(out["native_operation_source_bound"], 10)
+        self.assertEqual(out["design_only_operations"], 122)
+        self.assertEqual(len(out["operation_coverage"]), 132)
+        self.assertEqual(len({op["operation_id"] for op in out["operation_coverage"]}), 132)
+        for op in out["operation_coverage"]:
+            self.assertEqual(op["actual_tools_call"], "NOT_TESTED")
+            self.assertEqual(op["independent_qc"], "NOT_RUN")
+            if op["group_id"] in ("P01", "P02"):
+                self.assertEqual(op["source_state"],
+                                 "NATIVE_HANDLER_REGISTERED_NOT_LIVE_VERIFIED")
+            else:
+                self.assertEqual(op["source_state"], "DESIGN_ONLY")
         self.assertEqual([row["route_id"] for row in out["routes"]],
                          [f"R{i:02d}" for i in range(1, 14)])
         self.assertEqual(out["verified_end_to_end_routes"], 0)
