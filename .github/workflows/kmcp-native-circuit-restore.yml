@@ -51,7 +51,7 @@ jobs:
                  'scripts/host/accept-runtime-recovery.py')
           changed=any(blob(event['before'],p)!=blob(pr['head']['sha'],p) for p in paths)
           with open(os.environ['GITHUB_OUTPUT'],'a') as out:
-              out.write('run_native='+str(changed).lower()+'\\n')
+              out.write('run_native='+str(changed).lower()+'\n')
           print('RECOVERY_SOURCE_CHANGED' if changed else 'UNCHANGED_RECOVERY_SOURCE_SKIP_NATIVE')
           PYCODE
   read-native-state:
