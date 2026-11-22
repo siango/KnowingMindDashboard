@@ -292,7 +292,7 @@ class ToolRegistry:
                   "checkpoint" if name.startswith(("kmcw.", "db.")) and spec.permission != 'read' else
                   "checkpoint" if name.startswith('kmcp.') and spec.permission == 'write' else
                   "checkpoint" if name in {"task_enqueue", "pilot_submit", "pilot_run",
-                                           "pilot_discuss", "pilot_reconcile", "gui_test"} else
+                                           "pilot_discuss", "pilot_reconcile", "gui_test", "cf.ai.run"} else
                   "inspect" if spec.permission == "read" else name)
         approval = policy_decision(
             action, ctx.get("task_id", "operator"), workspace,
@@ -986,4 +986,5 @@ def _ollama_inventory(ctx: dict) -> dict:
     models = data.get("models", [])
     names = [m.get("name", "?") for m in models if isinstance(m, dict)]
     return {"available": True, "models": names[:50]}
+
 

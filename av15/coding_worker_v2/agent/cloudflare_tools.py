@@ -118,6 +118,28 @@ class CloudflareClient:
         value = self._call("ai/run/" + model, {
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": max_tokens, "temperature": 0})
+        return self._text_result(value, model, max_tokens)
+
+    def converse(self, model, messages, *, max_tokens=256):
+        """Bounded SSH conversation; never executes model text or tools."""
+        if model not in self.allowed_models:
+            raise ToolError("CF_MODEL_NOT_APPROVED")
+        if (not isinstance(messages, list) or not 1 <= len(messages) <= 12
+                or any(not isinstance(m, dict) or set(m) != {"role", "content"}
+                       or m["role"] not in {"system", "user", "assistant"}
+                       or not isinstance(m["content"], str) or not 1 <= len(m["content"]) <= 4096
+                       for m in messages)
+                or messages[-1]["role"] != "user"
+                or any(m["role"] == "system" for m in messages[1:])
+                or sum(len(m["content"]) for m in messages) > 16384):
+            raise ToolError("CF_MESSAGES_INVALID")
+        if type(max_tokens) is not int or not 1 <= max_tokens <= 512:
+            raise ToolError("CF_TOKEN_LIMIT")
+        value = self._call("ai/run/" + model, {"messages": messages,
+            "max_tokens": max_tokens, "temperature": 0})
+        return self._text_result(value, model, max_tokens)
+
+    def _text_result(self, value, model, max_tokens):
         result = value.get("result")
         if not isinstance(result, dict):
             raise ToolError("CF_AI_RESULT_INVALID")
@@ -159,3 +181,4 @@ def register(registry, client):
         "trusted model allowlist; prompt<=2048; output<=64 tokens; original write approval required over MCP"),
         lambda args, ctx: client.infer(args["model"], args["prompt"],
                                       max_tokens=args.get("max_tokens", 16)))
+

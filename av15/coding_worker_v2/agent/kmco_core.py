@@ -13,8 +13,8 @@ import re
 SERVICE_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]{0,63}$")
 
 
-def _service():
-    service = os.environ.get("KMCO_PG_SERVICE", "")
+def _service(ctx=None):
+    service = (ctx or {}).get("kmco_pg_service", os.environ.get("KMCO_PG_SERVICE", ""))
     if not service:
         raise RuntimeError("KMCO_CORE_PG_SERVICE_NOT_CONFIGURED")
     if not SERVICE_RE.fullmatch(service):
@@ -80,7 +80,7 @@ def observe(cur, name, args_hash, operation_ids, ctx, *, ok,
 def recall(ctx, *, limit=10):
     """Retrieve same-mission and same-task derived records, not other owners."""
     mission, task = _scope(ctx)
-    service = _service()
+    service = _service(ctx)
     if type(limit) is not int or not 1 <= limit <= 20:
         raise RuntimeError("KMCO_CORE_LIMIT_INVALID")
     try:
@@ -120,3 +120,4 @@ def recall(ctx, *, limit=10):
                 }
     except Exception:
         raise RuntimeError("KMCO_CORE_RECALL_UNAVAILABLE") from None
+

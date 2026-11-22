@@ -46,7 +46,7 @@ def record(name, args, ctx, *, ok, result_sha256=None, error_class=None):
     """
     if not name.startswith("kmco."):
         return "NOT_KMCO"
-    service = os.environ.get("KMCO_PG_SERVICE", "")
+    service = ctx.get("kmco_pg_service", os.environ.get("KMCO_PG_SERVICE", ""))
     if not service:
         return "NOT_CONFIGURED"
     if not SERVICE_RE.fullmatch(service):
@@ -96,3 +96,4 @@ def record(name, args, ctx, *, ok, result_sha256=None, error_class=None):
         # Never print connection URL, driver exception or SQL credentials.
         raise RuntimeError("KMCO_DB_AUDIT_WRITE_FAILED") from None
     return "PERSISTED_UNVERIFIED"
+

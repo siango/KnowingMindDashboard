@@ -19,7 +19,7 @@ def load_runtime(path):
     config = json.loads(path.read_text('utf-8'))
     required = {'schema', 'node_id', 'account_id', 'mission_id', 'task_id', 'workspace', 'runtime_base'}
     if (not isinstance(config, dict) or not required.issubset(config)
-            or set(config) - required - {'kmco_catalog', 'pilot_config', 'poll_tools'}
+            or set(config) - required - {'kmco_catalog', 'pilot_config', 'poll_tools', 'cloudflare', 'postgres_service'}
             or config['schema'] != 'KMCP_RUNTIME_V1'
             or any(not isinstance(config[k], str) or not config[k].strip() for k in required)):
         raise ToolError('KMCP_CONFIG_INVALID')
@@ -55,7 +55,20 @@ def load_runtime(path):
     if not isinstance(poll, list) or any(p != 'pilot_reconcile' for p in poll):
         raise ToolError('KMCP_POLL_POLICY_INVALID')
     context['kmcp_poll_tools'] = tuple(poll)
-    registry = build_default_registry(kmco_catalog=catalog, circuits=True)
+    cloudflare = None
+    if 'cloudflare' in config:
+        from .native_cloudflare import native_client
+        # Provider credentials and roles never come from the JSON document.
+        from .native_cloudflare import private_file
+        private_file(path)
+        cloudflare = native_client(config['cloudflare'])
+    if 'postgres_service' in config:
+        from .kmco_usage import SERVICE_RE
+        service = config['postgres_service']
+        if not isinstance(service, str) or not SERVICE_RE.fullmatch(service):
+            raise ToolError('KMCP_POSTGRES_SERVICE_INVALID')
+        context['kmco_pg_service'] = service
+    registry = build_default_registry(kmco_catalog=catalog, circuits=True, cloudflare=cloudflare)
     context['tool_registry'] = registry
     return context, registry
 

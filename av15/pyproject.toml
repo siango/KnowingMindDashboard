@@ -11,6 +11,8 @@ dependencies = []
 
 [project.scripts]
 kmcp = "coding_worker_v2.agent.circuit_cli:main"
+kmcw = "coding_worker_v2.agent.ssh_cli:main"
+km = "coding_worker_v2.agent.ssh_cli:worker_main"
 
 [tool.setuptools.packages.find]
 where = ["."]

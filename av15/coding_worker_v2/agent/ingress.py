@@ -21,7 +21,8 @@ CATALOG = {
     'kmcw.approval.record': ('APPROVE', 'write'),
     'kmcw.evidence.read': ('EVIDENCE', 'read'),
 }
-METHODS = {'CHATGPT': 'MCP_OAUTH', 'LINE': 'LINE_SIGNATURE_OWNER_MAP', 'ADMIN_V2': 'SESSION_CSRF'}
+METHODS = {'CHATGPT': 'MCP_OAUTH', 'LINE': 'LINE_SIGNATURE_OWNER_MAP', 'ADMIN_V2': 'SESSION_CSRF',
+           'SSH_OWNER': 'POSIX_UID_OWNER'}
 FIELDS = {'command_id','idempotency_key','principal_id','channel','mission_id','task_id',
           'intent','scope','approval_ref','source_hash','timestamp','correlation_id'}
 
@@ -280,3 +281,4 @@ def command_schema(name):
             'approval_ref':{'type':'string','maxLength':160},
             'source_hash':{'type':'string','pattern':'^[0-9a-f]{40}$'},
             'timestamp':{'type':'number'}}}
+
