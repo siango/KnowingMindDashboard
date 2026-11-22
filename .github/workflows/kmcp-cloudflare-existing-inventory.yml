@@ -1,0 +1,108 @@
+name: kmcp-cloudflare-existing-inventory
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths: ['.github/workflows/kmcp-cloudflare-existing-inventory.yml']
+permissions:
+  contents: read
+jobs:
+  inventory:
+    if: >-
+      github.repository == 'siango/KnowingMindDashboard' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'feature/kmcp-portable-circuits-20261122' &&
+      github.event.pull_request.user.login == 'siango'
+    runs-on: [self-hosted, Linux, X64, kmcp, nonprod]
+    timeout-minutes: 5
+    steps:
+      - name: Read existing Cloudflare resources using local Wrangler credentials
+        shell: bash
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+          CI: 'true'
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          python3 - <<'PY'
+          import json, os, subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+          from urllib import request, error, parse
+          assert os.environ['RUNNER_NAME']=='ubuntu-usb'
+          project=Path.home()/'kmcp-host-setup/cloudflare/kmcp-edge'
+          auth=subprocess.run([str(project/'node_modules/.bin/wrangler'),'auth','token','--json'],
+                              cwd=project,capture_output=True,text=True,timeout=45)
+          if auth.returncode:
+              raise SystemExit('WRANGLER_LOCAL_AUTH_UNAVAILABLE: no credentials were printed')
+          try:
+              creds=json.loads(auth.stdout)
+              assert creds.get('type') in ('oauth','api_token')
+              token=creds['token']
+              assert isinstance(token,str) and token
+          except (ValueError,KeyError,AssertionError):
+              raise SystemExit('WRANGLER_AUTH_FORMAT_UNSUPPORTED: no credentials were printed')
+          report={'schema':'KMCP_CF_EXISTING_INVENTORY_V1','mission_id':'KMCP-V5-PRODUCTION',
+                  'node_id':'ubuntu-usb','observed_at':datetime.now(timezone.utc).isoformat(),
+                  'read_only':True,'deployed':False,'resources':{}}
+          def get(path):
+              req=request.Request('https://api.cloudflare.com/client/v4/'+path,
+                                  headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'})
+              try:
+                  with request.urlopen(req,timeout=15) as response:
+                      doc=json.load(response)
+                      return {'status':response.status,'success':doc.get('success',True),
+                              'result':doc.get('result'),'result_info':doc.get('result_info')}
+              except error.HTTPError as exc:
+                  return {'status':exc.code,'success':False,'result':None}
+              except (OSError,ValueError):
+                  return {'status':'TRANSPORT_OR_FORMAT_ERROR','success':False,'result':None}
+          def listing(path,keys):
+              response=get(path)
+              rows=response.get('result')
+              if isinstance(rows,list):
+                  response['items']=[{k:row.get(k) for k in keys if k in row} for row in rows if isinstance(row,dict)]
+                  response['observed_count']=len(rows)
+              response.pop('result',None)
+              return response
+          # The existing owned domain selects the account; no arbitrary first-account deployment.
+          zones=get('zones?name=knowingmind.app&per_page=50')
+          rows=zones.get('result') if isinstance(zones.get('result'),list) else []
+          report['zones']={'status':zones['status'],'items':[{'id':z['id'],'name':z['name'],'account_id':z.get('account',{}).get('id')} for z in rows]}
+          if len(rows)!=1:
+              report['status']='EXACT_ACCOUNT_SELECTION_BLOCKED'
+          else:
+              zone=rows[0]; account=zone['account']['id']; zid=zone['id']
+              report['account_id']=account
+              report['account_selection']='exact knowingmind.app zone'
+              endpoints={
+                  'workers':('accounts/'+account+'/workers/scripts',('id','created_on','modified_on')),
+                  'worker_domains':('accounts/'+account+'/workers/domains',('id','hostname','service','environment')),
+                  'd1':('accounts/'+account+'/d1/database?per_page=100',('uuid','name','created_at','version')),
+                  'queues':('accounts/'+account+'/queues?per_page=100',('queue_id','queue_name','created_on')),
+                  'tunnels':('accounts/'+account+'/cfd_tunnel?is_deleted=false&per_page=100',('id','name','status','created_at')),
+                  'access_apps':('accounts/'+account+'/access/apps?per_page=100',('id','name','domain','type','aud')),
+                  'mcp_dns':('zones/'+zid+'/dns_records?name=mcp.knowingmind.app&per_page=100',('id','name','type','content','proxied'))
+              }
+              for name,(path,keys) in endpoints.items():
+                  report['resources'][name]=listing(path,keys)
+              buckets=get('accounts/'+account+'/r2/buckets?per_page=100')
+              result=buckets.pop('result',None)
+              if isinstance(result,dict):
+                  buckets['items']=[{'name':b.get('name'),'creation_date':b.get('creation_date')} for b in result.get('buckets',[])]
+              report['resources']['r2']=buckets
+              report['status']='READBACK_COMPLETE_WITH_PER_SERVICE_RESULTS'
+              report['coverage']='BOUNDED_FIRST_PAGE; result_info retained; denied/unknown is not zero'
+          token=None; creds=None
+          out=Path(os.environ['RUNNER_TEMP'])/'kmcp-cloudflare-inventory.json'
+          out.write_text(json.dumps(report,indent=2)+'\n')
+          persistent=Path.home()/'KnowingMind/state/installations/cloudflare-inventory.json'
+          persistent.parent.mkdir(parents=True,exist_ok=True)
+          persistent.write_text(out.read_text())
+          print(json.dumps(report,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kmcp-cloudflare-existing-inventory-${{ github.run_id }}
+          path: ${{ runner.temp }}/kmcp-cloudflare-inventory.json
+          if-no-files-found: warn
+          retention-days: 14
