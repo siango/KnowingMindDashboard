@@ -75,7 +75,7 @@ def pg_dump_diagnostic(service, timeout=45):
     for binary in ('pg_dump','psql'):
         try:
             p=subprocess.run([binary,'--version'],capture_output=True,text=True,timeout=5)
-            match=re.search(r'(\\d+)\\.(\\d+)(?:\\.(\\d+))?',p.stdout)
+            match=re.search(r'(\d+)\.(\d+)(?:\.(\d+))?',p.stdout)
             result[binary+'_version']=match.group(0) if p.returncode==0 and match else 'UNKNOWN'
         except (OSError,subprocess.TimeoutExpired):
             result[binary+'_version']='UNAVAILABLE'
