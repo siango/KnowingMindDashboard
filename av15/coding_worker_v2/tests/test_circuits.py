@@ -399,7 +399,7 @@ class Circuits(unittest.TestCase):
 
     def test_actual_registry_and_kmco_dataflow(self):
         self.reg = build_default_registry(kmco_catalog=catalog(), circuits=True)
-        self.assertEqual(len(self.reg.names()), 78)
+        self.assertEqual(len(self.reg.names()), 79)  # + real KMCO P02 five-stage read-only handler
         self.authorize()
         value = {'nodes': [node('search', 'code_search', {'repo': str(self.repo), 'pattern': 'evidence'},
             obj(matches={'type': 'array', 'items': obj(file={'type': 'string'}, line={'type': 'string'}, text={'type': 'string'})})),
