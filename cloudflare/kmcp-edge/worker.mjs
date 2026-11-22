@@ -1,3 +1,4 @@
+import {handleStripeWebhook} from './stripe-webhook.mjs';
 // Stateless edge transport only. Original KMCP remains the SSOT and ACL owner.
 export default {
   async fetch(request, env) {
@@ -5,6 +6,7 @@ export default {
     if (url.pathname === '/health' && request.method === 'GET') {
       return Response.json({ service: 'kmcp-edge', originChecked: false });
     }
+    if (url.pathname === '/stripe/webhook') return handleStripeWebhook(request, env);
     if (url.pathname !== '/mcp') return new Response('Not found', { status: 404 });
     if (!env.EDGE_TOKEN || !env.ORIGIN_AUTHORIZATION || !env.ORIGIN_URL) {
       return new Response('Edge not configured', { status: 503 });
