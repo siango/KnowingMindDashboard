@@ -2,6 +2,7 @@
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from coding_worker_v2.agent.tools import build_default_registry, ToolError
 from coding_worker_v2.agent.memory import current_base_commit
@@ -68,3 +69,27 @@ class ContinuityTests(unittest.TestCase):
             self.reg.call('kmco.p08.memory',{'goal':'','limit':5},self.ctx)
         with self.assertRaisesRegex(ToolError,'MCP_TOOL_SCOPE_DENIED'):
             self.reg.call('kmco.p08.memory',{'goal':'calculator'},self.ctx,mcp=True)
+
+    def test_nonmatching_and_out_of_scope_receipts_consume_read_budget(self):
+        excluded = [None, {'mission_id':'other'},
+                    {'mission_id':'m','input':{'hints':{'account_id':'other'}}},
+                    {'mission_id':'m','input':{'hints':{'account_id':'fixture-account'},
+                                              'goal':'unrelated'}}]
+        for receipt in excluded:
+            with self.subTest(receipt=receipt):
+                examined=[]
+                def receipts(root):
+                    for index in range(2000):
+                        examined.append(index)
+                        yield self.root/'never-opened', receipt
+                with patch('coding_worker_v2.agent.kmco_continuity._iter_receipts',receipts):
+                    with self.assertRaisesRegex(ToolError,'P08_SCAN_BUDGET_EXCEEDED'):
+                        self.reg.call('kmco.p08.memory',{'goal':'calculator','limit':1},self.ctx)
+                self.assertEqual(len(examined),1001)
+
+    def test_exact_read_budget_allows_empty_results(self):
+        records=((self.root/'never-opened',None) for _ in range(1000))
+        with patch('coding_worker_v2.agent.kmco_continuity._iter_receipts',return_value=records):
+            result=self.reg.call('kmco.p08.memory',{'goal':'calculator'},self.ctx)
+        self.assertEqual(result['cases'],[])
+        self.assertEqual(result['independent_qc'],'NOT_RUN')

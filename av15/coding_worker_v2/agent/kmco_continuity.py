@@ -85,7 +85,11 @@ def run_p08(args, ctx):
     normalized = normalize_goal(goal)
     records = []
     # M02 exact goal key and M03 original lexical similarity; never pretend vector search.
-    for path, receipt in _iter_receipts(Path(root)):
+    for examined, (path, receipt) in enumerate(_iter_receipts(Path(root)), start=1):
+        # Charge every examined receipt, including corrupt, out-of-scope and
+        # nonmatching records. A result limit is not a read budget.
+        if examined > 1000:
+            raise ToolError('P08_SCAN_BUDGET_EXCEEDED')
         if (not receipt or receipt.get('mission_id') != ctx['mission_id']
                 or receipt.get('input',{}).get('hints',{}).get('account_id') != ctx['account_id']):
             continue
@@ -105,8 +109,6 @@ def run_p08(args, ctx):
             'freshness': 'CURRENT_SOURCE_OBSERVATION' if fresh else 'STALE',
             'classification': 'OBSERVED_REQUIRES_INDEPENDENT_READBACK',
             'authority': 'EXISTING_KMCW_RECEIPTS', 'retrieval_only': True}))
-        if len(records) > 1000:
-            raise ToolError('P08_SCAN_BUDGET_EXCEEDED')
     # M05 deterministic bounded reconciliation, preserve original digest identity.
     unique = {}
     for score, row in sorted(records, key=lambda x: x[0], reverse=True):
