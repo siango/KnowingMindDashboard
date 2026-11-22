@@ -67,6 +67,44 @@ def storage_summary(home, budget_seconds=90, max_files=500000):
     return result
 
 
+def pg_dump_diagnostic(service, timeout=45):
+    """Exact read-only dump preflight, with no database bytes or secrets retained."""
+    if not isinstance(service, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{0,63}', service):
+        return {'status':'INVALID_SERVICE_ALIAS'}
+    result={'status':'NOT_RUN','read_only':True,'database_bytes_saved':False}
+    for binary in ('pg_dump','psql'):
+        try:
+            p=subprocess.run([binary,'--version'],capture_output=True,text=True,timeout=5)
+            match=re.search(r'(\\d+)\\.(\\d+)(?:\\.(\\d+))?',p.stdout)
+            result[binary+'_version']=match.group(0) if p.returncode==0 and match else 'UNKNOWN'
+        except (OSError,subprocess.TimeoutExpired):
+            result[binary+'_version']='UNAVAILABLE'
+    try:
+        p=subprocess.run(
+            ['pg_dump','--dbname=service='+service,'--format=custom',
+             '--no-owner','--no-acl','--file=/dev/null'],
+            capture_output=True,text=True,timeout=timeout,
+            env={**os.environ,'PGCONNECT_TIMEOUT':'5'})
+        result['exit_code']=p.returncode
+        result['status']='PASS' if p.returncode==0 else 'FAILED'
+        # Never disclose raw stderr: it may include hostnames, user names or SQL.
+        error=p.stderr.lower()
+        markers=(
+            ('SERVER_CLIENT_VERSION_MISMATCH',('server version mismatch','aborting because of server version mismatch')),
+            ('PERMISSION_DENIED',('permission denied','must be owner','insufficient privilege')),
+            ('CONNECTION_FAILED',('connection refused','could not connect','no such file or directory','timeout expired')),
+            ('AUTH_FAILED',('password authentication failed','no password supplied','fe_sendauth')),
+            ('SERVER_ERROR',('error:','fatal:')))
+        result['failure_class']='NONE' if p.returncode==0 else next(
+            (name for name,signatures in markers if any(x in error for x in signatures)),
+            'UNCLASSIFIED')
+    except subprocess.TimeoutExpired:
+        result.update(status='TIMED_OUT',failure_class='TIMEOUT')
+    except OSError:
+        result.update(status='UNAVAILABLE',failure_class='EXECUTABLE_OR_OS')
+    return result
+
+
 def main():
     assert os.environ.get('RUNNER_NAME')=='ubuntu-usb' and os.getuid()!=0
     home=Path.home(); report={'schema':'KEBUNATE_NATIVE_DIAGNOSTIC_V1',
@@ -81,6 +119,7 @@ def main():
         config=json.loads(profile.read_text())
         assert config['account_id']=='posix:'+str(os.getuid())
         base=Path(config['runtime_base'])
+        report['pg_dump_diagnostic']=pg_dump_diagnostic(config['postgres_service'])
         for p in sorted((base/'queue/checkpoints').glob('.kmcp-circuit-*.json'),key=lambda p:p.stat().st_mtime,reverse=True)[:20]:
             if p.stat().st_size>1048576:continue
             raw=p.read_bytes();d=json.loads(raw);b=d.get('data',{}).get('body',{})
