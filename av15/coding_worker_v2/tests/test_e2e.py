@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 import time
 from pathlib import Path
@@ -242,18 +243,42 @@ class TestE2E(FakeBackend):
             claimed = store.claim()
             assert claimed is not None
 
+            # Advance only the queue's clock, acknowledging each real background
+            # renewal before advancing again. CI scheduling cannot expire a
+            # 60ms wall-clock fixture; the test still spans several lease TTLs.
+            clock = [time.time()]
+            renewed = [0.0]
+            renewal = threading.Condition()
+            original_heartbeat = store.heartbeat
+
+            def observed_heartbeat(*args, **kwargs):
+                ok = original_heartbeat(*args, **kwargs)
+                if ok:
+                    with renewal:
+                        renewed[0] = clock[0]
+                        renewal.notify_all()
+                return ok
+
             def slow_generation(*_args, **_kwargs):
-                time.sleep(0.15)
+                for _ in range(8):
+                    with renewal:
+                        clock[0] += 2
+                        target = clock[0]
+                        self.assertTrue(renewal.wait_for(
+                            lambda: renewed[0] >= target, timeout=5),
+                            "Background heartbeat did not renew the lease")
                 return Generation(text=FIX, provider="qwen-local",
                                   model="qwen-test"), []
 
-            with mock.patch("coding_worker_v2.queue_store.LEASE_TTL_S", 0.06), \
+            with mock.patch("coding_worker_v2.queue_store.time",
+                            SimpleNamespace(time=lambda: clock[0])), \
+                    mock.patch("coding_worker_v2.queue_store.LEASE_TTL_S", 6), \
                     mock.patch("coding_worker_v2.queue_store.HEARTBEAT_EVERY_S",
                                0.01), \
                     mock.patch("coding_worker_v2.run_once.generate_with_fallback",
                                side_effect=slow_generation), \
                     mock.patch.object(store, "heartbeat",
-                                      wraps=store.heartbeat) as heartbeat:
+                                      side_effect=observed_heartbeat) as heartbeat:
                 result = run_task(claimed, store, config,
                                   Path(tmp) / "spend.json",
                                   chain=[SimpleNamespace(name="qwen-local")])
@@ -355,3 +380,4 @@ class TestE2E(FakeBackend):
 
 if __name__ == "__main__":
     unittest.main()
+
