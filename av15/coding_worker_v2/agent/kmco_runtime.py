@@ -235,6 +235,48 @@ def register_kmco_tools(registry, catalog):
                  "MCP requires issuer-bound tool arguments; no execution receipt"),
         p01_evidence)
 
+    # The existing P02-M01..M05 implementation already performs a real,
+    # deterministic five-stage context preservation check. Expose that
+    # implementation; do not invent 5 independently deployed MicroOps.
+    def p02_resume(args, ctx):
+        from .kmco_p02 import run_p02, P02Blocked
+        from .memory import current_base_commit
+        if any(f"P02-M{i:02d}" not in catalog._operations for i in range(1, 6)):
+            raise ToolError("KMCO_P02_CATALOG_INCOMPLETE")
+        old, new = args["previous"], args["current"]
+        if not isinstance(old, dict) or not isinstance(new, dict):
+            raise ToolError("KMCO_P02_CONTEXT_INVALID")
+        # Tenant/mission identity MUST come from the bound KMCW issuer, not
+        # an untrusted arbitrary command argument.
+        if (not isinstance(ctx.get("mission_id"), str)
+                or not isinstance(ctx.get("task_id"), str)
+                or old.get("mission_id") != ctx["mission_id"]
+                or new.get("mission_id") != ctx["mission_id"]
+                or old.get("task_id") != ctx["task_id"]
+                or new.get("task_id") != ctx["task_id"]):
+            raise ToolError("KMCO_P02_ISSUER_SCOPE_MISMATCH")
+        try:
+            pinned = current_base_commit(ctx["workspace"])
+        except (OSError, ValueError, KeyError):
+            raise ToolError("KMCO_P02_SOURCE_UNAVAILABLE") from None
+        if not isinstance(pinned, str) or not re.fullmatch(r"[0-9a-f]{40}", pinned):
+            raise ToolError("KMCO_P02_SOURCE_INVALID")
+        if old.get("source_sha") != pinned or new.get("source_sha") != pinned:
+            raise ToolError("KMCO_P02_SOURCE_CHANGED")
+        try:
+            return run_p02(old, new)
+        except P02Blocked as exc:
+            raise ToolError(str(exc)) from None
+
+    registry.register(
+        ToolSpec("kmco.p02.resume",
+                 "Run real P02-M01..M05 mission context continuity circuit",
+                 {"previous": "dict", "current": "dict"}, {},
+                 "read", "none",
+                 "requires issuer-bound mission/task + exact Git SHA; "
+                 "no state mutation or independent QC promotion"),
+        p02_resume)
+
     def core_recall(args, ctx):
         from .kmco_core import recall
         try:
