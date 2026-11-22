@@ -75,6 +75,20 @@ def digest(value):
     return hashlib.sha256(canonical(value)).hexdigest()
 
 
+def runtime_digest():
+    """Content identity of the installed worker, independent of its host path."""
+    root = Path(__file__).resolve().parents[1]
+    sources = {}
+    for path in sorted(root.rglob('*.py')):
+        relative = path.relative_to(root)
+        if set(relative.parts) & {'tests', '__pycache__', 'build', 'state'}:
+            continue
+        sources[relative.as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+    if not sources:
+        fail('CIRCUIT_RUNTIME_SOURCE_UNAVAILABLE')
+    return digest(sources)
+
+
 def validate_schema(schema, value=None, *, definition=False, depth=0):
     """Small explicit JSON Schema subset. Unknown keywords fail closed.
 
@@ -326,6 +340,7 @@ def compile_command(args, ctx, registry):
     order = validate_graph(graph, registry)
     manifest = {'schema': SCHEMA, **scope, 'request_id': request,
                 'command': command, 'graph': graph,
+                'runtime_sha256': runtime_digest(),
                 'contract_sha256': registry.command_contract()['sha256']}
     return {'manifest': manifest, 'manifest_sha256': digest(manifest),
             'order': order, 'planning_source': origin, 'executed': False,
@@ -395,10 +410,11 @@ def _save(body, ctx):
 def submit(args, ctx, registry):
     manifest = copy.deepcopy(args['manifest'])
     if (not isinstance(manifest, dict) or set(manifest) != {'schema', 'account_id', 'mission_id',
-            'owner_node', 'source_sha', 'request_id', 'command', 'graph', 'contract_sha256'}
+            'owner_node', 'source_sha', 'request_id', 'command', 'graph', 'contract_sha256', 'runtime_sha256'}
             or manifest.get('schema') != SCHEMA or not ID.fullmatch(manifest.get('request_id', ''))
             or any(manifest.get(k) != v for k, v in identity(ctx).items())
-            or manifest['contract_sha256'] != registry.command_contract()['sha256']):
+            or manifest['contract_sha256'] != registry.command_contract()['sha256']
+            or manifest['runtime_sha256'] != runtime_digest()):
         fail('CIRCUIT_MANIFEST_SCOPE_OR_VERSION_MISMATCH')
     order = validate_graph(manifest['graph'], registry)
     sha = digest(manifest)
@@ -493,6 +509,8 @@ def run(args, ctx, registry):
             fail('CIRCUIT_SOURCE_CHANGED')
         if body['manifest']['contract_sha256'] != registry.command_contract()['sha256']:
             fail('CIRCUIT_TOOL_CONTRACT_CHANGED')
+        if body['manifest']['runtime_sha256'] != runtime_digest():
+            fail('CIRCUIT_RUNTIME_SOURCE_CHANGED')
         if body['status'] in TERMINAL:
             return report({'circuit_id': circuit_id}, ctx)
         nodes = {n['id']: n for n in body['manifest']['graph']['nodes']}
@@ -617,6 +635,7 @@ def report(args, ctx):
     result = {'schema': 'KMCP_CIRCUIT_REPORT_V1', 'circuit_id': body['circuit_id'],
               'manifest_sha256': body['manifest_sha256'], 'mission_id': ctx['mission_id'],
               'owner_node': body['manifest']['owner_node'], 'source_sha': body['manifest']['source_sha'],
+              'runtime_sha256': body['manifest']['runtime_sha256'],
               'status': body['status'], 'reason': body['reason'], 'completed_nodes': done,
               'total_nodes': len(nodes), 'progress_percent': round(100 * done / len(nodes), 2),
               'nodes': nodes, 'outputs': body['outputs'], 'acceptance': body['acceptance'],

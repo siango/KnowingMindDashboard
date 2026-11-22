@@ -26,6 +26,10 @@ jobs:
           - os: ubuntu-latest
             python: '3.11'
     runs-on: ${{ matrix.os }}
+    env:
+      # macOS /var is an OS alias for /private/var. Canonical temp roots keep
+      # fixture path identities stable without weakening symlink guards.
+      TMPDIR: ${{ runner.temp }}
     permissions:
       contents: read
     timeout-minutes: 15

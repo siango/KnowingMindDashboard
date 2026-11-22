@@ -54,7 +54,7 @@ def catalog():
 class Circuits(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
+        self.root = Path(self.tmp.name).resolve()
         self.repo = self.root / 'repo'
         self.repo.mkdir()
         (self.repo / 'evidence.txt').write_text('evidence\n', encoding='utf-8')
@@ -369,6 +369,21 @@ class Circuits(unittest.TestCase):
         self.assertFalse(saved['output']['independent_verified'])
         self.assertEqual(self.run_job(job)['receipt'], receipt)
 
+    def test_worker_code_upgrade_invalidates_old_circuit_even_if_tool_schema_matches(self):
+        job = self.submit()
+        with patch.object(c, 'runtime_digest', return_value='0' * 64):
+            self.assert_error('CIRCUIT_RUNTIME_SOURCE_CHANGED', lambda: self.run_job(job))
+        self.assertEqual(self.calls, [])
+
+    def test_os_workspace_alias_has_one_memory_and_task_identity(self):
+        from coding_worker_v2.agent.memory import canonical_repo, fingerprint_for
+        alias = self.root / 'os-alias'
+        alias.symlink_to(self.repo, target_is_directory=True)
+        sha = c.identity(self.ctx)['source_sha']
+        self.assertEqual(canonical_repo({'repo': str(alias)}), str(self.repo))
+        self.assertEqual(fingerprint_for('same goal', str(alias), sha),
+                         fingerprint_for('same goal', str(self.repo), sha))
+
     def test_size_limit_and_constant_fake_output_denied(self):
         value = graph()
         value['outputs'] = {'answer': 'pretend'}
@@ -425,6 +440,37 @@ class Circuits(unittest.TestCase):
         self.assertEqual(len(response['tools']), 73)
         tool = next(t for t in response['tools'] if t['name'] == 'kmcp.circuit.report')
         self.assertIn('outputSchema', tool)
+
+    def test_real_stdio_command_submit_run_status_with_one_parent_approval(self):
+        command = {'request_id': 'stdio', 'command': 'produce evidence', 'graph': graph()}
+        compiled = c.compile_command(command, self.ctx, self.reg)
+        manifest = compiled['manifest']
+        circuit_id = 'circuit-' + c.digest([manifest[k] for k in
+            ('account_id', 'mission_id', 'request_id')])[:24]
+        calls = [('kmcp.command', command), ('kmcp.circuit.submit', {'manifest': manifest}),
+                 ('kmcp.circuit.run', {'circuit_id': circuit_id, 'manifest_sha256': compiled['manifest_sha256']}),
+                 ('kmcp.circuit.status', {'circuit_id': circuit_id})]
+        producer = self.ctx.pop('kmcp_step_context')
+        grants = iter(calls)
+        def context_provider(base):
+            name, arguments = next(grants)
+            return producer(base, name, arguments)
+        requests = [{'jsonrpc': '2.0', 'id': 1, 'method': 'initialize',
+                     'params': {'protocolVersion': '2025-06-18'}}]
+        for i, (name, arguments) in enumerate(calls, 2):
+            requests.append({'jsonrpc': '2.0', 'id': i, 'method': 'tools/call',
+                             'params': {'name': name, 'arguments': arguments}})
+        source = io.BytesIO(('\n'.join(json.dumps(r) for r in requests) + '\n').encode())
+        sink = io.StringIO()
+        self.ctx['tool_registry'] = self.reg
+        mcp_server.serve(self.ctx, source, sink, context_provider=context_provider)
+        responses = [json.loads(line) for line in sink.getvalue().splitlines()]
+        self.assertTrue(all(not r.get('result', {}).get('isError', False) for r in responses))
+        report = responses[-1]['result']['structuredContent']
+        self.assertEqual(report['status'], 'COMPLETED')
+        self.assertEqual(report['outputs'], {'answer': 'evidence'})
+        self.assertIsNotNone(report['receipt'])
+        self.assertEqual(self.calls, ['source', 'echo'])
 
 
 if __name__ == '__main__':

@@ -13,7 +13,8 @@ It creates no scheduler, worker service, database or authority issuer.
    the existing Qwen provider. Missing inference returns a named blocker, never
    an invented plan. Host-supplied decomposition needs no local model or API.
 2. Compilation validates tools, dependencies, declared output ports, edge
-   types and final acceptance. It returns an immutable manifest and digest.
+   types and final acceptance. It returns an immutable manifest and digest,
+   including a host-path-independent content hash of the installed worker.
 3. `kmcp.circuit.submit` stores that plan in the existing checkpoint store.
    Account/mission/request ID deduplicates; different content conflicts.
 4. Approve the manifest through the existing task-scoped authority. Invoke
@@ -121,6 +122,12 @@ For an MCP client, launch `kmcp` with arguments `--config`, your runtime config
 path, `serve`, and the appropriate existing context provider integration.
 The installed launcher uses the existing newline-delimited MCP stdio transport.
 No inbound port, SSH or tunnel is required for local MCP clients.
+
+For remote installation, use pip's Git URL with `#subdirectory=av15` and pin
+the accepted Git commit. This fetches code directly from GitHub; operators do
+not copy generated files between computers. CI wheel artifacts provide the
+alternative prebuilt package. Update code in GitHub, let CI validate it, then
+install that version through the existing deployment lane.
 
 Configuration example: `pilot/kmcp-runtime.example.json`. Resolve paths relative
 to the config file, not an operator's current directory. `node_id` is explicit;
