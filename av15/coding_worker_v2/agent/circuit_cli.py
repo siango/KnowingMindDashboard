@@ -70,6 +70,8 @@ def load_runtime(path):
         context['kmco_pg_service'] = service
     registry = build_default_registry(kmco_catalog=catalog, circuits=True, cloudflare=cloudflare)
     context['tool_registry'] = registry
+    if catalog is not None:
+        context['kmco_catalog'] = catalog
     return context, registry
 
 
@@ -78,6 +80,7 @@ def main(argv=None):
     parser.add_argument('--config', required=True)
     sub = parser.add_subparsers(dest='action', required=True)
     sub.add_parser('catalog')
+    sub.add_parser('local-check')
     plan = sub.add_parser('plan')
     plan.add_argument('--command', required=True)
     plan.add_argument('--request-id', required=True)
@@ -94,6 +97,10 @@ def main(argv=None):
             from .capabilities import KMAdminContextProducer
             return serve(ctx, context_provider=KMAdminContextProducer.runtime_context
                          if args.admin_runtime_context else None)
+        if args.action == 'local-check':
+            from .local_mcp_acceptance import inspect_local
+            print(json.dumps(inspect_local(ctx, registry), ensure_ascii=False, indent=2))
+            return 0
         if args.action == 'catalog':
             value = registry.command_contract()
         elif args.action == 'plan':
