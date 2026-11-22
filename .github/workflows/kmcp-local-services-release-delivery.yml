@@ -64,11 +64,11 @@ jobs:
           p=subprocess.run(['gh','release','view',tag,'--repo',repo,'--json','isDraft,targetCommitish,body'],capture_output=True,text=True)
           if p.returncode==0:
               d=json.loads(p.stdout)
-              assert d['isDraft'] and d['targetCommitish']=='455355c25c6eadf683564971435d7f8923d9aa33' and 'KEBUNATE_LOCAL_SERVICES_CANDIDATE_V1' in d['body']
+              assert d['isDraft'] and d['targetCommitish']=='248ea98ac5d004b9e4b79c6a2af8ef0b707d5a62' and 'KEBUNATE_LOCAL_SERVICES_CANDIDATE_V1' in d['body']
           else:
-              subprocess.run(['gh','release','create',tag,'--repo',repo,'--draft','--target','455355c25c6eadf683564971435d7f8923d9aa33',
+              subprocess.run(['gh','release','create',tag,'--repo',repo,'--draft','--target','248ea98ac5d004b9e4b79c6a2af8ef0b707d5a62',
                   '--title','KEBUNATE local services candidate: n8n and ArtCraft',
-                  '--notes','KEBUNATE_LOCAL_SERVICES_CANDIDATE_V1\nExact-source software build and tests passed. Ubuntu acceptance is pending. Not a production-readiness claim. No credentials or user data included.'],check=True)
+                  '--notes','KEBUNATE_LOCAL_SERVICES_CANDIDATE_V1\nApplication source 455355c25c6eadf683564971435d7f8923d9aa33 matches distribution snapshot 248ea98ac5d004b9e4b79c6a2af8ef0b707d5a62 except CI workflow definitions, which use the default-branch baseline. Software build and tests passed. Ubuntu acceptance is pending. Not a production-readiness claim. No credentials or user data included.'],check=True)
           PY
           gh release upload km-local-services-20261123-candidate delivery/* --repo "$GITHUB_REPOSITORY" --clobber
   receive-and-accept:
@@ -113,4 +113,3 @@ jobs:
           path: ${{ runner.temp }}/kmcp-local-services.json
           if-no-files-found: warn
           retention-days: 14
-
