@@ -102,9 +102,12 @@ def _schemas(registry, ctx=None):
     } for spec in contracts]
     from .ingress import command_schema
     for item in schemas:
+        if item['name'].startswith('kmcp.'):
+            from .circuits import input_schema
+            item['inputSchema'] = input_schema(item['name'], item['inputSchema'])
         if item['name'] in CATALOG:
             item['inputSchema']['properties']['command'] = command_schema(item['name'])
-        if item['name'].startswith('db.'):
+        if item['name'].startswith(('db.', 'kmcp.')):
             spec = by_name[item['name']]
             item['outputSchema'] = spec['output_schema']
     return schemas
@@ -337,6 +340,8 @@ def serve(ctx, source=None, sink=None, *, context_provider=None):
                         response["result"] = {"content": [{
                             "type": "text", "text": json.dumps(result, ensure_ascii=False)}],
                             "isError": False}
+                        if params.get('name', '').startswith('kmcp.'):
+                            response['result']['structuredContent'] = result
                     except (ToolError, ValueError, OSError) as exc:
                         reason = exc.reason if isinstance(exc, ToolError) else type(exc).__name__
                         print(f"KMCW_MCP_CALL_FAILED: {reason}", file=sys.stderr)
@@ -371,3 +376,4 @@ def main():
 
 if __name__ == '__main__':
     raise SystemExit(main())
+

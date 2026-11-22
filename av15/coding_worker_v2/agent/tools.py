@@ -290,6 +290,7 @@ class ToolRegistry:
                 paths = ["../outside-workspace"]
         action = ("test" if name == "test_run" else
                   "checkpoint" if name.startswith(("kmcw.", "db.")) and spec.permission != 'read' else
+                  "checkpoint" if name.startswith('kmcp.') and spec.permission == 'write' else
                   "checkpoint" if name in {"task_enqueue", "pilot_submit", "pilot_run",
                                            "pilot_discuss", "pilot_reconcile", "gui_test"} else
                   "inspect" if spec.permission == "read" else name)
@@ -407,7 +408,8 @@ def search_code(repo: str, pattern: str, max_matches: int = 30) -> list[dict]:
     return out
 
 
-def build_default_registry(photocraft=None, serena=None, kmco_catalog=None) -> ToolRegistry:
+def build_default_registry(photocraft=None, serena=None, kmco_catalog=None,
+                           *, circuits=False) -> ToolRegistry:
     reg = ToolRegistry()
     from .pilot import register_pilot_tools
     register_pilot_tools(reg)
@@ -584,6 +586,9 @@ def build_default_registry(photocraft=None, serena=None, kmco_catalog=None) -> T
     if kmco_catalog is not None:
         from .kmco_runtime import register_kmco_tools
         register_kmco_tools(reg, kmco_catalog)
+    if circuits:
+        from .circuits import register as register_circuits
+        register_circuits(reg)
     return reg
 
 
@@ -978,3 +983,4 @@ def _ollama_inventory(ctx: dict) -> dict:
     models = data.get("models", [])
     names = [m.get("name", "?") for m in models if isinstance(m, dict)]
     return {"available": True, "models": names[:50]}
+

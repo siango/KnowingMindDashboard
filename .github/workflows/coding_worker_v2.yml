@@ -5,19 +5,35 @@ on:
     paths:
       - 'av15/coding_worker_v2/**'
       - '.github/workflows/coding_worker_v2.yml'
+      - 'av15/pyproject.toml'
+      - 'av15/Dockerfile'
   pull_request:
     paths:
       - 'av15/coding_worker_v2/**'
+      - '.github/workflows/coding_worker_v2.yml'
+      - 'av15/pyproject.toml'
+      - 'av15/Dockerfile'
   workflow_dispatch:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ['3.12']
+        include:
+          - os: ubuntu-latest
+            python: '3.11'
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: ${{ matrix.python }}
       - name: Compile all modules
         run: python3 -m compileall -q av15/coding_worker_v2
       - name: Validate n8n workflow JSON
@@ -34,7 +50,33 @@ jobs:
           print(f"Validated {len(files)} n8n workflow definitions")
           PY
       - name: Unit + e2e tests (stdlib unittest)
-        run: cd av15 && python3 -m unittest discover -s coding_worker_v2/tests -t .
+        shell: bash
+        run: |
+          cd av15
+          python3 -m unittest discover -s coding_worker_v2/tests -t . 2>&1 | tee ../kmcp-tests.log
+      - name: Build portable wheel and smoke-test installed entry point
+        shell: bash
+        run: |
+          python3 -m pip wheel --no-deps --wheel-dir dist ./av15
+          python3 -m venv "$RUNNER_TEMP/kmcp-package"
+          "$RUNNER_TEMP/kmcp-package/bin/python" -m pip install --no-deps dist/*.whl
+          "$RUNNER_TEMP/kmcp-package/bin/kmcp" --help
+          "$RUNNER_TEMP/kmcp-package/bin/python" -I -c 'from coding_worker_v2.agent.tools import build_default_registry; assert len(build_default_registry(circuits=True).names()) == 73'
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          files = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in Path('dist').glob('*.whl')}
+          Path('dist/source-receipt.json').write_text(json.dumps({'source_sha': os.environ['GITHUB_SHA'], 'os': os.environ['RUNNER_OS'], 'wheels': files, 'runtime_deployment': 'NOT_PERFORMED'}, indent=2))
+          PY
+      - name: Upload tested package and source evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kmcp-${{ matrix.os }}-py${{ matrix.python }}-${{ github.sha }}
+          path: |
+            dist/
+            kmcp-tests.log
+          if-no-files-found: error
       - name: Shell syntax (tracked wrappers only)
         run: |
           if git ls-files --error-unmatch av15/coding_worker.sh >/dev/null 2>&1; then
@@ -50,3 +92,4 @@ jobs:
           else
             echo "SKIP: benchmark not included in source checkpoint"
           fi
+
