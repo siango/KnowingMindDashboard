@@ -90,6 +90,79 @@ jobs:
           p.write_text(json.dumps(report,indent=2)+'\n')
           print(json.dumps(report,indent=2))
           PY
+      - name: Inspect real owner KMCP registry and KMCO routes from pinned source (no tool calls)
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_NAME" = ubuntu-usb
+          python3 - <<'PY'
+          import json, os, subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+          home=Path.home()
+          cfg=home/'.config/knowingmind/kmcw-owner-runtime.json'
+          py=home/'KnowingMind/.venvs/kmcp-portable/bin/python'
+          source=Path(os.environ['KMCP_SOURCE_DIR'])/'av15'
+          report={'schema':'KMCO_REAL_OWNER_SOURCE_READBACK_V1',
+                  'node':'ubuntu-usb',
+                  'source_sha':os.environ['EXPECTED_SHA'],
+                  'observed_at':datetime.now(timezone.utc).isoformat(),
+                  'owner_config_exists':cfg.is_file(),
+                  'managed_python_exists':py.is_file(),
+                  'source_only':True,
+                  'service_cutover':False,
+                  'authenticated_tools_call':'NOT_PERFORMED',
+                  'independent_qc':'NOT_RUN'}
+          for action in ('local-check','route-audit'):
+              if not cfg.is_file() or not py.is_file():
+                  report[action]={'status':'BLOCKED_MISSING_EXISTING_RUNTIME'}
+                  continue
+              process=subprocess.run(
+                  [str(py),'-m','coding_worker_v2.agent.circuit_cli',
+                   '--config',str(cfg),action],
+                  cwd=source,capture_output=True,text=True,timeout=40)
+              try: output=json.loads(process.stdout)
+              except (ValueError,UnicodeError): output={}
+              if action=='local-check':
+                  valid=(process.returncode==0 and
+                         output.get('initialize')=='PASS' and
+                         output.get('tools_list')=='PASS' and
+                         output.get('missing_registered_names')==[])
+                  report[action]={
+                      'status':'SOURCE_ON_OWNER_HOST_PASS' if valid else 'BLOCKED',
+                      'registered_count':output.get('registered_count'),
+                      'advertised_count':output.get('advertised_count'),
+                      'missing_count':len(output.get('missing_registered_names',[]))
+                                        if isinstance(output.get('missing_registered_names'),list) else None,
+                      'kmco_design_status':(output.get('kmco') or {}).get('status'),
+                      'returncode':process.returncode}
+              else:
+                  valid=(process.returncode==0 and
+                         output.get('design_route_count')==13 and
+                         output.get('design_operations')==132 and
+                         output.get('verified_end_to_end_routes')==0)
+                  report[action]={
+                      'status':'COVERAGE_READBACK_PASS' if valid else 'BLOCKED',
+                      'design_route_count':output.get('design_route_count'),
+                      'design_operations':output.get('design_operations'),
+                      'native_operation_source_bound':output.get('native_operation_source_bound'),
+                      'design_only_operations':output.get('design_only_operations'),
+                      'verified_end_to_end_routes':output.get('verified_end_to_end_routes'),
+                      'returncode':process.returncode}
+          report['production_acceptance']=False
+          out=Path(os.environ['RUNNER_TEMP'])/'kmco-owner-local-readback.json'
+          out.write_text(json.dumps(report,indent=2)+'\n')
+          print(json.dumps(report,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kmco-owner-local-readback-${{ github.run_id }}
+          path: ${{ runner.temp }}/kmco-owner-local-readback.json
+          if-no-files-found: warn
+          retention-days: 14
       - uses: actions/upload-artifact@v4
         if: always()
         with:
