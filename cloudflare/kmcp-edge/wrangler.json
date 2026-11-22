@@ -3,5 +3,18 @@
   "main": "worker.mjs",
   "compatibility_date": "2026-11-22",
   "workers_dev": true,
-  "observability": { "enabled": false }
+  "observability": {
+    "enabled": false
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "kebunate-control-runtime",
+      "database_id": "94b80321-8ac5-4361-b233-2ca6ee442e3f"
+    }
+  ],
+  "vars": {
+    "KMCP_STRIPE_INBOX_ENABLED": "NO",
+    "STRIPE_MODE": "test"
+  }
 }
