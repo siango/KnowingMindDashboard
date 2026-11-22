@@ -22,9 +22,8 @@ ROUTES = {
     "R12": ("D08", "D01", "D10", "D11", "D09"),
     "R13": ("D01", "D12", "D11", "D09"),
 }
-# Alias K01-K12 from the core design map P01-P12: do not interpret
-# a design group dependency as a currently deployed callable.
-CORE_GROUPS = {f"K{i:02d}": f"P{i:02d}" for i in range(1, 13)}
+# K01-K12 are capabilities, not aliases of P01-P12 problem circuits.
+# A separate source-to-capability proof is required before route execution.
 REQUIRES_PRIVILEGED = {"R01", "R02", "R05", "R07", "R08", "R09", "R12", "R13"}
 
 
@@ -46,18 +45,14 @@ def audit_routes(catalog, registry, ctx):
     }
     rows = []
     for rid, nodes in ROUTES.items():
-        core = rid <= "R05"
-        mapped = [CORE_GROUPS[n] if core else n for n in nodes]
-        actual = {group: source_handlers[group]
-                  for group in set(mapped)
-                  if group in source_handlers and source_handlers[group] in commands}
-        unbound = sorted(set(mapped) - set(actual))
+        actual = {}  # No K capability or D domain is directly bound by P01/P02.
+        unbound = sorted(set(nodes))
         rows.append({
             "route_id": rid,
             "design_groups": list(nodes),
             "source_group_bindings": actual,
             "unbound_groups": unbound,
-            "source_coverage": "PARTIAL" if actual else "NO_VERIFIED_BINDINGS",
+            "source_coverage": "NO_VERIFIED_ROUTE_BINDINGS",
             "live_handler_execution": "NOT_TESTED",
             "authority": "NOT_GRANTED_BY_AUDIT",
             "independent_qc": "NOT_RUN",
@@ -69,7 +64,7 @@ def audit_routes(catalog, registry, ctx):
         "source": "EXISTING_CANONICAL_PR1_REGISTRY",
         "design_route_count": len(rows),
         "design_operations": len(catalog._operations),
-        "bound_source_handlers": {
+        "native_problem_circuit_handlers": {
             group: tool for group, tool in source_handlers.items() if tool in commands
         },
         "verified_end_to_end_routes": 0,
