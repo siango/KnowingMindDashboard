@@ -1,5 +1,8 @@
 name: kmcp-cloudflare-existing-inventory
 on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths: ['.github/workflows/kmcp-cloudflare-existing-inventory.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -82,6 +85,27 @@ jobs:
               }
               for name,(path,keys) in endpoints.items():
                   report['resources'][name]=listing(path,keys)
+              # Exact existing MCP Access app, read only; no policies or tokens mutated.
+              access_rows=get('accounts/'+account+'/access/apps?per_page=100').get('result')
+              matched=[a for a in (access_rows if isinstance(access_rows,list) else [])
+                       if isinstance(a,dict) and
+                       ('mcp.knowingmind.app' in str(a.get('domain','')) or
+                        'mcp.knowingmind.app' in str(a.get('self_hosted_domains',[])))]
+              report['mcp_access_app']={'matches':len(matched),'status':'NOT_FOUND' if not matched else 'OBSERVED'}
+              if len(matched)==1:
+                  selected=matched[0]
+                  app=get('accounts/'+account+'/access/apps/'+selected['id'])
+                  cfg=app.get('result') if isinstance(app.get('result'),dict) else {}
+                  oauth=cfg.get('oauth_configuration')
+                  report['mcp_access_app']={
+                      'matches':1,'app_id':selected['id'],'app_type':cfg.get('type'),
+                      'domain':cfg.get('domain'),'http_status':app['status'],
+                      'managed_oauth_enabled':oauth.get('enabled') if isinstance(oauth,dict) else None,
+                      'managed_oauth_config_observed':isinstance(oauth,dict),
+                      'policy_contents_read':False,
+                      'source':'EXISTING_CLOUDFLARE_ACCESS_API_READ_ONLY'}
+              elif len(matched)>1:
+                  report['mcp_access_app']['status']='AMBIGUOUS_MULTIPLE_APPS'
               buckets=get('accounts/'+account+'/r2/buckets?per_page=100')
               result=buckets.pop('result',None)
               if isinstance(result,dict):
