@@ -1,7 +1,6 @@
 name: kmcp-host-installers
 on:
   push:
-    branches-ignore: ['feature/kmcp-portable-circuits-20261122']
     paths: ['scripts/host/**', 'cloudflare/kmcp-edge/**', '.github/workflows/kmcp-hosts.yml']
   pull_request:
     paths: ['scripts/host/**', 'cloudflare/kmcp-edge/**', '.github/workflows/kmcp-hosts.yml']
@@ -10,6 +9,7 @@ permissions:
   contents: read
 jobs:
   test:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.ref != 'feature/kmcp-portable-circuits-20261122'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
