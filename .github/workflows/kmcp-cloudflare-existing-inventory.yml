@@ -1,8 +1,6 @@
 name: kmcp-cloudflare-existing-inventory
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths: ['.github/workflows/kmcp-cloudflare-existing-inventory.yml']
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
