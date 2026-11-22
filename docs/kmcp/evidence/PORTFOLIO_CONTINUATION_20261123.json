@@ -1,0 +1,362 @@
+{
+  "schema": "KNOWINGMIND_PORTFOLIO_CONTINUATION_CHECKPOINT_V1",
+  "observed_at": "2026-11-23T01:55:00+07:00",
+  "observation_time_precision": "approximate",
+  "authority": "GITHUB_SOURCE_AND_WORK_STATUS_ONLY_NOT_CENTRAL_PROJECT_TRUTH",
+  "owner_instruction": "Continue active subprojects; preserve existing jobs and evidence; stop Actions on proven quota exhaustion.",
+  "central_readback": "AUTHENTICATION_RETRY_LOOP_NO_SUCCESS",
+  "quota": "UNKNOWN_NOT_PROVEN_EXHAUSTED",
+  "active_jobs": [
+    {
+      "run": 45056121975,
+      "job": 137312163252,
+      "state": "IN_PROGRESS",
+      "next": "Read actual installer receipt before further host changes"
+    },
+    {
+      "run": 45057127816,
+      "job": 137314721032,
+      "state": "QUEUED",
+      "next": "Read diagnostic artifact; repair only proven first failure"
+    }
+  ],
+  "issues": [
+    {
+      "issue": 290,
+      "title": "[KVES] KEBUNATE Visual Engineering Studio — AI-assisted node graph subproject",
+      "url": "https://github.com/siango/KnowingMindApp/issues/290",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 118,
+      "title": "[MASTER CLOSEOUT] DHAMMA Unified Final Closeout — deploy + final test",
+      "url": "https://github.com/siango/KnowingMindApp/issues/118",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 280,
+      "title": "[KM-FACEBOOK-ECOSYSTEM-V2] Reuse audit → Content Studio, Page Planner, Messenger, Facebook Login",
+      "url": "https://github.com/siango/KnowingMindApp/issues/280",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 265,
+      "title": "KM AI ADMIN V2 — reconcile and deliver all 12 pages from existing Drive designs and P02 runtime",
+      "url": "https://github.com/siango/KnowingMindApp/issues/265",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 286,
+      "title": "[MISSION] Recover and unify Merit Points + Contribution Points + KMSX (policy-safe, AV15)",
+      "url": "https://github.com/siango/KnowingMindApp/issues/286",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 269,
+      "title": "[MISSION] KM Migration Recovery Toolkit V1 — reusable playbooks, skill, CLI, evidence and Canon D1 closure",
+      "url": "https://github.com/siango/KnowingMindApp/issues/269",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 246,
+      "title": "[TRADER-V2][LOCAL-FIRST][THB 0] Paper/Shadow build + 7-day evidence gate (P02 SSOT)",
+      "url": "https://github.com/siango/KnowingMindApp/issues/246",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 251,
+      "title": "[Architecture] KM Autonomous Execution Fabric V1 — P02 SSOT, Copilot/Local routing, QC benchmarks and 24/7",
+      "url": "https://github.com/siango/KnowingMindApp/issues/251",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 262,
+      "title": "[P0][MUSE RETIREMENT] Remove paid Muse from KnowingMind; P02 local-first, preserve LINE/Web",
+      "url": "https://github.com/siango/KnowingMindApp/issues/262",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 278,
+      "title": "[PAD5][KM Coding Worker V3.1] Autonomous local coding, test, repair and draft PR",
+      "url": "https://github.com/siango/KnowingMindApp/issues/278",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 287,
+      "title": "[KM-WORKSPACE-TEAM-COLLAB-V1] Existing Chat → Private DM, Team Rooms, Meetings & Opt-in AI",
+      "url": "https://github.com/siango/KnowingMindApp/issues/287",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 19,
+      "title": "DHAMMA Thai PDF Ingestion — Public 3 + MBU 91",
+      "url": "https://github.com/siango/KnowingMindApp/issues/19",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 253,
+      "title": "[P0][Admin] Repair LINE login session/UI mismatch and protected admin entry on ai.knowingmind.app",
+      "url": "https://github.com/siango/KnowingMindApp/issues/253",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 257,
+      "title": "[FINOPS][Cost Reset] Reconcile provider spending and protect P02/LINE; reuse existing ledger",
+      "url": "https://github.com/siango/KnowingMindApp/issues/257",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 252,
+      "title": "[Admin][Approved] KM AI Admin REAL-TIME Operations — P02 SSOT, QC, Benchmark, Tasks & Nodes",
+      "url": "https://github.com/siango/KnowingMindApp/issues/252",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 256,
+      "title": "[APPROVED SPEC] KM Dhamma Game — Content Taxonomy V2 / Muse + KM Coding Worker",
+      "url": "https://github.com/siango/KnowingMindApp/issues/256",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 254,
+      "title": "[C03 only][Copilot] KM AI Admin read-only dashboard source + QC (isolated from C02)",
+      "url": "https://github.com/siango/KnowingMindApp/issues/254",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 245,
+      "title": "[Reno13] Qualify Termux KM Mobile Worker and Serena fleet routing",
+      "url": "https://github.com/siango/KnowingMindApp/issues/245",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 244,
+      "title": "[Reno13] P02 SSH recovery verified — 2026-10-26",
+      "url": "https://github.com/siango/KnowingMindApp/issues/244",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 234,
+      "title": "[AV15-MCP-P02-REPAIR-20261022-V1] P02: names-only check of authorized CF Access credential stores",
+      "url": "https://github.com/siango/KnowingMindApp/issues/234",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 96,
+      "title": "[CLOSEOUT] knowingmind.app production 10/10 — live E2E, security, backoffice and authority verify",
+      "url": "https://github.com/siango/KnowingMindApp/issues/96",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 212,
+      "title": "[Temple Operations] Kathin 2569 unified event operations — source audit, invites, lodging, forms",
+      "url": "https://github.com/siango/KnowingMindApp/issues/212",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 14,
+      "title": "[EXECUTE] Multi-Canon + Teaching/Library ingestion to PostgreSQL/pgvector",
+      "url": "https://github.com/siango/KnowingMindApp/issues/14",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 182,
+      "title": "[AI FLEET V1] ASUS V15 + Panonnivet1/2 verified AI work nodes",
+      "url": "https://github.com/siango/KnowingMindApp/issues/182",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 9,
+      "title": "Implement DHAMMA evidence-relation-provenance core and integrate 40/30/30 practice policy",
+      "url": "https://github.com/siango/KnowingMindApp/issues/9",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 95,
+      "title": "[EXECUTE] DHAMMA Real Usability Closeout — RUC-001 production Canon retrieval through registered RUC gates",
+      "url": "https://github.com/siango/KnowingMindApp/issues/95",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 175,
+      "title": "Practice Intelligence V1 — graded recitation path for severe restlessness",
+      "url": "https://github.com/siango/KnowingMindApp/issues/175",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 174,
+      "title": "Practice Intelligence V1 — adaptive temperament and user-controlled intensity",
+      "url": "https://github.com/siango/KnowingMindApp/issues/174",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 173,
+      "title": "Practice Intelligence V1 — kammatthana selector with citta/cetasika ontology",
+      "url": "https://github.com/siango/KnowingMindApp/issues/173",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 172,
+      "title": "Practice Intelligence V1 — dependent-origination fallback reasoning",
+      "url": "https://github.com/siango/KnowingMindApp/issues/172",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 171,
+      "title": "Practice Intelligence V1 — internal-experience outcome metrics and response contract",
+      "url": "https://github.com/siango/KnowingMindApp/issues/171",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 170,
+      "title": "Practice Intelligence V1 — practice graph and branching UX",
+      "url": "https://github.com/siango/KnowingMindApp/issues/170",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 169,
+      "title": "Practice Intelligence V1 — graph-based next-state prediction engine",
+      "url": "https://github.com/siango/KnowingMindApp/issues/169",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 168,
+      "title": "Practice Intelligence V1 — research evidence adapter for intervention guidance",
+      "url": "https://github.com/siango/KnowingMindApp/issues/168",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 167,
+      "title": "Practice Intelligence V1 — graph branch classifier and integrity model",
+      "url": "https://github.com/siango/KnowingMindApp/issues/167",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 165,
+      "title": "EPIC — KnowingMind Practice Intelligence V1",
+      "url": "https://github.com/siango/KnowingMindApp/issues/165",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 164,
+      "title": "Practice Intelligence V1 — authenticated practice UX and E2E",
+      "url": "https://github.com/siango/KnowingMindApp/issues/164",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 163,
+      "title": "Practice Intelligence V1 — safety routing for meditation reports",
+      "url": "https://github.com/siango/KnowingMindApp/issues/163",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 162,
+      "title": "Practice Intelligence V1 — forecast calibration and guidance outcome learning",
+      "url": "https://github.com/siango/KnowingMindApp/issues/162",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 161,
+      "title": "Practice Intelligence V1 — privacy-safe similar-practitioner cohort forecast",
+      "url": "https://github.com/siango/KnowingMindApp/issues/161",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 160,
+      "title": "Practice Intelligence V1 — Canon-grounded personalized guidance",
+      "url": "https://github.com/siango/KnowingMindApp/issues/160",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 159,
+      "title": "Practice Intelligence V1 — implement session lifecycle and reflection capture",
+      "url": "https://github.com/siango/KnowingMindApp/issues/159",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 156,
+      "title": "Migrate KnowingMind runtime from SG2 to Panonnivet02 before any D1 planning",
+      "url": "https://github.com/siango/KnowingMindApp/issues/156",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 122,
+      "title": "KnowingMind support payments: dedicated webhook, idempotent readback, and refund events",
+      "url": "https://github.com/siango/KnowingMindApp/issues/122",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 151,
+      "title": "[WEB V3] layout audit + live progress dashboard + support transparency",
+      "url": "https://github.com/siango/KnowingMindApp/issues/151",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 5,
+      "title": "DHAMMA: reuse Kebunate SANNA + capability fabric without moving SSOT",
+      "url": "https://github.com/siango/KnowingMindApp/issues/5",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 126,
+      "title": "HUMAN_GATE: bind OPENAI_API_KEY for full Canon Graphic E2E provider step",
+      "url": "https://github.com/siango/KnowingMindApp/issues/126",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    },
+    {
+      "issue": 4,
+      "title": "Complete DHAMMA_SATI_JIVITA_CONTINUITY_V1 authoritative sync",
+      "url": "https://github.com/siango/KnowingMindApp/issues/4",
+      "status": "OPEN_ISSUE_SOURCE_ONLY_LIVE_ACCEPTANCE_NOT_ESTABLISHED",
+      "registered_next_action_source": "Read current issue body/comments and canonical registry before execution"
+    }
+  ],
+  "scope_note": "Open issue count is not canonical subproject count. Historical closed projects and retired nodes must not be automatically revived. No execution/production completion inferred."
+}
