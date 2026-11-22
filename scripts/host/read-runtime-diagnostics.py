@@ -13,11 +13,66 @@ def code(value):
     return value if isinstance(value,str) and re.fullmatch(r'[A-Z][A-Z0-9_:-]{0,119}',value) else None
 
 
+
+def storage_summary(home, budget_seconds=90, max_files=500000):
+    """Bounded metadata inventory; no names/content from private files leave host."""
+    import time
+    roots={'pip_cache':home/'.cache/pip',
+           'delivery_cache':home/'.cache/knowingmind/local-services',
+           'installed_local_apps':home/'.local/share/knowingmind',
+           'runner_work':home/'KnowingMind/runners/github/_work',
+           'ollama_models':home/'.ollama',
+           'apt_archives':Path('/var/cache/apt/archives'),
+           'apt_lists':Path('/var/lib/apt/lists')}
+    deadline=time.monotonic()+budget_seconds
+    result={};count=0
+    for label,root in roots.items():
+        row={'present':root.exists(),'complete':False,'regular_files':0,
+             'logical_bytes':0,'allocated_bytes':0,'metadata_errors':0,
+             'symlinks_skipped':0,'cross_device_skipped':0}
+        result[label]=row
+        if root.is_symlink():
+            row['status']='SYMLINK_ROOT_DENIED';continue
+        if not row['present']:
+            row.update(complete=True,status='ABSENT');continue
+        device=root.stat().st_dev;stack=[root];seen=set()
+        while stack and time.monotonic()<deadline and count<max_files:
+            current=stack.pop()
+            try:
+                with os.scandir(current) as entries:
+                    for entry in entries:
+                        if time.monotonic()>=deadline or count>=max_files:
+                            stack.append(current);break
+                        try:
+                            if entry.is_symlink():
+                                row['symlinks_skipped']+=1;continue
+                            stat=entry.stat(follow_symlinks=False)
+                            if stat.st_dev!=device:
+                                row['cross_device_skipped']+=1;continue
+                            if entry.is_dir(follow_symlinks=False):stack.append(Path(entry.path))
+                            elif entry.is_file(follow_symlinks=False):
+                                count+=1;identity=(stat.st_dev,stat.st_ino)
+                                if identity in seen:continue
+                                seen.add(identity)
+                                row['regular_files']+=1
+                                row['logical_bytes']+=stat.st_size
+                                row['allocated_bytes']+=stat.st_blocks*512
+                        except OSError:row['metadata_errors']+=1
+            except OSError:row['metadata_errors']+=1
+        row['complete']=not stack
+        row['status']='METADATA_READ' if row['complete'] else 'BUDGET_LIMIT_PARTIAL'
+    return result
+
+
 def main():
     assert os.environ.get('RUNNER_NAME')=='ubuntu-usb' and os.getuid()!=0
     home=Path.home(); report={'schema':'KEBUNATE_NATIVE_DIAGNOSTIC_V1',
         'read_only':True,'circuit_replayed':False,'provider_inference_requested':False,
         'free_bytes':shutil.disk_usage(home).free,'circuits':[]}
+    fs=os.statvfs(home)
+    report['free_inodes']=fs.f_favail
+    report['storage_usage']=storage_summary(home)
+    report['storage_deleted']=False
     profile=home/'.config/knowingmind/kmcw-owner-runtime.json'
     if profile.is_file():
         config=json.loads(profile.read_text())
