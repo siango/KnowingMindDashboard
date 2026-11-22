@@ -13,14 +13,14 @@ class CanonicalRouteReadinessTests(unittest.TestCase):
         self.assertEqual(len(ROUTES), 13)
         self.assertEqual(out["design_route_count"], 13)
         self.assertEqual(out["design_operations"], 132)
-        self.assertEqual(out["native_operation_source_bound"], 30)
-        self.assertEqual(out["design_only_operations"], 102)
+        self.assertEqual(out["native_operation_source_bound"], 42)
+        self.assertEqual(out["design_only_operations"], 90)
         self.assertEqual(len(out["operation_coverage"]), 132)
         self.assertEqual(len({op["operation_id"] for op in out["operation_coverage"]}), 132)
         for op in out["operation_coverage"]:
             self.assertEqual(op["actual_tools_call"], "NOT_TESTED")
             self.assertEqual(op["independent_qc"], "NOT_RUN")
-            if op["group_id"] in ("P01", "P02", "P03", "P04", "P05", "P06"):
+            if op["group_id"] in ("P01", "P02", "P03", "P04", "P05", "P06", "D01", "D02"):
                 self.assertEqual(op["source_state"],
                                  "NATIVE_HANDLER_REGISTERED_NOT_LIVE_VERIFIED")
             else:
@@ -34,7 +34,7 @@ class CanonicalRouteReadinessTests(unittest.TestCase):
             self.assertTrue(route["unbound_groups"])
             self.assertFalse(route["production_pass"])
             self.assertEqual(route["live_handler_execution"], "NOT_TESTED")
-            self.assertEqual(route["source_coverage"], "NO_VERIFIED_ROUTE_BINDINGS")
+            self.assertIn(route["source_coverage"], ("NO_VERIFIED_ROUTE_BINDINGS", "PARTIAL_SOURCE_BINDINGS_NOT_E2E"))
         self.assertNotIn("P01", out["routes"][0]["design_groups"])
         self.assertIn("K01", out["routes"][0]["design_groups"])
 

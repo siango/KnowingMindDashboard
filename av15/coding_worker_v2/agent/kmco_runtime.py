@@ -344,6 +344,9 @@ def register_kmco_tools(registry, catalog):
                  "no target dispatch; same capabilities.authorized gate; privileged calls use original tool"),
         p06_permission)
 
+    from .kmco_database import register_database_circuits
+    register_database_circuits(registry, catalog)
+
     def core_recall(args, ctx):
         from .kmco_core import recall
         try:

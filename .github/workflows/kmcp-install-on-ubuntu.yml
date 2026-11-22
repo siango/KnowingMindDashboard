@@ -4,6 +4,7 @@ on:
     branches: ['feature/kmcp-portable-circuits-20261122']
     paths:
       - 'av15/coding_worker_v2/agent/kmco_*.py'
+      - 'av15/coding_worker_v2/agent/native_database.py'
       - 'av15/coding_worker_v2/tests/test_kmco_*.py'
       - '.github/workflows/kmcp-install-on-ubuntu.yml'
   workflow_dispatch:
@@ -36,7 +37,7 @@ jobs:
         run: |
           python3 -m py_compile scripts/host/install-runtime.py
           python3 -m pip wheel --no-deps --wheel-dir host-bundle ./av15
-          cp scripts/host/install-runtime.py host-bundle/
+          cp scripts/host/install-runtime.py scripts/host/accept-kmco-native.py host-bundle/
           python3 - <<'PY'
           import hashlib, json, os
           from pathlib import Path
@@ -93,11 +94,22 @@ jobs:
                   'verified_e2e_routes':out['verified_end_to_end_routes'],
                   'status':'INSTALLED_HANDLER_READBACK_ONLY',
                   'independent_qc':'NOT_RUN','production_acceptance':'NOT_GRANTED',
-                  'registered_handlers':out['native_problem_circuit_handlers']}
+                  'registered_handlers':out['native_problem_circuit_handlers'],
+                  'domain_handlers':out['native_domain_circuit_handlers']}
           p=Path(os.environ['RUNNER_TEMP'])/'kmco-installed-handler-readback.json'
           p.write_text(json.dumps(report,indent=2)+'\n')
           print(json.dumps(report))
           PYCODE
+      - name: Execute installed native database circuit through original owner authority
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          "$HOME/KnowingMind/.venvs/kmcp-portable/bin/python" -I \
+            "$RUNNER_TEMP/kmcp-offline-host-bundle/accept-kmco-native.py" \
+            --receipt "$RUNNER_TEMP/kmco-native-database-canary.json"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -105,5 +117,6 @@ jobs:
           path: |
             ${{ runner.temp }}/kmcp-ubuntu-installation.json
             ${{ runner.temp }}/kmco-installed-handler-readback.json
+            ${{ runner.temp }}/kmco-native-database-canary.json
           if-no-files-found: warn
           retention-days: 14

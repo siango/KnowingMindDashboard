@@ -31,6 +31,8 @@ def load_owner_runtime(path):
     ctx, reg = load_runtime(path)
     if Path(ctx['workspace']).stat().st_uid != os.getuid():
         raise ToolError('SSH_WORKSPACE_OWNER_REQUIRED')
+    from .native_database import NativeOwnerReadAuthority
+    ctx["_native_owner_read_authority"] = NativeOwnerReadAuthority()
     return ctx, reg
 
 

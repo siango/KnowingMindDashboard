@@ -30,6 +30,9 @@ def _operation_ids(name, args):
              "kmco.p04.plan": "P04",
              "kmco.p05.completion": "P05",
              "kmco.p06.permission": "P06"}.get(name)
+    domain = {"kmco.d01.authority": "D01", "kmco.d02.read": "D02"}.get(name)
+    if domain:
+        return [f"{domain}-M{i:02d}" for i in range(1, 7)]
     if group:
         return [f"{group}-M{i:02d}" for i in range(1, 6)]
     if isinstance(args, dict):
@@ -44,7 +47,7 @@ def _operation_ids(name, args):
     return []
 
 
-def record(name, args, ctx, *, ok, result_sha256=None, error_class=None):
+def record(name, args, ctx, *, ok, result_sha256=None, error_class=None, return_ref=False):
     """Persist a bounded usage observation. Never promotes QC or receipt status.
 
     If service is absent, returns NOT_CONFIGURED (no pretend persistence).
@@ -84,14 +87,16 @@ def record(name, args, ctx, *, ok, result_sha256=None, error_class=None):
                 if cur.fetchone() != ("km_microops",):
                     raise RuntimeError("KMCO_DB_TARGET_MISMATCH")
                 cur.execute("SET LOCAL statement_timeout = '3000ms'")
-                cur.execute("""
+                statement = """
                     INSERT INTO circuit.usage_events
                       (operation, operation_ids, mission_id, task_id, source_sha,
                        args_sha256, result_sha256, success, error_class)
                     VALUES (%(operation)s, %(operation_ids)s, %(mission_id)s,
                             %(task_id)s, %(source_sha)s, %(args_sha256)s,
                             %(result_sha256)s, %(success)s, %(error_class)s)
-                """, params)
+                """
+                cur.execute(statement + (" RETURNING id" if return_ref else ""), params)
+                event_id = cur.fetchone()[0] if return_ref else None
                 # Same DB transaction as the usage event. Never save a derived
                 # four-part case if its original execution event was not saved.
                 from .kmco_core import observe
@@ -101,5 +106,9 @@ def record(name, args, ctx, *, ok, result_sha256=None, error_class=None):
     except Exception:
         # Never print connection URL, driver exception or SQL credentials.
         raise RuntimeError("KMCO_DB_AUDIT_WRITE_FAILED") from None
+    if return_ref:
+        if type(event_id) is not int or event_id < 1:
+            raise RuntimeError("KMCO_AUDIT_REFERENCE_INVALID")
+        return f"postgres:km_microops:circuit.usage_events:{event_id}"
     return "PERSISTED_UNVERIFIED"
 

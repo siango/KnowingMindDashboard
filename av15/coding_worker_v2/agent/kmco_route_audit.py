@@ -46,6 +46,8 @@ def audit_routes(catalog, registry, ctx):
         "P04": "kmco.p04.plan",
         "P05": "kmco.p05.completion",
         "P06": "kmco.p06.permission",
+        "D01": "kmco.d01.authority",
+        "D02": "kmco.d02.read",
     }
     operations = []
     native_ops = 0
@@ -66,14 +68,16 @@ def audit_routes(catalog, registry, ctx):
         })
     rows = []
     for rid, nodes in ROUTES.items():
-        actual = {}  # No K capability or D domain is directly bound by P01/P02.
-        unbound = sorted(set(nodes))
+        actual = {g: source_handlers[g] for g in nodes
+                  if g.startswith("D") and source_handlers.get(g) in commands}
+        unbound = sorted(set(nodes) - set(actual))
         rows.append({
             "route_id": rid,
             "design_groups": list(nodes),
             "source_group_bindings": actual,
             "unbound_groups": unbound,
-            "source_coverage": "NO_VERIFIED_ROUTE_BINDINGS",
+            "source_coverage": ("PARTIAL_SOURCE_BINDINGS_NOT_E2E" if actual
+                                else "NO_VERIFIED_ROUTE_BINDINGS"),
             "live_handler_execution": "NOT_TESTED",
             "authority": "NOT_GRANTED_BY_AUDIT",
             "independent_qc": "NOT_RUN",
@@ -89,7 +93,12 @@ def audit_routes(catalog, registry, ctx):
         "design_only_operations": len(operations) - native_ops,
         "operation_coverage": operations,
         "native_problem_circuit_handlers": {
-            group: tool for group, tool in source_handlers.items() if tool in commands
+            group: tool for group, tool in source_handlers.items()
+            if group.startswith("P") and tool in commands
+        },
+        "native_domain_circuit_handlers": {
+            group: tool for group, tool in source_handlers.items()
+            if group.startswith("D") and tool in commands
         },
         "verified_end_to_end_routes": 0,
         "status": "COVERAGE_ONLY_NOT_E2E",
