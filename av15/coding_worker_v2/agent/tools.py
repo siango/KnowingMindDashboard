@@ -409,7 +409,7 @@ def search_code(repo: str, pattern: str, max_matches: int = 30) -> list[dict]:
 
 
 def build_default_registry(photocraft=None, serena=None, kmco_catalog=None,
-                           *, circuits=False) -> ToolRegistry:
+                           *, circuits=False, cloudflare=None) -> ToolRegistry:
     reg = ToolRegistry()
     from .pilot import register_pilot_tools
     register_pilot_tools(reg)
@@ -589,6 +589,9 @@ def build_default_registry(photocraft=None, serena=None, kmco_catalog=None,
     if circuits:
         from .circuits import register as register_circuits
         register_circuits(reg)
+    if cloudflare is not None:
+        from .cloudflare_tools import register as register_cloudflare
+        register_cloudflare(reg, cloudflare)
     return reg
 
 
