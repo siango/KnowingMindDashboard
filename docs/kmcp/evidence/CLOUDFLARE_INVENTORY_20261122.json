@@ -1,0 +1,312 @@
+{
+  "schema": "KMCP_CF_EXISTING_INVENTORY_V1",
+  "mission_id": "KMCP-V5-PRODUCTION",
+  "node_id": "ubuntu-usb",
+  "observed_at": "2026-11-22T12:59:42.114291+00:00",
+  "read_only": true,
+  "deployed": false,
+  "resources": {
+    "workers": {
+      "status": 200,
+      "success": true,
+      "result_info": null,
+      "items": [
+        {
+          "id": "dhamma-web-channel-edge",
+          "created_on": "2026-09-22T07:18:22.986147Z",
+          "modified_on": "2026-10-27T22:59:03.839887Z"
+        },
+        {
+          "id": "kebunate-agent-factory",
+          "created_on": "2026-08-15T14:27:40.618493Z",
+          "modified_on": "2026-08-18T07:43:21.87315Z"
+        },
+        {
+          "id": "kebunate-claude-mcp-edge",
+          "created_on": "2026-08-26T06:25:49.784232Z",
+          "modified_on": "2026-08-26T06:26:15.185112Z"
+        },
+        {
+          "id": "kebunate-control-app",
+          "created_on": "2026-08-15T23:01:48.324044Z",
+          "modified_on": "2026-08-20T09:24:09.427367Z"
+        },
+        {
+          "id": "kebunate-control-app-green",
+          "created_on": "2026-08-20T20:12:51.333841Z",
+          "modified_on": "2026-09-05T20:50:24.508612Z"
+        },
+        {
+          "id": "kebunate-control-app-v2",
+          "created_on": "2026-08-24T05:27:08.146721Z",
+          "modified_on": "2026-09-22T06:41:38.099414Z"
+        },
+        {
+          "id": "kebunate-google-oauth-bridge",
+          "created_on": "2026-08-07T12:43:51.289372Z",
+          "modified_on": "2026-10-05T15:00:11.172492Z"
+        },
+        {
+          "id": "kebunate-node-event-store-v2",
+          "created_on": "2026-08-20T23:17:14.426972Z",
+          "modified_on": "2026-08-20T23:17:15.121325Z"
+        },
+        {
+          "id": "kebunate-runtime-fabric",
+          "created_on": "2026-08-15T13:14:29.278661Z",
+          "modified_on": "2026-09-18T22:52:40.908551Z"
+        },
+        {
+          "id": "kebunate-runtime-tail",
+          "created_on": "2026-08-15T14:20:36.718285Z",
+          "modified_on": "2026-08-18T07:43:05.759781Z"
+        },
+        {
+          "id": "kebunate-web-design-preview-163",
+          "created_on": "2026-08-26T01:21:27.073464Z",
+          "modified_on": "2026-08-26T01:21:37.882117Z"
+        },
+        {
+          "id": "kebunate-work-board-router",
+          "created_on": "2026-06-18T12:16:24.122692Z",
+          "modified_on": "2026-10-05T15:00:17.33951Z"
+        },
+        {
+          "id": "km-dhamma-game",
+          "created_on": "2026-10-28T19:51:37.274247Z",
+          "modified_on": "2026-10-28T19:51:41.04922Z"
+        },
+        {
+          "id": "km-trader-observer",
+          "created_on": "2026-10-30T06:10:59.309722Z",
+          "modified_on": "2026-11-06T07:47:42.588648Z"
+        },
+        {
+          "id": "knowingmind-line-webhook",
+          "created_on": "2026-10-16T06:29:54.082918Z",
+          "modified_on": "2026-11-07T22:42:27.436448Z"
+        },
+        {
+          "id": "white-brook-1a03",
+          "created_on": "2026-10-30T10:20:28.003127Z",
+          "modified_on": "2026-11-06T04:13:55.182023Z"
+        }
+      ],
+      "observed_count": 16
+    },
+    "worker_domains": {
+      "status": 200,
+      "success": true,
+      "result_info": {
+        "page": 1,
+        "per_page": 6,
+        "count": 6,
+        "total_count": 6
+      },
+      "items": [
+        {
+          "id": "21aad7dec29359e67435941a24d6934aee556cf6",
+          "hostname": "trader.kebunate.com",
+          "service": "kebunate-control-app-green",
+          "environment": "production"
+        },
+        {
+          "id": "cacce129cdb6188e7067168300b9e1d3ee757887",
+          "hostname": "claude-mcp.kebunate.com",
+          "service": "kebunate-claude-mcp-edge",
+          "environment": "production"
+        },
+        {
+          "id": "9e3c8b1eea64d9b9b066cb342500f041827f6beb",
+          "hostname": "control-app.kebunate.com",
+          "service": "kebunate-control-app-v2",
+          "environment": "production"
+        },
+        {
+          "id": "afec75ba96c447d1402809f96d417f34a643e399",
+          "hostname": "ai.knowingmind.app",
+          "service": "knowingmind-line-webhook",
+          "environment": "production"
+        },
+        {
+          "id": "a860130458824e359057b972b38bcbbfcee2338e",
+          "hostname": "knowingmind.app",
+          "service": "dhamma-web-channel-edge",
+          "environment": "production"
+        },
+        {
+          "id": "e1f53d8dd1942d6c0c3034926f613b6457c55723",
+          "hostname": "www.knowingmind.app",
+          "service": "dhamma-web-channel-edge",
+          "environment": "production"
+        }
+      ],
+      "observed_count": 6
+    },
+    "d1": {
+      "status": 200,
+      "success": true,
+      "result_info": {
+        "count": 3,
+        "page": 1,
+        "per_page": 100,
+        "total_count": 3
+      },
+      "items": [
+        {
+          "uuid": "abf9747f-6c59-45f5-a968-59dd36389253",
+          "name": "km-trader-market",
+          "created_at": "2026-11-06T04:05:39.194Z",
+          "version": "production"
+        },
+        {
+          "uuid": "179efc88-ca86-468a-824b-bf1f259f193d",
+          "name": "km-canon-d1-rag-staging",
+          "created_at": "2026-10-29T14:16:34.802Z",
+          "version": "production"
+        },
+        {
+          "uuid": "94b80321-8ac5-4361-b233-2ca6ee442e3f",
+          "name": "kebunate-control-runtime",
+          "created_at": "2026-08-15T13:10:16.213Z",
+          "version": "production"
+        }
+      ],
+      "observed_count": 3
+    },
+    "queues": {
+      "status": 200,
+      "success": true,
+      "result_info": {
+        "page": 1,
+        "per_page": 100,
+        "count": 2,
+        "total_count": 2,
+        "total_pages": 1
+      },
+      "items": [
+        {
+          "queue_id": "a78d7f5bb8f5482ebbb739a6cc71c873",
+          "queue_name": "kebunate-runtime-events",
+          "created_on": "2026-08-15T13:14:23.948164Z"
+        },
+        {
+          "queue_id": "65a72b06a5894738ae509d623b5037b1",
+          "queue_name": "kebunate-runtime-events-dlq",
+          "created_on": "2026-08-15T13:14:26.578Z"
+        }
+      ],
+      "observed_count": 2
+    },
+    "tunnels": {
+      "status": 200,
+      "success": true,
+      "result_info": {
+        "page": 1,
+        "per_page": 100,
+        "count": 6,
+        "total_count": 6
+      },
+      "items": [
+        {
+          "id": "99527420-f19e-49f2-8010-690424b4101e",
+          "name": "AV15",
+          "status": "healthy",
+          "created_at": "2026-10-14T08:17:32.857445Z"
+        },
+        {
+          "id": "d53d746d-1e86-437f-9097-97677d43c695",
+          "name": "dhamma-grounded-ai-p02",
+          "status": "down",
+          "created_at": "2026-09-08T05:46:44.997957Z"
+        },
+        {
+          "id": "32b741a4-52bb-4d2d-9281-2ee56979c920",
+          "name": "kebunate-kcsg1",
+          "status": "down",
+          "created_at": "2026-08-20T07:44:27.592481Z"
+        },
+        {
+          "id": "46af4bf8-c6d0-40e8-996a-ee193b3597b8",
+          "name": "kebunate-sg2",
+          "status": "down",
+          "created_at": "2026-09-06T05:48:59.115710Z"
+        },
+        {
+          "id": "8798a513-603d-48ff-a16f-56a789826610",
+          "name": "panonnivet02",
+          "status": "down",
+          "created_at": "2026-10-06T06:46:44.251446Z"
+        },
+        {
+          "id": "b279ad43-c80d-41e5-b2a8-e0cc770b1240",
+          "name": "panonnivet1",
+          "status": "down",
+          "created_at": "2026-09-06T02:57:19.454553Z"
+        }
+      ],
+      "observed_count": 6
+    },
+    "access_apps": {
+      "status": 200,
+      "success": true,
+      "result_info": {
+        "page": 1,
+        "per_page": 100,
+        "count": 0,
+        "total_count": 0,
+        "total_pages": 0
+      },
+      "items": [],
+      "observed_count": 0
+    },
+    "mcp_dns": {
+      "status": 403,
+      "success": false
+    },
+    "r2": {
+      "status": 200,
+      "success": true,
+      "result_info": {
+        "total_count": 4
+      },
+      "items": [
+        {
+          "name": "dhamma-grounded-ai-originals",
+          "creation_date": "2026-09-22T07:17:09.727Z"
+        },
+        {
+          "name": "kebunate-core-backup",
+          "creation_date": "2026-07-27T21:21:06.565Z"
+        },
+        {
+          "name": "kebunate-gcs-cutover-20260904",
+          "creation_date": "2026-09-04T06:12:23.461Z"
+        },
+        {
+          "name": "kebunate-work-board",
+          "creation_date": "2026-06-18T11:50:44.028Z"
+        }
+      ]
+    }
+  },
+  "zones": {
+    "status": 200,
+    "items": [
+      {
+        "id": "78afb80a4e1a4c3dca330df7db2c3803",
+        "name": "knowingmind.app",
+        "account_id": "3743bb80d7d0ee8f8770f30dfe88214c"
+      }
+    ]
+  },
+  "account_id": "3743bb80d7d0ee8f8770f30dfe88214c",
+  "account_selection": "exact knowingmind.app zone",
+  "status": "READBACK_COMPLETE_WITH_PER_SERVICE_RESULTS",
+  "coverage": "BOUNDED_FIRST_PAGE; result_info retained; denied/unknown is not zero",
+  "evidence": {
+    "run_url": "https://github.com/siango/KnowingMindDashboard/actions/runs/45025097983",
+    "artifact_id": 14755172195,
+    "authority": "PROVIDER_READBACK_SNAPSHOT_NOT_PROJECT_TRUTH"
+  }
+}
