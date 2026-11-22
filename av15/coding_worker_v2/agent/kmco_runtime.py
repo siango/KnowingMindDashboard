@@ -302,6 +302,24 @@ def register_kmco_tools(registry, catalog):
                  "authorizes retry, mutates queue or grants independence"),
         p03_loop_guard)
 
+    def p04_plan(args, ctx):
+        from .kmco_p04 import plan_validator, P04Blocked
+        if any(f"P04-M{i:02d}" not in catalog._operations for i in range(1, 6)):
+            raise ToolError("KMCO_P04_CATALOG_INCOMPLETE")
+        if not isinstance(ctx.get("mission_id"), str) or not isinstance(ctx.get("owner_node"), str):
+            raise ToolError("KMCO_P04_ISSUER_REQUIRED")
+        try:
+            return plan_validator(args["plan"], ctx["mission_id"], ctx["owner_node"])
+        except P04Blocked as exc:
+            raise ToolError(str(exc)) from None
+
+    registry.register(
+        ToolSpec("kmco.p04.plan",
+                 "Validate real KM_TASK_PLAN_V1 across five P04 design stages",
+                 {"plan": "dict"}, {}, "read", "none",
+                 "strict existing planner DAG/scope/mission; no enqueue or authority"),
+        p04_plan)
+
     def core_recall(args, ctx):
         from .kmco_core import recall
         try:
