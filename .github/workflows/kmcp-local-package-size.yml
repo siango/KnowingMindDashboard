@@ -1,7 +1,7 @@
 name: kmcp-local-package-size
 on:
   pull_request:
-    types: [synchronize]
+    types: [opened]
     paths:
       - '.github/workflows/kmcp-local-package-size.yml'
       - 'scripts/host/read-local-package-size.py'
