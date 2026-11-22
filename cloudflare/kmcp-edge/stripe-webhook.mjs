@@ -28,8 +28,8 @@ export async function handleStripeWebhook(request,env){
  if(event.livemode!==(env.STRIPE_MODE==='live')||event.account&&event.account!==env.STRIPE_ACCOUNT_ID)return reply(403,'ACCOUNT_OR_MODE_MISMATCH');
  const state=accepted.has(event.type)?'PENDING_RECONCILIATION':'IGNORED_NOT_SUBSCRIBED';
  const digest=hex(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)));
- const insert='INSERT INTO kmcp_stripe_event_inbox (event_id,event_type,object_id,body_sha256,stripe_account_id,livemode,event_created,processing_state,received_at) VALUES (?,?,?,?,?,?,?,?,datetime("now")) ON CONFLICT(event_id) DO NOTHING';
- const outbox='INSERT INTO kmcp_stripe_event_outbox(event_id,route,status,created_at) SELECT event_id,"KMCO_OBSERVE_ONLY","PENDING",datetime("now") FROM kmcp_stripe_event_inbox WHERE event_id=? AND processing_state="PENDING_RECONCILIATION" ON CONFLICT(event_id) DO NOTHING';
+ const insert='INSERT INTO kmcp_stripe_event_inbox (event_id,event_type,object_id,body_sha256,stripe_account_id,livemode,event_created,processing_state,received_at) VALUES (?,?,?,?,?,?,?,?,datetime(\'now\')) ON CONFLICT(event_id) DO NOTHING';
+ const outbox='INSERT INTO kmcp_stripe_event_outbox(event_id,route,status,created_at) SELECT event_id,'KMCO_OBSERVE_ONLY','PENDING',datetime(\'now\') FROM kmcp_stripe_event_inbox WHERE event_id=? AND processing_state=\'PENDING_RECONCILIATION\' ON CONFLICT(event_id) DO NOTHING';
  try{
   await env.DB.batch([
    env.DB.prepare(insert).bind(event.id,event.type,event.data.object.id,digest,env.STRIPE_ACCOUNT_ID,event.livemode?1:0,event.created,state),
