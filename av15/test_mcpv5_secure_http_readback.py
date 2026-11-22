@@ -45,12 +45,33 @@ def test_invalid_token_denied():
     assert called == []
 
 
-def test_conflicting_token_headers_denied():
+def test_oauth_bearer_and_signed_access_assertion_are_separate():
+    # The OAuth bearer authenticates the client at the application layer.
+    # Cloudflare injects a DISTINCT signed Access JWT for transport identity.
     events, called = dispatch([
-        (b"authorization", b"Bearer foo"),
-        (b"cf-access-jwt-assertion", b"bar")], authorized=True)
+        (b"authorization", b"Bearer oauth-fixture"),
+        (b"cf-access-jwt-assertion", b"access-jwt-fixture")], authorized=True)
+    assert events[0]["status"] == 200
+    assert called == ["app_called"]
+
+
+def test_invalid_access_assertion_denied_even_with_oauth_bearer():
+    events, called = dispatch([
+        (b"authorization", b"Bearer oauth-fixture"),
+        (b"cf-access-jwt-assertion", b"invalid")], authorized=False)
     assert events[0]["status"] == 401
     assert called == []
+
+
+def test_duplicate_security_headers_denied_even_when_token_valid():
+    for name, value in [
+        (b"authorization", b"Bearer token"),
+        (b"cf-access-jwt-assertion", b"signed-token")
+    ]:
+        events, called = dispatch([
+            (name, value), (name, value)], authorized=True)
+        assert events[0]["status"] == 401
+        assert called == []
 
 
 def test_wrong_path_denied():
