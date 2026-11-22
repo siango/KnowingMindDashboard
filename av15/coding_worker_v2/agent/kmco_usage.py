@@ -24,8 +24,12 @@ def _digest(value):
 
 
 def _operation_ids(name, args):
-    if name in ("kmco.p01.evidence",):
-        return [f"P01-M{i:02d}" for i in range(1, 6)]
+    group = {"kmco.p01.evidence": "P01",
+             "kmco.p02.resume": "P02",
+             "kmco.p03.loop_guard": "P03",
+             "kmco.p04.plan": "P04"}.get(name)
+    if group:
+        return [f"{group}-M{i:02d}" for i in range(1, 6)]
     if isinstance(args, dict):
         if isinstance(args.get("operation_id"), str):
             return [args["operation_id"]] if OP_RE.fullmatch(args["operation_id"]) else []
