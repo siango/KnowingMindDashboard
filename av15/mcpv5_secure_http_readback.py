@@ -68,15 +68,21 @@ class AccessGate:
         path = scope.get("path", "")
         if path not in ("/mcp", "/flow", "/flow/api"):
             return await self._reject(send, 404)
-        headers = {k.lower(): v for k, v in scope.get("headers", [])}
-        # Require an actual signed Access JWT; never trust identity headers.
+        raw_headers = [(k.lower(), v) for k, v in scope.get("headers", [])]
+        # A bearer for OAuth/application authorization is NOT an Access JWT.
+        # Cloudflare's signed assertion is a separate transport identity.
+        # Never equate the two, and never accept unsigned identity hints.
+        if any(sum(name == key for name, _ in raw_headers) > 1 for key in
+               (b"authorization", b"cf-access-jwt-assertion")):
+            return await self._reject(send, 401)
+        headers = dict(raw_headers)
         supplied = headers.get(b"cf-access-jwt-assertion", b"")
         auth = headers.get(b"authorization", b"")
-        if auth.startswith(b"Bearer "):
-            bearer = auth[7:]
-            if supplied and supplied != bearer:
-                return await self._reject(send, 401)
-            supplied = bearer
+        # Backwards compatibility: exact Access JWT passed as bearer when no
+        # signed assertion header is supplied. A generic OAuth bearer alone
+        # cannot satisfy the Access gate and still fails closed.
+        if not supplied and auth.startswith(b"Bearer "):
+            supplied = auth[7:]
         try:
             validate_access_jwt(supplied.decode("ascii"))
         except Exception:
