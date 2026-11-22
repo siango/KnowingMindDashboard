@@ -13,6 +13,11 @@ class KMCOUsageTests(unittest.TestCase):
     def test_operation_id_mapping(self):
         self.assertEqual(_operation_ids("kmco.p01.evidence", {}), [
             "P01-M01", "P01-M02", "P01-M03", "P01-M04", "P01-M05"])
+        for name, group in (("kmco.p02.resume","P02"),
+                            ("kmco.p03.loop_guard","P03"),
+                            ("kmco.p04.plan","P04")):
+            self.assertEqual(_operation_ids(name, {}), [
+                f"{group}-M{i:02d}" for i in range(1, 6)])
         self.assertEqual(_operation_ids("kmco.plan", {"steps": [
             {"op_id": "P04-M01", "after": []},
             {"op_id": "P04-M02", "after": ["P04-M01"]}]}),
