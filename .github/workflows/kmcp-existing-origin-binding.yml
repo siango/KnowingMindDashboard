@@ -53,6 +53,43 @@ jobs:
                   if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef))
                   and any(isinstance(d,ast.Call) and isinstance(d.func,ast.Attribute)
                           and d.func.attr=='tool' for d in n.decorator_list)]
+          # Historical AV15 Access-pair delivery was a separate Dhamma identity.
+          # Observe file metadata only: never read/copy or reuse its values as
+          # KMCW Admin credentials or as a production origin bearer.
+          import stat
+          legacy=Path.home()/'.config/knowingmind/dhamma-mcp-access.env'
+          try:
+              meta=legacy.lstat()
+              data['historical_dhamma_access_delivery']={
+                  'present':True,
+                  'owner_only_regular_file':(
+                      stat.S_ISREG(meta.st_mode) and
+                      meta.st_uid==os.geteuid() and
+                      meta.st_mode & 0o077 == 0),
+                  'values_read':False,
+                  'authority_domain':'DHAMMA_ONLY'}
+          except FileNotFoundError:
+              data['historical_dhamma_access_delivery']={
+                  'present':False,'values_read':False,
+                  'authority_domain':'DHAMMA_ONLY'}
+          # A systemd credentials directory is a DIFFERENT protected Admin
+          # channel; its absence blocks per-tool delegation, not MCP transport.
+          if cred:
+              from pathlib import Path as _Path
+              try:
+                  admin=(_Path(cred)/'km-ai-admin.session-cookie').lstat()
+                  data['admin_session_credential']={
+                      'present':True,'private_regular_file':(
+                          stat.S_ISREG(admin.st_mode) and
+                          admin.st_uid in (0,os.geteuid()) and
+                          admin.st_mode & 0o077 == 0),
+                      'values_read':False}
+              except OSError:
+                  data['admin_session_credential']={
+                      'present':False,'values_read':False}
+          else:
+              data['admin_session_credential']={
+                  'present':False,'values_read':False}
           data['status']='METADATA_READBACK_ONLY'
           out=Path(os.environ['RUNNER_TEMP'])/'kmcp-existing-origin-binding.json'
           out.write_text(json.dumps(data,indent=2)+'\n')
