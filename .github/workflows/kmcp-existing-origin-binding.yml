@@ -1,17 +1,14 @@
 name: kmcp-existing-origin-binding
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths: ['.github/workflows/kmcp-existing-origin-binding.yml']
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
   binding:
     if: >-
       github.repository == 'siango/KnowingMindDashboard' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.head.ref == 'feature/kmcp-portable-circuits-20261122' &&
-      github.event.pull_request.user.login == 'siango'
+      github.ref == 'refs/heads/feature/kmcp-portable-circuits-20261122' &&
+      github.actor == 'siango'
     runs-on: [self-hosted, Linux, X64, kmcp, nonprod]
     timeout-minutes: 3
     steps:

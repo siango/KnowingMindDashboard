@@ -1,8 +1,5 @@
 name: kmcp-cloudflare-existing-inventory
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths: ['.github/workflows/kmcp-cloudflare-existing-inventory.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -10,9 +7,8 @@ jobs:
   inventory:
     if: >-
       github.repository == 'siango/KnowingMindDashboard' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.head.ref == 'feature/kmcp-portable-circuits-20261122' &&
-      github.event.pull_request.user.login == 'siango'
+      github.ref == 'refs/heads/feature/kmcp-portable-circuits-20261122' &&
+      github.actor == 'siango'
     runs-on: [self-hosted, Linux, X64, kmcp, nonprod]
     timeout-minutes: 5
     steps:

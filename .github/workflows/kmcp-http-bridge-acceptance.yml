@@ -1,13 +1,6 @@
 name: kmcp-http-bridge-acceptance
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths:
-      - 'av15/coding_worker_v2/agent/http_bridge.py'
-      - 'av15/coding_worker_v2/tests/test_http_bridge.py'
-      - 'av15/mcpv5_secure_http_readback.py'
-      - 'scripts/host/test_mcpv5_access_gate_source.py'
-      - '.github/workflows/kmcp-http-bridge-acceptance.yml'
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
@@ -17,15 +10,14 @@ jobs:
   source:
     if: >-
       github.repository == 'siango/KnowingMindDashboard' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.head.ref == 'feature/kmcp-portable-circuits-20261122' &&
-      github.event.pull_request.user.login == 'siango'
+      github.ref == 'refs/heads/feature/kmcp-portable-circuits-20261122' &&
+      github.actor == 'siango'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -47,7 +39,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           test "$RUNNER_NAME" = ubuntu-usb
@@ -62,7 +54,7 @@ jobs:
       - name: Host HTTP real-registry acceptance without modifying kmcp-v5.service
         shell: bash
         env:
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           test "$RUNNER_NAME" = ubuntu-usb
@@ -93,7 +85,7 @@ jobs:
       - name: Inspect real owner KMCP registry and KMCO routes from pinned source (no tool calls)
         shell: bash
         env:
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           test "$RUNNER_NAME" = ubuntu-usb

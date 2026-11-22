@@ -2,6 +2,7 @@ name: coding-worker-v2
 
 on:
   push:
+    branches-ignore: ['feature/kmcp-portable-circuits-20261122']
     paths:
       - 'av15/coding_worker_v2/**'
       - '.github/workflows/coding_worker_v2.yml'

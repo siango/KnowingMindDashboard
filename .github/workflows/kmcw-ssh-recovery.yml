@@ -1,8 +1,6 @@
 name: kmcw-ssh-recovery
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths: ['.github/workflows/kmcw-ssh-recovery.yml']
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
@@ -12,15 +10,14 @@ jobs:
   release:
     if: >-
       github.repository == 'siango/KnowingMindDashboard' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.head.ref == 'feature/kmcp-portable-circuits-20261122' &&
-      github.event.pull_request.user.login == 'siango'
+      github.ref == 'refs/heads/feature/kmcp-portable-circuits-20261122' &&
+      github.actor == 'siango'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -29,7 +26,7 @@ jobs:
         run: python3 -m unittest discover -s coding_worker_v2/tests -q
       - name: Build exact-source offline application and database-driver bundle
         env:
-          SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+          SOURCE_SHA: ${{ github.sha }}
         run: |
           python3 -m py_compile scripts/host/accept-runtime-recovery.py
           python3 -m pip wheel --no-deps --wheel-dir host-bundle ./av15
@@ -45,7 +42,7 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: kmcw-ssh-offline-${{ github.event.pull_request.head.sha }}
+          name: kmcw-ssh-offline-${{ github.sha }}
           path: host-bundle/
           retention-days: 14
   install-and-accept:
@@ -55,18 +52,18 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: kmcw-ssh-offline-${{ github.event.pull_request.head.sha }}
+          name: kmcw-ssh-offline-${{ github.sha }}
           path: ${{ runner.temp }}/kmcw-ssh-offline
       - name: Install verified package on existing node
         env:
-          SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+          SOURCE_SHA: ${{ github.sha }}
         run: |
           python3 "$RUNNER_TEMP/kmcw-ssh-offline/install-runtime.py" \
             --bundle "$RUNNER_TEMP/kmcw-ssh-offline" --source-sha "$SOURCE_SHA" \
             --receipt "$RUNNER_TEMP/kmcw-ssh-installation.json"
       - name: Accept native conversation, scoped circuit, real database and private recovery
         env:
-          SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+          SOURCE_SHA: ${{ github.sha }}
           WRANGLER_SEND_METRICS: 'false'
         run: |
           export PATH="$HOME/.local/bin:$PATH"
