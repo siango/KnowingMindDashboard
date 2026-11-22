@@ -1,5 +1,11 @@
 name: kmcp-install-on-ubuntu
 on:
+  push:
+    branches: ['feature/kmcp-portable-circuits-20261122']
+    paths:
+      - 'av15/coding_worker_v2/agent/kmco_*.py'
+      - 'av15/coding_worker_v2/tests/test_kmco_*.py'
+      - '.github/workflows/kmcp-install-on-ubuntu.yml'
   workflow_dispatch:
 permissions:
   contents: read
@@ -21,6 +27,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Validate complete source before runtime delivery
+        working-directory: av15
+        run: python3 -m unittest discover -s coding_worker_v2/tests -t . -q
       - name: Build exact-source offline host bundle
         env:
           SOURCE_SHA: ${{ github.sha }}
@@ -56,12 +65,45 @@ jobs:
         run: |
           python3 "$RUNNER_TEMP/kmcp-offline-host-bundle/install-runtime.py" \
             --bundle "$RUNNER_TEMP/kmcp-offline-host-bundle" \
-            --source-sha "$SOURCE_SHA" \
+            --source-sha "$SOURCE_SHA" --package-only \
             --receipt "$RUNNER_TEMP/kmcp-ubuntu-installation.json"
+      - name: Read installed native handlers using the existing owner config
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_NAME" = ubuntu-usb
+          cd "$RUNNER_TEMP"
+          "$HOME/KnowingMind/.venvs/kmcp-portable/bin/python" -I - <<'PYCODE'
+          import json, os
+          from pathlib import Path
+          from coding_worker_v2.agent.circuit_cli import load_runtime
+          from coding_worker_v2.agent.kmco_route_audit import audit_routes
+          cfg=Path.home()/'.config/knowingmind/kmcw-owner-runtime.json'
+          ctx,registry=load_runtime(cfg)
+          out=audit_routes(ctx['kmco_catalog'],registry,ctx)
+          required={'P05':'kmco.p05.completion','P06':'kmco.p06.permission'}
+          assert all(out['native_problem_circuit_handlers'].get(k)==v for k,v in required.items())
+          assert out['native_operation_source_bound'] >= 30
+          report={'schema':'KMCO_INSTALLED_SOURCE_ACCEPTANCE_V1',
+                  'node':'ubuntu-usb','source_sha':os.environ['SOURCE_SHA'],
+                  'native_source_bound':out['native_operation_source_bound'],
+                  'remaining_design_only':out['design_only_operations'],
+                  'verified_e2e_routes':out['verified_end_to_end_routes'],
+                  'status':'INSTALLED_HANDLER_READBACK_ONLY',
+                  'independent_qc':'NOT_RUN','production_acceptance':'NOT_GRANTED',
+                  'registered_handlers':out['native_problem_circuit_handlers']}
+          p=Path(os.environ['RUNNER_TEMP'])/'kmco-installed-handler-readback.json'
+          p.write_text(json.dumps(report,indent=2)+'\n')
+          print(json.dumps(report))
+          PYCODE
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: kmcp-ubuntu-installation-${{ github.run_id }}
-          path: ${{ runner.temp }}/kmcp-ubuntu-installation.json
+          path: |
+            ${{ runner.temp }}/kmcp-ubuntu-installation.json
+            ${{ runner.temp }}/kmco-installed-handler-readback.json
           if-no-files-found: warn
           retention-days: 14

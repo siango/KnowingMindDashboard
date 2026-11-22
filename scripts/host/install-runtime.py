@@ -22,6 +22,8 @@ def main():
     ap.add_argument("--bundle", required=True)
     ap.add_argument("--source-sha", required=True)
     ap.add_argument("--receipt", required=True)
+    ap.add_argument("--package-only", action="store_true",
+                    help="Install the tested runtime only; preserve existing setup/Cloudflare tools")
     args = ap.parse_args()
     assert os.environ.get("RUNNER_NAME") == "ubuntu-usb", "Wrong runner"
     assert os.geteuid() != 0, "Ordinary user required"
@@ -107,6 +109,9 @@ def main():
             assert len(listed["result"]["tools"]) == 73
             receipt["steps"]["stdio_protocol"] = {"status": "PASS", "tools": 73,
                                                   "scope": "ISOLATED_INSTALLATION_FIXTURE"}
+        if args.package_only:
+            receipt["status"] = "PACKAGE_INSTALLED_VERIFIED"
+            return
         # Fast-forward the already existing setup checkout; never reset local edits.
         checkout = home / "kmcp-host-setup"
         assert (checkout / ".git").exists(), "Existing setup checkout not found"

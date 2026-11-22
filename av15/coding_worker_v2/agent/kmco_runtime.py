@@ -320,6 +320,30 @@ def register_kmco_tools(registry, catalog):
                  "strict existing planner DAG/scope/mission; no enqueue or authority"),
         p04_plan)
 
+    def p05_completion(args, ctx):
+        from .kmco_p05 import run_p05
+        if any(f"P05-M{i:02d}" not in catalog._operations for i in range(1, 6)):
+            raise ToolError("KMCO_P05_CATALOG_INCOMPLETE")
+        return run_p05(args["plan"], ctx)
+
+    registry.register(
+        ToolSpec("kmco.p05.completion", "Validate receipt, tests and signed independent proof",
+                 {"plan": "dict"}, {}, "read", "none",
+                 "original completion_readback; scoped receipt, signature and criteria; no transition"),
+        p05_completion)
+
+    def p06_permission(args, ctx):
+        from .kmco_p06 import run_p06
+        if any(f"P06-M{i:02d}" not in catalog._operations for i in range(1, 6)):
+            raise ToolError("KMCO_P06_CATALOG_INCOMPLETE")
+        return run_p06(registry, args["tool"], args["arguments"], ctx)
+
+    registry.register(
+        ToolSpec("kmco.p06.permission", "Existing tool schema, grant and read scope preflight",
+                 {"tool": "str", "arguments": "dict"}, {}, "read", "none",
+                 "no target dispatch; same capabilities.authorized gate; privileged calls use original tool"),
+        p06_permission)
+
     def core_recall(args, ctx):
         from .kmco_core import recall
         try:

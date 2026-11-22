@@ -27,7 +27,9 @@ def _operation_ids(name, args):
     group = {"kmco.p01.evidence": "P01",
              "kmco.p02.resume": "P02",
              "kmco.p03.loop_guard": "P03",
-             "kmco.p04.plan": "P04"}.get(name)
+             "kmco.p04.plan": "P04",
+             "kmco.p05.completion": "P05",
+             "kmco.p06.permission": "P06"}.get(name)
     if group:
         return [f"{group}-M{i:02d}" for i in range(1, 6)]
     if isinstance(args, dict):

@@ -244,6 +244,25 @@ class ToolRegistry:
                                      "tool": name, "state": usage_state,
                                      "durable": usage_state == "PERSISTED_UNVERIFIED"})
 
+    def validate_arguments(self, name, args):
+        """Shared exact input schema check; never dispatch or grant authority."""
+        spec = self._specs.get(name)
+        if spec is None:
+            raise ToolError("TOOL_UNKNOWN")
+        if not isinstance(args, dict):
+            raise ToolError("TOOL_ARGS_INVALID", name)
+        for key in args:
+            if key not in spec.required and key not in spec.optional:
+                raise ToolError("TOOL_ARG_UNKNOWN", f"{name}.{key}"[:120])
+        for key, type_name in spec.required.items():
+            if key not in args:
+                raise ToolError("TOOL_ARG_MISSING", f"{name}.{key}")
+            if not _check_type(args[key], type_name):
+                raise ToolError("TOOL_ARG_TYPE", f"{name}.{key} want {type_name}")
+        for key, type_name in spec.optional.items():
+            if key in args and not _check_type(args[key], type_name):
+                raise ToolError("TOOL_ARG_TYPE", f"{name}.{key} want {type_name}")
+
     def _call_inner(self, name: str, args: dict, ctx: dict, *, mcp=False) -> dict:
         spec = self._specs.get(name)
         if spec is None:
@@ -267,19 +286,7 @@ class ToolRegistry:
         if name == "pr_create" and ctx.get("allow_new_pr") is not True:
             raise ToolError("PR_CREATE_NOT_APPROVED",
                             "new pull requests require separate owner approval")
-        if not isinstance(args, dict):
-            raise ToolError("TOOL_ARGS_INVALID", name)
-        for key in args:
-            if key not in spec.required and key not in spec.optional:
-                raise ToolError("TOOL_ARG_UNKNOWN", f"{name}.{key}"[:120])
-        for key, type_name in spec.required.items():
-            if key not in args:
-                raise ToolError("TOOL_ARG_MISSING", f"{name}.{key}")
-            if not _check_type(args[key], type_name):
-                raise ToolError("TOOL_ARG_TYPE", f"{name}.{key} want {type_name}")
-        for key, type_name in spec.optional.items():
-            if key in args and not _check_type(args[key], type_name):
-                raise ToolError("TOOL_ARG_TYPE", f"{name}.{key} want {type_name}")
+        self.validate_arguments(name, args)
         workspace = ctx.get("workspace", "")
         paths = []
         if args.get("repo"):

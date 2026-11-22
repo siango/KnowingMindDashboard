@@ -44,6 +44,8 @@ def audit_routes(catalog, registry, ctx):
         "P02": "kmco.p02.resume",
         "P03": "kmco.p03.loop_guard",
         "P04": "kmco.p04.plan",
+        "P05": "kmco.p05.completion",
+        "P06": "kmco.p06.permission",
     }
     operations = []
     native_ops = 0

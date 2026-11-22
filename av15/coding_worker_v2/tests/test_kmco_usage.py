@@ -15,7 +15,9 @@ class KMCOUsageTests(unittest.TestCase):
             "P01-M01", "P01-M02", "P01-M03", "P01-M04", "P01-M05"])
         for name, group in (("kmco.p02.resume","P02"),
                             ("kmco.p03.loop_guard","P03"),
-                            ("kmco.p04.plan","P04")):
+                            ("kmco.p04.plan","P04"),
+                            ("kmco.p05.completion","P05"),
+                            ("kmco.p06.permission","P06")):
             self.assertEqual(_operation_ids(name, {}), [
                 f"{group}-M{i:02d}" for i in range(1, 6)])
         self.assertEqual(_operation_ids("kmco.plan", {"steps": [
