@@ -1,0 +1,12 @@
+{
+  "name": "kmcp-edge",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test worker.test.mjs",
+    "check": "wrangler deploy --dry-run"
+  },
+  "devDependencies": {
+    "wrangler": "4.166.0"
+  }
+}
