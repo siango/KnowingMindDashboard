@@ -190,3 +190,32 @@ Official references:
 - https://developers.cloudflare.com/workers/wrangler/commands/workers/
 - https://developers.cloudflare.com/containers/get-started/
 - https://docs.docker.com/engine/install/ubuntu/
+
+
+## Actual package delivery to Ubuntu (22 Nov update)
+
+Workflow `.github/workflows/kmcp-install-on-ubuntu.yml` builds a pinned wheel on GitHub-hosted
+Ubuntu, then delivers it to the existing `ubuntu-usb` runner. The host installs offline into
+`$HOME/KnowingMind/.venvs/kmcp-portable`, links `$HOME/.local/bin/kmcp`, verifies 73 installed
+registry tools including the six circuit tools, and exercises installed stdio initialize/tools-list
+with an isolated installation fixture. It does not modify the existing HTTP server or its authority.
+
+It fast-forwards the existing `$HOME/kmcp-host-setup` checkout only when no tracked edits
+exist, installs pinned Wrangler dependencies, runs the Worker tests and real dry-run bundle.
+The receipt is saved at `$HOME/KnowingMind/state/installations/kmcp-portable.json` and returned
+as a GitHub artifact. An installer job PASS does not mean authenticated HTTP circuit execution
+or a Cloudflare deployment has occurred.
+
+Cloudflare login now uses `wrangler login --device`: it can be initiated over SSH and completed
+from a phone/browser without a localhost callback or port forwarding. The owner must complete
+the account authorization; no device code/token is committed or printed by CI.
+
+```bash
+cd "$HOME/kmcp-host-setup"
+export PATH="$HOME/.local/bin:$PATH"
+bash scripts/host/cloudflare.sh cloudflare/kmcp-edge login
+```
+
+The currently observed pre-install host already has `kmcp-v5.service`, loopback port 18856,
+`cloudflared.service` and PostgreSQL 16. Do not reinstall them based on historical missing-service
+reports. The portable package installation leaves that existing origin untouched.

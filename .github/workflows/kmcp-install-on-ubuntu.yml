@@ -1,0 +1,71 @@
+name: kmcp-install-on-ubuntu
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths: ['scripts/host/install-runtime.py', '.github/workflows/kmcp-install-on-ubuntu.yml']
+permissions:
+  contents: read
+concurrency:
+  group: kmcp-install-ubuntu-usb
+  cancel-in-progress: false
+jobs:
+  release:
+    if: >-
+      github.repository == 'siango/KnowingMindDashboard' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'feature/kmcp-portable-circuits-20261122' &&
+      github.event.pull_request.user.login == 'siango'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build exact-source offline host bundle
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 -m py_compile scripts/host/install-runtime.py
+          python3 -m pip wheel --no-deps --wheel-dir host-bundle ./av15
+          cp scripts/host/install-runtime.py host-bundle/
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root = Path('host-bundle')
+          files = {p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in root.iterdir() if p.is_file()}
+          (root/'release.json').write_text(json.dumps({'source_sha':os.environ['SOURCE_SHA'],'files':files},indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kmcp-offline-host-bundle-${{ github.event.pull_request.head.sha }}
+          path: host-bundle/
+          retention-days: 14
+  install:
+    needs: release
+    runs-on: [self-hosted, Linux, X64, kmcp, nonprod]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: kmcp-offline-host-bundle-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/kmcp-offline-host-bundle
+      - name: Install package and Cloudflare tools on the existing Ubuntu node
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          python3 "$RUNNER_TEMP/kmcp-offline-host-bundle/install-runtime.py" \
+            --bundle "$RUNNER_TEMP/kmcp-offline-host-bundle" \
+            --source-sha "$SOURCE_SHA" \
+            --receipt "$RUNNER_TEMP/kmcp-ubuntu-installation.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kmcp-ubuntu-installation-${{ github.run_id }}
+          path: ${{ runner.temp }}/kmcp-ubuntu-installation.json
+          if-no-files-found: warn
+          retention-days: 14

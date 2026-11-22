@@ -12,7 +12,7 @@ npm ci
 [[ -x node_modules/.bin/wrangler ]] || { echo 'Project must depend on Wrangler.' >&2; exit 1; }
 wrangler=./node_modules/.bin/wrangler
 case "$action" in
-  login) exec "$wrangler" login;;
+  login) exec "$wrangler" login --device;;
   check) "$wrangler" whoami; "$wrangler" deploy --dry-run;;
   deploy) "$wrangler" whoami; "$wrangler" deploy;;
   containers-check|containers-deploy)
