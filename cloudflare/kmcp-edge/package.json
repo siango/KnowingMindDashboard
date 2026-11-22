@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test worker.test.mjs",
+    "test": "node --test worker.test.mjs tenant-policy.test.mjs",
     "check": "wrangler deploy --dry-run"
   },
   "devDependencies": {
