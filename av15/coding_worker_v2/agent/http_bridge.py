@@ -133,14 +133,18 @@ def main(argv=None):
     parser.add_argument("--auth-file", required=True,
                         help="Existing owner-only bearer credential; no credential creation")
     parser.add_argument("--port", type=int, default=18857)
+    parser.add_argument("--admin-runtime-context", action="store_true",
+                        help="Use existing verified KM AI Admin read-only issuer; no new authority")
     args = parser.parse_args(argv)
     if not 1024 <= args.port <= 65535:
         parser.error("invalid port")
     from .circuit_cli import load_runtime
     ctx, registry = load_runtime(args.config)
     secret = read_credential(args.auth_file)
+    from .capabilities import KMAdminContextProducer
+    issuer = KMAdminContextProducer.runtime_context if args.admin_runtime_context else None
     with ThreadingHTTPServer(("127.0.0.1", args.port),
-          handler_factory(ctx, registry, secret)) as server:
+          handler_factory(ctx, registry, secret, context_provider=issuer)) as server:
         server.serve_forever()
 
 
