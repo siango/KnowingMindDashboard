@@ -54,7 +54,7 @@ export function completedMcpUsage({principal,tool,executionId,result,evidenceRef
   const exec=identifier(executionId,'EXECUTION_ID');
   const evidence=identifier(evidenceRef,'EVIDENCE_REF');
   identifier(tool,'TOOL');
-  if (typeof occurredAt !== 'string' || !/^\\d{4}-\\d\\d-\\d\\dT/.test(occurredAt))
+  if (typeof occurredAt !== 'string' || !/^\d{4}-\d\d-\d\dT/.test(occurredAt))
     throw new Error('USAGE_TIMESTAMP_INVALID');
   const key=[principal.tenantId,principal.userId,principal.channel,tool,exec].join(':');
   // Persist with UNIQUE idempotency_key using existing company_os_usage_ledger.
