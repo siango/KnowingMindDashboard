@@ -42,6 +42,7 @@ def audit_routes(catalog, registry, ctx):
     source_handlers = {
         "P01": "kmco.p01.evidence",
         "P02": "kmco.p02.resume",
+        "P03": "kmco.p03.loop_guard",
     }
     operations = []
     native_ops = 0
