@@ -106,15 +106,54 @@ jobs:
           assert os.environ['RUNNER_NAME']=='ubuntu-usb'
           home=Path.home()
           report={'schema':'KMCP_HTTP_REGISTRY_READONLY_GATE_V1','mutation':False,'http_cutover':False,'execution_authority':'NOT_GRANTED_BY_THIS_JOB'}
+          # The owner's browser Access cookie is NOT the ChatGPT client's OAuth
+          # bearer. Classify the HTTP challenge without logging tokens or bodies.
+          # Never retry an authorization with another identity or bypass Access.
+          class NoRedirect(request.HTTPRedirectHandler):
+              def redirect_request(self, *args, **kwargs):
+                  return None
+          opener=request.build_opener(NoRedirect)
           for url in ('http://127.0.0.1:18856/mcp','https://mcp.knowingmind.app/mcp'):
+              status=None
+              challenge=False
+              known_local_gate=False
               try:
-                  with request.urlopen(request.Request(url,headers={'Accept':'application/json, text/event-stream'}),timeout=8) as r:
+                  with opener.open(request.Request(url,headers={
+                      'Accept':'application/json, text/event-stream'}),timeout=8) as r:
                       status=r.status
               except error.HTTPError as e:
                   status=e.code
+                  # Only classify existence of an OAuth discovery challenge;
+                  # do not export URLs/headers/credential values.
+                  challenge=('resource_metadata=' in
+                             (e.headers.get('WWW-Authenticate','')).lower())
+                  if url.startswith('http:') and status==401:
+                      try:
+                          known_local_gate=(json.loads(e.read(256))=={'ok':False})
+                      except (ValueError,UnicodeError):
+                          pass
               except Exception as e:
                   status=type(e).__name__
-              report['local_http' if url.startswith('http:') else 'external_http']={'status':status,'authenticated_tools_list':'NOT_TESTED'}
+              key='local_http' if url.startswith('http:') else 'external_http'
+              report[key]={
+                  'status':status,
+                  'oauth_resource_metadata_challenge':challenge,
+                  'known_local_gate_response':known_local_gate,
+                  'authenticated_tools_list':'NOT_TESTED'}
+          # Discovery is a read-only probe, not evidence of a valid OAuth grant.
+          # No access tokens or interactive owner credentials in Actions.
+          for suffix in ('/.well-known/oauth-protected-resource',
+                         '/.well-known/oauth-authorization-server'):
+              try:
+                  with opener.open(request.Request(
+                      'https://mcp.knowingmind.app'+suffix,
+                      headers={'Accept':'application/json'}),timeout=8) as r:
+                      discovery_status=r.status
+              except error.HTTPError as e:
+                  discovery_status=e.code
+              except Exception as e:
+                  discovery_status=type(e).__name__
+              report.setdefault('oauth_discovery_http_status',{})[suffix]=discovery_status
           installed=home/'KnowingMind/.venvs/kmcp-portable/bin/python'
           if installed.is_file():
               check=subprocess.run([str(installed),'-I','-c',
