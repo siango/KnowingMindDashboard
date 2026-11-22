@@ -350,6 +350,9 @@ def register_kmco_tools(registry, catalog):
     from .kmco_continuity import register_continuity
     register_continuity(registry, catalog)
 
+    from .kmco_resilience import register_resilience
+    register_resilience(registry, catalog)
+
     from .kmco_database import register_database_circuits
     register_database_circuits(registry, catalog)
 
