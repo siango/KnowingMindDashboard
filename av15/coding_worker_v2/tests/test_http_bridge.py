@@ -4,6 +4,7 @@ import os
 import tempfile
 import threading
 import unittest
+from unittest import mock
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib import request, error
@@ -66,6 +67,37 @@ class HttpBridgeTests(unittest.TestCase):
         code, result = self.rpc("tools/call", {"name": "git_log", "arguments": {}})
         self.assertEqual(code, 200)
         self.assertTrue(result["result"]["isError"])
+
+    def test_trusted_read_issuer_uses_original_call_path(self):
+        name = next(x["name"] for x in self.registry.command_contract()["commands"]
+                    if x["permission"] == "read")
+        # Test issuer is injected by the host, not copied from user JSON.
+        def issuer(base):
+            return {**base, "read_only": True, "trusted_test_issuer": True}
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0),
+            handler_factory({"read_only": True}, self.registry, self.secret,
+                            context_provider=issuer))
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.url = f"http://127.0.0.1:{self.server.server_port}/mcp"
+        with mock.patch("coding_worker_v2.agent.http_bridge._call",
+                        return_value={"observed": True}) as called:
+            status, body = self.rpc("tools/call", {"name": name, "arguments": {}})
+        self.assertEqual(status, 200)
+        self.assertFalse(body["result"]["isError"])
+        self.assertTrue(called.call_args.args[2]["trusted_test_issuer"])
+        self.assertTrue(called.call_args.args[2]["read_only"])
+
+    def test_json_cannot_grant_write(self):
+        _, result = self.rpc("tools/call", {
+            "name": "kmcp.circuit.run",
+            "arguments": {"command_auth": {"authenticated": True},
+                          "read_only": False}})
+        self.assertTrue(result["result"]["isError"])
+        self.assertIn("KMCP_HTTP_READ_ONLY_DENIED", result["result"]["content"][0]["text"])
 
     def test_existing_file_permissions(self):
         with tempfile.TemporaryDirectory() as root:
