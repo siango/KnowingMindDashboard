@@ -277,6 +277,31 @@ def register_kmco_tools(registry, catalog):
                  "no state mutation or independent QC promotion"),
         p02_resume)
 
+    # P03 already reuses the bounded queue/retry problem design. This is a
+    # deterministic analysis of supplied snapshots, NOT an automatic retry.
+    def p03_loop_guard(args, ctx):
+        from .kmco_p03 import run_p03, P03Blocked
+        if any(f"P03-M{i:02d}" not in catalog._operations for i in range(1, 6)):
+            raise ToolError("KMCO_P03_CATALOG_INCOMPLETE")
+        if not isinstance(ctx.get("mission_id"), str) or not isinstance(ctx.get("task_id"), str):
+            raise ToolError("KMCO_P03_TRUSTED_CONTEXT_REQUIRED")
+        try:
+            return run_p03(args["attempts"],
+                           mission_id=ctx["mission_id"],
+                           task_id=ctx["task_id"],
+                           max_attempts=args.get("max_attempts", 3))
+        except P03Blocked as exc:
+            raise ToolError(str(exc)) from None
+
+    registry.register(
+        ToolSpec("kmco.p03.loop_guard",
+                 "Five-stage bounded retry loop analysis with stop recommendation",
+                 {"attempts": "list"}, {"max_attempts": "int"},
+                 "read", "none",
+                 "P03-M01..M05; caller observations not verified; never "
+                 "authorizes retry, mutates queue or grants independence"),
+        p03_loop_guard)
+
     def core_recall(args, ctx):
         from .kmco_core import recall
         try:
