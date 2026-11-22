@@ -1,6 +1,8 @@
 name: kmcp-connect-cloudflare
 on:
-  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths: ['.github/workflows/kmcp-connect-cloudflare.yml']
 permissions:
   contents: read
 concurrency:
@@ -10,14 +12,15 @@ jobs:
   release:
     if: >-
       github.repository == 'siango/KnowingMindDashboard' &&
-      github.actor == 'siango' &&
-      github.ref == 'refs/heads/feature/kmcp-portable-circuits-20261122'
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'siango' &&
+      github.event.pull_request.head.ref == 'feature/kmcp-portable-circuits-20261122'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -26,7 +29,7 @@ jobs:
         run: python3 -m unittest coding_worker_v2.tests.test_cloudflare_tools -v
       - name: Build exact-source offline host bundle
         env:
-          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           python3 -m py_compile scripts/host/install-runtime.py
           python3 -m pip wheel --no-deps --wheel-dir host-bundle ./av15
@@ -40,7 +43,7 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: kmcp-offline-host-bundle-${{ github.sha }}
+          name: kmcp-offline-host-bundle-${{ github.event.pull_request.head.sha }}
           path: host-bundle/
           retention-days: 14
   install:
@@ -50,11 +53,11 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: kmcp-offline-host-bundle-${{ github.sha }}
+          name: kmcp-offline-host-bundle-${{ github.event.pull_request.head.sha }}
           path: ${{ runner.temp }}/kmcp-offline-host-bundle
       - name: Install package and Cloudflare tools on the existing Ubuntu node
         env:
-          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
         shell: bash
         run: |
           python3 "$RUNNER_TEMP/kmcp-offline-host-bundle/install-runtime.py" \
@@ -63,7 +66,7 @@ jobs:
             --receipt "$RUNNER_TEMP/kmcp-ubuntu-installation.json"
       - name: Verify installed adapter and bounded Workers AI inference
         env:
-          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
           WRANGLER_SEND_METRICS: 'false'
         shell: bash
         run: |
@@ -85,8 +88,10 @@ jobs:
           client=CloudflareClient(inv['account_id'],credential)
           models=client.inventory('ai_models')
           names=[x.get('name') for x in models['items']]
-          preferred=('@cf/meta/llama-3.2-1b-instruct','@cf/meta/llama-3.1-8b-instruct','@cf/meta/llama-3-8b-instruct','@cf/mistral/mistral-7b-instruct-v0.1')
+          preferred=('@cf/ibm-granite/granite-4.0-h-micro','@cf/meta/llama-3.2-1b-instruct','@cf/meta/llama-3.1-8b-instruct','@cf/meta/llama-3-8b-instruct','@cf/mistral/mistral-7b-instruct-v0.1')
           selected=next((x for x in preferred if x in names),None)
+          from coding_worker_v2.agent.kmco_runtime import KMCOCatalog
+          catalog=KMCOCatalog.from_snapshot(home/'KnowingMind/workspaces/microops-source')
           report={'schema':'KMCP_CLOUDFLARE_ADAPTER_ACCEPTANCE_V1','source_sha':os.environ['SOURCE_SHA'],'metadata':models,'http_cutover':False,'production_circuit':'NOT_RUN','resource_creation':False}
           if selected:
               client=CloudflareClient(inv['account_id'],credential,allowed_models=(selected,))
@@ -96,7 +101,9 @@ jobs:
               except Exception as e:
                   report['inference']={'status':'BLOCKED','reason':str(e)}
           else: report['inference']={'status':'BLOCKED_MODEL_DISCOVERY','discovered_names':names}
-          registry=build_default_registry(circuits=True,cloudflare=client)
+          registry=build_default_registry(circuits=True,cloudflare=client,kmco_catalog=catalog)
+          report['registry_tools']=len(registry.names())
+          report['kmco_catalog']='VALIDATED_EXISTING_SNAPSHOT'
           report['adapter_import']='PASS'
           target=home/'KnowingMind/state/installations/cloudflare-adapter.json'
           target.write_text(json.dumps(report,indent=2)+'\n')

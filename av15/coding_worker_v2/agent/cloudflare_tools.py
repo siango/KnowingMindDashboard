@@ -119,12 +119,25 @@ class CloudflareClient:
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": max_tokens, "temperature": 0})
         result = value.get("result")
-        if not isinstance(result, dict) or not isinstance(result.get("response"), str):
+        if not isinstance(result, dict):
             raise ToolError("CF_AI_RESULT_INVALID")
-        if len(result["response"].encode()) > 8192:
+        text = result.get("response")
+        if not isinstance(text, str):
+            # Live Granite response uses the provider's chat-completion shape.
+            choices = result.get("choices")
+            if (not isinstance(choices, list) or len(choices) != 1
+                    or not isinstance(choices[0], dict)
+                    or not isinstance(choices[0].get("message"), dict)):
+                raise ToolError("CF_AI_RESULT_INVALID")
+            text = choices[0]["message"].get("content")
+            if not isinstance(text, str):
+                raise ToolError("CF_AI_RESULT_INVALID")
+        if not text.strip():
+            raise ToolError("CF_AI_EMPTY_OUTPUT")
+        if len(text.encode()) > 8192:
             raise ToolError("CF_AI_OUTPUT_LIMIT")
         return {"provider": "cloudflare", "account_ref": self.account_id,
-                "model": model, "response": result["response"],
+                "model": model, "response": text,
                 "max_output_tokens": max_tokens, "billed_cost": None,
                 "independent_qc": "NOT_RUN"}
 

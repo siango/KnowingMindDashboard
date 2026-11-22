@@ -79,6 +79,18 @@ class CloudflareTools(unittest.TestCase):
         self.assertEqual(json.loads(self.calls[0].data)['max_tokens'],8)
         self.assertEqual(self.calls[0].get_method(),'POST')
 
+    def test_live_chat_completion_shape_is_normalized(self):
+        result=self.client({'choices':[{'message':{'content':'OK','reasoning_content':'private'}}]}).infer(MODEL,'Reply OK')
+        self.assertEqual(result['response'],'OK')
+        self.assertNotIn('private',json.dumps(result))
+
+    def test_empty_and_ambiguous_completions_fail_closed(self):
+        for payload in ({'response':''},{'choices':[]},
+                        {'choices':[{'message':{'content':None}}]},
+                        {'choices':[{'message':{'content':'A'}},{'message':{'content':'B'}}]}):
+            with self.subTest(payload=payload),self.assertRaises(ToolError):
+                self.client(payload).infer(MODEL,'Reply OK')
+
     def test_provider_failure_never_returns_sensitive_error_body(self):
         def opened(req,timeout): raise error.HTTPError(req.full_url,403,'fixture-secret',{},None)
         client=CloudflareClient(ACCOUNT,lambda:'fixture-token-no-real-credential',opener=opened)
