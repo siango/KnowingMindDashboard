@@ -1,23 +1,19 @@
 name: kmcp-live-provider-acceptance
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths: ['.github/workflows/kmcp-live-provider-acceptance.yml']
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
   accept:
     if: >-
       github.repository == 'siango/KnowingMindDashboard' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.head.ref == 'feature/kmcp-portable-circuits-20261122' &&
-      github.event.pull_request.user.login == 'siango'
+      github.actor == 'siango' &&
+      github.ref == 'refs/heads/feature/kmcp-portable-circuits-20261122'
     runs-on: [self-hosted, Linux, X64, kmcp, nonprod]
     timeout-minutes: 5
     steps:
       - name: Qualify installed Cloudflare adapter with existing KMCO catalog
         env:
-          SOURCE_SHA: '45412e5dfcfa64424c940ed4f068c27ffe720430'
           WRANGLER_SEND_METRICS: 'false'
         shell: bash
         run: |
@@ -43,7 +39,7 @@ jobs:
           selected=next((x for x in preferred if x in names),None)
           from coding_worker_v2.agent.kmco_runtime import KMCOCatalog
           catalog=KMCOCatalog.from_snapshot(home/'KnowingMind/workspaces/microops-source')
-          report={'schema':'KMCP_CLOUDFLARE_ADAPTER_ACCEPTANCE_V1','source_sha':os.environ['SOURCE_SHA'],'metadata':models,'http_cutover':False,'production_circuit':'NOT_RUN','resource_creation':False}
+          report={'schema':'KMCP_CLOUDFLARE_ADAPTER_ACCEPTANCE_V1','source_sha':json.loads((home/'KnowingMind/state/installations/kmcp-portable.json').read_text())['source_sha'],'metadata':models,'http_cutover':False,'production_circuit':'NOT_RUN','resource_creation':False}
           if selected:
               client=CloudflareClient(inv['account_id'],credential,allowed_models=(selected,))
               try:
