@@ -81,6 +81,7 @@ def main(argv=None):
     sub = parser.add_subparsers(dest='action', required=True)
     sub.add_parser('catalog')
     sub.add_parser('local-check')
+    sub.add_parser('route-audit')
     plan = sub.add_parser('plan')
     plan.add_argument('--command', required=True)
     plan.add_argument('--request-id', required=True)
@@ -97,6 +98,17 @@ def main(argv=None):
             from .capabilities import KMAdminContextProducer
             return serve(ctx, context_provider=KMAdminContextProducer.runtime_context
                          if args.admin_runtime_context else None)
+        if args.action == 'route-audit':
+            from .kmco_route_audit import audit_routes
+            from .kmco_runtime import KMCOError
+            if ctx.get('kmco_catalog') is None:
+                raise ToolError('KMCO_CATALOG_NOT_BOUND')
+            try:
+                report = audit_routes(ctx['kmco_catalog'], registry, ctx)
+            except KMCOError as exc:
+                raise ToolError(exc.code) from None
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+            return 0
         if args.action == 'local-check':
             from .local_mcp_acceptance import inspect_local
             print(json.dumps(inspect_local(ctx, registry), ensure_ascii=False, indent=2))
