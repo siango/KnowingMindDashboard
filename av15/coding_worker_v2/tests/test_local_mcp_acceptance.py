@@ -20,6 +20,14 @@ class LocalMCPReadbackTests(unittest.TestCase):
         self.assertFalse(report['production_acceptance'])
         self.assertEqual(report['tool_calls_executed'],0)
 
+    def test_ssh_mcp_cli_forwards_config_without_unknown_argument_failure(self):
+        from unittest import mock
+        from coding_worker_v2.agent import ssh_cli
+        with mock.patch("coding_worker_v2.agent.circuit_cli.main", return_value=0) as original:
+            rc = ssh_cli.main(["mcp", "--config", "/existing/runtime.json", "local-check"])
+            self.assertEqual(rc, 0)
+            original.assert_called_once_with(["--config", "/existing/runtime.json", "local-check"])
+
     def test_missing_context_denied(self):
         with self.assertRaisesRegex(ValueError,'LOCAL_MCP_RUNTIME_REQUIRED'):
             inspect_local(None,None)
