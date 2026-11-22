@@ -1,0 +1,77 @@
+name: kmcp-http-bridge-acceptance
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'av15/coding_worker_v2/agent/http_bridge.py'
+      - 'av15/coding_worker_v2/tests/test_http_bridge.py'
+      - '.github/workflows/kmcp-http-bridge-acceptance.yml'
+permissions:
+  contents: read
+concurrency:
+  group: kmcp-http-bridge-acceptance
+  cancel-in-progress: false
+jobs:
+  source:
+    if: >-
+      github.repository == 'siango/KnowingMindDashboard' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'feature/kmcp-portable-circuits-20261122' &&
+      github.event.pull_request.user.login == 'siango'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate syntax and HTTP bridge with actual registry
+        working-directory: av15
+        run: |
+          python3 -m py_compile coding_worker_v2/agent/http_bridge.py
+          python3 -m unittest coding_worker_v2.tests.test_http_bridge -v
+  ubuntu-usb:
+    needs: source
+    runs-on: [self-hosted, Linux, X64, kmcp, nonprod]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Host HTTP real-registry acceptance without modifying kmcp-v5.service
+        working-directory: av15
+        shell: bash
+        run: |
+          test "$RUNNER_NAME" = ubuntu-usb
+          python3 -m unittest coding_worker_v2.tests.test_http_bridge -v
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          from datetime import datetime, timezone
+          service=subprocess.run(['systemctl','is-active','kmcp-v5.service'],
+                                 capture_output=True,text=True,timeout=5)
+          report={
+            'schema':'KMCP_HTTP_BRIDGE_HOST_ACCEPTANCE_V1',
+            'node':'ubuntu-usb','source_sha':os.environ['GITHUB_SHA'],
+            'observed_at':datetime.now(timezone.utc).isoformat(),
+            'test':'PASS_REAL_REGISTRY_LOOPBACK',
+            'existing_origin_service_status':service.stdout.strip(),
+            'existing_origin_modified':False,
+            'production_http_cutover':False,
+            'write_authority':'NOT_GRANTED',
+            'authenticated_production_tools_call':'NOT_TESTED',
+            'acceptance':'LOCAL_BRIDGE_VERIFIED_ONLY'}
+          p=Path(os.environ['RUNNER_TEMP'])/'kmcp-http-bridge-acceptance.json'
+          p.write_text(json.dumps(report,indent=2)+'\n')
+          print(json.dumps(report,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kmcp-http-bridge-host-${{ github.run_id }}
+          path: ${{ runner.temp }}/kmcp-http-bridge-acceptance.json
+          if-no-files-found: warn
+          retention-days: 14
