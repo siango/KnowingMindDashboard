@@ -27,6 +27,7 @@ jobs:
                                 capture_output=True,text=True,check=True,timeout=10)
           pid=int(result.stdout.strip()); assert pid>0
           proc=Path('/proc')/str(pid)
+          cred=''
           try:
               env=dict(x.split(b'=',1) for x in (proc/'environ').read_bytes().split(b'\0') if b'=' in x)
               data['path_bindings']={k:env.get(k.encode(),b'').decode(errors='replace') for k in
