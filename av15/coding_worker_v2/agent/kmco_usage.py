@@ -29,8 +29,11 @@ def _operation_ids(name, args):
              "kmco.p03.loop_guard": "P03",
              "kmco.p04.plan": "P04",
              "kmco.p05.completion": "P05",
-             "kmco.p06.permission": "P06"}.get(name)
-    domain = {"kmco.d01.authority": "D01", "kmco.d02.read": "D02"}.get(name)
+             "kmco.p06.permission": "P06",
+             "kmco.p07.checkpoint": "P07",
+             "kmco.p08.memory": "P08"}.get(name)
+    domain = {"kmco.d01.authority": "D01", "kmco.d02.read": "D02",
+              "kmco.d12.backup_restore": "D12"}.get(name)
     if domain:
         return [f"{domain}-M{i:02d}" for i in range(1, 7)]
     if group:

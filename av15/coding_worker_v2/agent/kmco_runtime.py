@@ -344,6 +344,12 @@ def register_kmco_tools(registry, catalog):
                  "no target dispatch; same capabilities.authorized gate; privileged calls use original tool"),
         p06_permission)
 
+    from .kmco_backup import register_backup
+    register_backup(registry, catalog)
+
+    from .kmco_continuity import register_continuity
+    register_continuity(registry, catalog)
+
     from .kmco_database import register_database_circuits
     register_database_circuits(registry, catalog)
 

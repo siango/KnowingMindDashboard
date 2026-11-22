@@ -46,8 +46,11 @@ def audit_routes(catalog, registry, ctx):
         "P04": "kmco.p04.plan",
         "P05": "kmco.p05.completion",
         "P06": "kmco.p06.permission",
+        "P07": "kmco.p07.checkpoint",
+        "P08": "kmco.p08.memory",
         "D01": "kmco.d01.authority",
         "D02": "kmco.d02.read",
+        "D12": "kmco.d12.backup_restore",
     }
     operations = []
     native_ops = 0

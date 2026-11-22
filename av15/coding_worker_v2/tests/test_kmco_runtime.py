@@ -52,7 +52,7 @@ class KMCOIntegrationTests(unittest.TestCase):
     def test_registry_integration_without_execution(self):
         reg = ToolRegistry()
         register_kmco_tools(reg, catalog())
-        self.assertEqual(reg.names(), ["kmco.core.recall", "kmco.d01.authority", "kmco.d02.read", "kmco.inspect", "kmco.p01.evidence", "kmco.p02.resume", "kmco.p03.loop_guard", "kmco.p04.plan", "kmco.p05.completion", "kmco.p06.permission", "kmco.plan", "kmco.run_readonly"])
+        self.assertEqual(reg.names(), ["kmco.core.recall", "kmco.d01.authority", "kmco.d02.read", "kmco.d12.backup_restore", "kmco.inspect", "kmco.p01.evidence", "kmco.p02.resume", "kmco.p03.loop_guard", "kmco.p04.plan", "kmco.p05.completion", "kmco.p06.permission", "kmco.p07.checkpoint", "kmco.p08.memory", "kmco.plan", "kmco.run_readonly"])
         ctx = {"evidence": []}
         item = reg.call("kmco.inspect", {"operation_id": "D01-M01"}, ctx)
         self.assertEqual(item["state"], "DESIGN_REGISTERED")

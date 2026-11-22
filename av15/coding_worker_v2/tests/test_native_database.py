@@ -30,3 +30,16 @@ class NativeDatabaseTests(unittest.TestCase):
         for operation, sql in (('other', SQL), ('same_task_observations', 'SELECT secret')):
             with self.assertRaisesRegex(ToolError, 'NATIVE_DATABASE_OPERATION_DENIED'):
                 NativeReader('kmco_runtime').read(operation, {'sql': sql}, {}, {}, 1)
+
+    def test_actual_host_canary_graph_declares_all_referenced_ports(self):
+        import importlib.util
+        from pathlib import Path
+        from coding_worker_v2.agent.circuits import validate_graph
+        from coding_worker_v2.agent.tools import build_default_registry
+        from coding_worker_v2.tests.test_kmco_runtime import catalog
+        path = Path(__file__).resolve().parents[3]/'scripts/host/accept-kmco-native.py'
+        spec = importlib.util.spec_from_file_location('kmco_native_acceptance',path)
+        module = importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        graph = module.build_graph('README','fixture quote')
+        self.assertEqual(validate_graph(graph,build_default_registry(kmco_catalog=catalog())),
+                         ['source','checkpoint','memory','owner','read'])

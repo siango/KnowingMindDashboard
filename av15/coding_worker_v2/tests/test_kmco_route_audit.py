@@ -13,14 +13,14 @@ class CanonicalRouteReadinessTests(unittest.TestCase):
         self.assertEqual(len(ROUTES), 13)
         self.assertEqual(out["design_route_count"], 13)
         self.assertEqual(out["design_operations"], 132)
-        self.assertEqual(out["native_operation_source_bound"], 42)
-        self.assertEqual(out["design_only_operations"], 90)
+        self.assertEqual(out["native_operation_source_bound"], 58)
+        self.assertEqual(out["design_only_operations"], 74)
         self.assertEqual(len(out["operation_coverage"]), 132)
         self.assertEqual(len({op["operation_id"] for op in out["operation_coverage"]}), 132)
         for op in out["operation_coverage"]:
             self.assertEqual(op["actual_tools_call"], "NOT_TESTED")
             self.assertEqual(op["independent_qc"], "NOT_RUN")
-            if op["group_id"] in ("P01", "P02", "P03", "P04", "P05", "P06", "D01", "D02"):
+            if op["group_id"] in ("P01", "P02", "P03", "P04", "P05", "P06", "P07", "P08", "D01", "D02", "D12"):
                 self.assertEqual(op["source_state"],
                                  "NATIVE_HANDLER_REGISTERED_NOT_LIVE_VERIFIED")
             else:
@@ -29,7 +29,7 @@ class CanonicalRouteReadinessTests(unittest.TestCase):
                          [f"R{i:02d}" for i in range(1, 14)])
         self.assertEqual(out["verified_end_to_end_routes"], 0)
         self.assertEqual(out["native_problem_circuit_handlers"],
-                         {"P01": "kmco.p01.evidence", "P02": "kmco.p02.resume", "P03": "kmco.p03.loop_guard", "P04": "kmco.p04.plan", "P05": "kmco.p05.completion", "P06": "kmco.p06.permission"})
+                         {"P01": "kmco.p01.evidence", "P02": "kmco.p02.resume", "P03": "kmco.p03.loop_guard", "P04": "kmco.p04.plan", "P05": "kmco.p05.completion", "P06": "kmco.p06.permission", "P07": "kmco.p07.checkpoint", "P08": "kmco.p08.memory"})
         for route in out["routes"]:
             self.assertTrue(route["unbound_groups"])
             self.assertFalse(route["production_pass"])

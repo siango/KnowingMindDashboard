@@ -299,7 +299,7 @@ class ToolRegistry:
                   "checkpoint" if name.startswith(("kmcw.", "db.")) and spec.permission != 'read' else
                   "checkpoint" if name.startswith('kmcp.') and spec.permission == 'write' else
                   "checkpoint" if name in {"task_enqueue", "pilot_submit", "pilot_run",
-                                           "pilot_discuss", "pilot_reconcile", "gui_test", "cf.ai.run"} else
+                                           "pilot_discuss", "pilot_reconcile", "gui_test", "cf.ai.run", "kmco.p07.checkpoint", "kmco.d12.backup_restore"} else
                   "inspect" if spec.permission == "read" else name)
         approval = policy_decision(
             action, ctx.get("task_id", "operator"), workspace,

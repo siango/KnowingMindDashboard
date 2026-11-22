@@ -15,6 +15,33 @@ from coding_worker_v2.agent.tools import ToolError
 from coding_worker_v2.agent.native_database import TARGET, OPERATION
 
 
+def build_graph(file, quote):
+    obj = {'type': 'object'}
+    return {'nodes': [
+        {'id': 'source', 'tool': 'kmco.p01.evidence', 'arguments': {'file': file, 'quote': quote},
+         'after': [], 'result_schema': obj},
+        {'id': 'checkpoint', 'tool': 'kmco.p07.checkpoint', 'arguments': {
+            'checkpoint_id': 'native-database-canary', 'observation': {
+                'phase':'source-evidence','progress_units':1,'evidence_refs':['native:P01'],
+                'failure_class':'NONE','terminal':False}},
+         'after':['source'],'result_schema':obj},
+        {'id':'memory','tool':'kmco.p08.memory','arguments':{
+            'goal':'Verify native KMCO scoped database read','limit':5},
+         'after':['checkpoint'],'result_schema':obj},
+        {'id': 'owner', 'tool': 'kmco.d01.authority', 'arguments': {
+            'system': 'postgres', 'target_id': TARGET, 'operation': OPERATION},
+         'after': ['memory'], 'result_schema': {'type':'object','properties':{
+            'authority_ref':{'type':'string'}},'required':['authority_ref']}},
+        {'id': 'read', 'tool': 'kmco.d02.read', 'arguments': {
+            'system': 'postgres', 'target_id': TARGET, 'operation': OPERATION, 'limit': 20},
+         'after': ['owner'], 'result_schema': {'type':'object','properties':{
+            'readback':{'type':'object'},'status':{'type':'string'}},'required':['readback','status']}}],
+        'outputs': {'authority': {'$ref': 'owner#/authority_ref'},
+                    'readback': {'$ref': 'read#/readback'},
+                    'status': {'$ref': 'read#/status'}},
+        'acceptance': [{'path': '/status', 'schema': {
+            'type': 'string', 'enum': ['READ_EXECUTED_UNVERIFIED']}}]}
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--receipt', required=True)
@@ -34,26 +61,18 @@ def main():
         file = 'av15/coding_worker_v2/README.md'
         quote = next(line.strip() for line in (Path(ctx['workspace'])/file).read_text().splitlines()
                      if line.strip())[:500]
-        obj = {'type': 'object'}
-        graph = {'nodes': [
-            {'id': 'source', 'tool': 'kmco.p01.evidence', 'arguments': {'file': file, 'quote': quote},
-             'after': [], 'result_schema': obj},
-            {'id': 'owner', 'tool': 'kmco.d01.authority', 'arguments': {
-                'system': 'postgres', 'target_id': TARGET, 'operation': OPERATION},
-             'after': ['source'], 'result_schema': obj},
-            {'id': 'read', 'tool': 'kmco.d02.read', 'arguments': {
-                'system': 'postgres', 'target_id': TARGET, 'operation': OPERATION, 'limit': 20},
-             'after': ['owner'], 'result_schema': obj}],
-            'outputs': {'authority': {'$ref': 'owner#/authority_ref'},
-                        'readback': {'$ref': 'read#/readback'},
-                        'status': {'$ref': 'read#/status'}},
-            'acceptance': [{'path': '/status', 'schema': {
-                'type': 'string', 'enum': ['READ_EXECUTED_UNVERIFIED']}}]}
+        graph = build_graph(file, quote)
         # Same canonical request ID on retries: original queue dedup prevents replay.
         result = execute(cfg, graph, 'Verify native KMCO scoped database read',
                          'kmco-native-db-'+os.environ['GITHUB_RUN_ID'], approved=True)
         if result['result']['status'] != 'COMPLETED':
+            report['node_status'] = {k: {'status':v['status'], 'error':v.get('error')}
+                                     for k,v in result['report']['nodes'].items()}
             raise ToolError('KMCO_NATIVE_DATABASE_CIRCUIT_NOT_COMPLETED')
+        rows = result['report']['outputs']['readback']['data']['rows']
+        if not any(row.get('operation') == 'kmco.p01.evidence' for row in rows):
+            raise ToolError('KMCO_NATIVE_PERSISTED_P01_ROW_NOT_READ_BACK')
+        report['readback_row_count'] = len(rows)
         receipt = result['report']['receipt']
         path = Path(receipt['uri'])
         if hashlib.sha256(path.read_bytes()).hexdigest() != receipt['sha256']:
