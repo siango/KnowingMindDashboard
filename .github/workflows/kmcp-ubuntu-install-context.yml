@@ -1,0 +1,60 @@
+name: kmcp-ubuntu-install-context
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths: ['.github/workflows/kmcp-ubuntu-install-context.yml']
+permissions:
+  contents: read
+jobs:
+  existing-runtime:
+    if: >-
+      github.repository == 'siango/KnowingMindDashboard' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'feature/kmcp-portable-circuits-20261122' &&
+      github.event.pull_request.user.login == 'siango'
+    runs-on: [self-hosted, Linux, X64, kmcp, nonprod]
+    timeout-minutes: 3
+    steps:
+      - name: Locate existing runtime without reading credentials
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, shutil, socket, subprocess
+          assert os.environ['RUNNER_NAME'] == 'ubuntu-usb'
+          home = pathlib.Path.home()
+          data = {'runner':os.environ['RUNNER_NAME'], 'hostname':socket.gethostname(),
+                  'home':str(home), 'kmcp_command':shutil.which('kmcp'),
+                  'free_bytes':shutil.disk_usage(home).free}
+          roots = [home/'kmcp-host-setup', home/'KnowingMind/workspaces',
+                   home/'.config/knowingmind', home/'KnowingMind/config']
+          data['paths'] = {str(p):p.exists() for p in roots}
+          ws = home/'KnowingMind/workspaces'
+          data['workspaces'] = sorted(p.name for p in ws.iterdir() if p.is_dir())[:30] if ws.is_dir() else []
+          data['known_config_locations'] = []
+          for root in roots:
+              if root.is_dir():
+                  for pattern in ('*kmcp*.json','*/kmcp*.json','*mcpv5*.py','*/mcpv5*.py'):
+                      data['known_config_locations'] += [str(p) for p in root.glob(pattern)][:20]
+          services = subprocess.run(['systemctl','list-units','--all','--type=service','--no-pager','--no-legend'],capture_output=True,text=True,timeout=10)
+          data['services'] = [line.strip() for line in services.stdout.splitlines()
+                             if any(x in line.lower() for x in ('cloudflared','kmcp','mcpv5','kmcw','ollama','postgres','n8n','actions.runner'))]
+          data['listeners'] = []
+          ss = subprocess.run(['ss','-lnt'],capture_output=True,text=True,timeout=10)
+          data['listeners'] = [l for l in ss.stdout.splitlines() if any(':'+p+' ' in l for p in ('18856','11434','5678'))]
+          data['runtime_processes'] = []
+          for proc in pathlib.Path('/proc').iterdir():
+              if not proc.name.isdigit(): continue
+              try:
+                  if proc.stat().st_uid != os.getuid(): continue
+                  argv=(proc/'cmdline').read_bytes().split(b'\0')
+                  matched=[]
+                  for marker in ('mcpv5','uvicorn','coding_worker','kmcp'):
+                      if any(marker.encode() in a for a in argv): matched.append(marker)
+                  if matched:
+                      # Only the interpreter path and matched keywords, never arbitrary argv/env.
+                      data['runtime_processes'].append({'pid':int(proc.name),'executable':os.readlink(proc/'exe'),'argv0':argv[0].decode(errors='replace'),'matched':matched})
+              except (OSError,PermissionError): pass
+          data['credential_metadata'] = {'cloudflared_directory_exists':(home/'.cloudflared').is_dir(),
+              'wrangler_config_directory_exists':(home/'.config/.wrangler').is_dir() or (home/'.wrangler').is_dir()}
+          print(json.dumps(data,indent=2))
+          PY
