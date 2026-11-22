@@ -120,8 +120,30 @@ echo "svc:$*" >> "$TEST_LOG"
         self.assertNotIn('registration-token', self.calls())
         self.assertNotIn('sudo:', self.calls())
 
-    def test_ephemeral_filesystem_fails(self):
+    def test_overlay_requires_explicit_persistence_selection(self):
         self.assertNotEqual(self.run_script(FIXTURE_FS='overlay').returncode, 0)
+        self.assertNotIn('sudo:', self.calls())
+
+    def test_persistent_overlay_can_install_and_reuse_runner(self):
+        result = self.run_script(FIXTURE_FS='overlay', ALLOW_PERSISTENT_OVERLAY='1')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('Reboot survival is not yet verified', result.stdout)
+        self.assertEqual(self.calls().count('registration-token'), 1)
+        result = self.run_script(FIXTURE_FS='overlay', ALLOW_PERSISTENT_OVERLAY='1',
+                                 FIXTURE_ACTIVE='0')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.calls().count('registration-token'), 1)
+
+    def test_ram_filesystems_rejected_even_with_overlay_selection(self):
+        for fs in ('tmpfs', 'ramfs'):
+            with self.subTest(fs=fs):
+                self.assertNotEqual(self.run_script(
+                    FIXTURE_FS=fs, ALLOW_PERSISTENT_OVERLAY='1').returncode, 0)
+        self.assertNotIn('sudo:', self.calls())
+
+    def test_other_overlay_flag_values_do_not_opt_in(self):
+        self.assertNotEqual(self.run_script(
+            FIXTURE_FS='overlay', ALLOW_PERSISTENT_OVERLAY='yes').returncode, 0)
         self.assertNotIn('sudo:', self.calls())
 
     def test_checksum_mismatch_fails_before_extraction(self):

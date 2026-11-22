@@ -28,7 +28,15 @@ mkdir -p "$RUNNER_DIR"
 RUNNER_DIR=$(realpath "$RUNNER_DIR")
 [[ $(stat -c %U "$RUNNER_DIR") == "$user" ]] || die 'Runner directory must belong to the current user.'
 fstype=$(findmnt -n -o FSTYPE -T "$RUNNER_DIR")
-case "$fstype" in overlay|tmpfs|ramfs) die 'Choose RUNNER_DIR on a persistent USB/home filesystem; live-session storage will disappear.';; esac
+case "$fstype" in
+  tmpfs|ramfs) die 'Choose RUNNER_DIR on persistent storage; tmpfs/ramfs cannot retain runner credentials.';;
+  overlay)
+    # A persistent Ubuntu Live USB also presents /home as overlay.
+    # Its filesystem type alone cannot prove whether the upper layer persists.
+    [[ ${ALLOW_PERSISTENT_OVERLAY:-0} == 1 ]] || die 'Overlay detected. For your persistent Ubuntu USB, rerun with ALLOW_PERSISTENT_OVERLAY=1; otherwise choose a persistent RUNNER_DIR.'
+    echo 'Using operator-declared persistent overlay. Reboot survival is not yet verified.'
+    ;;
+esac
 exec 9>"$RUNNER_DIR/.install.lock"
 flock -n 9 || die 'Another installer is running.'
 cd "$RUNNER_DIR"

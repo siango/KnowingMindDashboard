@@ -45,8 +45,19 @@ If a duplicate name exists remotely but no local credentials are found, recover 
 directory or explicitly choose a new `RUNNER_NAME`. Multiple local matches require `RUNNER_DIR`.
 Registration does not install Python project dependencies or enable a production writer.
 
-USB must contain an installed/persistent Ubuntu filesystem. `overlay`, `tmpfs` and `ramfs`
-locations are rejected; choose an ext4 persistent mount for `RUNNER_DIR` when using a Live USB.
+USB must contain an installed/persistent Ubuntu filesystem. `tmpfs` and `ramfs`
+are always rejected. A persistent Ubuntu Live USB may expose home as `overlay`;
+filesystem type alone cannot determine persistence. If persistence is already enabled,
+select it explicitly without changing/formatting storage:
+
+```bash
+ALLOW_PERSISTENT_OVERLAY=1 bash scripts/host/install-runner.sh
+```
+
+This selection is an operator assertion, not proof of reboot persistence. Until the same runner
+configuration survives a reboot and returns online, report persistence as unverified.
+A nonpersistent Live USB must instead use `RUNNER_DIR` on a verified persistent mount.
+No filesystem formatting, mount change or removal of runner credentials is performed.
 Keep Ubuntu powered and awake; a runner cannot accept work while the machine sleeps/offline.
 No inbound port is needed for the runner itself. A temporary SSH Access banner timeout in
 the screenshot does not prove the runner is unavailable; the later login succeeded.
@@ -162,9 +173,9 @@ npm test
 npm run check
 ```
 
-Eight runner fixture cases execute the real installer: fresh/repeated install, active service
+Eleven runner fixture cases execute the real installer: fresh/repeated install, active service
 reuse, missing-service repair, wrong-repository protection, remote duplicate refusal,
-ephemeral storage refusal, checksum mismatch and invalid repository rejection.
+default overlay refusal, explicit persistent-overlay install/reuse, RAM-filesystem refusal even with the overlay flag, invalid flag refusal, checksum mismatch and invalid repository rejection.
 Seven Worker tests cover configuration/authentication/path/method gates, bad origin rejection,
 stream/session forwarding and credential replacement, redirects/network failure.
 Fixtures do not register a runner or deploy to Cloudflare. CI `kmcp-host-installers` runs on
