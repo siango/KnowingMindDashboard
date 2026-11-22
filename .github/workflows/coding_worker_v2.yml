@@ -26,10 +26,6 @@ jobs:
           - os: ubuntu-latest
             python: '3.11'
     runs-on: ${{ matrix.os }}
-    env:
-      # macOS /var is an OS alias for /private/var. Canonical temp roots keep
-      # fixture path identities stable without weakening symlink guards.
-      TMPDIR: ${{ runner.temp }}
     permissions:
       contents: read
     timeout-minutes: 15
@@ -54,6 +50,10 @@ jobs:
           print(f"Validated {len(files)} n8n workflow definitions")
           PY
       - name: Unit + e2e tests (stdlib unittest)
+        env:
+          # runner context is available at step scope; /var on macOS is an
+          # OS alias. Canonical fixture roots preserve strict path identities.
+          TMPDIR: ${{ runner.temp }}
         shell: bash
         run: |
           cd av15
