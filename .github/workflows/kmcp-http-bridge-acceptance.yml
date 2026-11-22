@@ -37,15 +37,33 @@ jobs:
     runs-on: [self-hosted, Linux, X64, kmcp, nonprod]
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
-      - name: Host HTTP real-registry acceptance without modifying kmcp-v5.service
-        working-directory: av15
+      # Host checkout via GitHub's commit-pinned archive: this repository has
+      # an unrelated gitlink without .gitmodules, which breaks checkout@v4
+      # during its unconditional recursive submodule credential cleanup.
+      - name: Fetch exact owner PR source without initializing git submodules
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          set -euo pipefail
           test "$RUNNER_NAME" = ubuntu-usb
+          source_dir="$(mktemp -d "$RUNNER_TEMP/kmcp-http-source-XXXXXX")"
+          echo "KMCP_SOURCE_DIR=$source_dir" >> "$GITHUB_ENV"
+          gh api --method GET "repos/$GITHUB_REPOSITORY/tarball/$EXPECTED_SHA" > "$RUNNER_TEMP/kmcp-http-source.tar.gz"
+          tar -tzf "$RUNNER_TEMP/kmcp-http-source.tar.gz" >/dev/null
+          tar -xzf "$RUNNER_TEMP/kmcp-http-source.tar.gz" --strip-components=1 -C "$source_dir"
+          test -f "$source_dir/av15/coding_worker_v2/agent/http_bridge.py"
+          test -f "$source_dir/av15/coding_worker_v2/tests/test_http_bridge.py"
+          echo "PINNED_SOURCE_SHA=$EXPECTED_SHA"
+      - name: Host HTTP real-registry acceptance without modifying kmcp-v5.service
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_NAME" = ubuntu-usb
+          cd "$KMCP_SOURCE_DIR/av15"
           python3 -m unittest coding_worker_v2.tests.test_http_bridge -v
           python3 - <<'PY'
           import json, os, subprocess
@@ -55,7 +73,7 @@ jobs:
                                  capture_output=True,text=True,timeout=5)
           report={
             'schema':'KMCP_HTTP_BRIDGE_HOST_ACCEPTANCE_V1',
-            'node':'ubuntu-usb','source_sha':os.environ['GITHUB_SHA'],
+            'node':'ubuntu-usb','source_sha':os.environ['EXPECTED_SHA'],
             'observed_at':datetime.now(timezone.utc).isoformat(),
             'test':'PASS_REAL_REGISTRY_LOOPBACK',
             'existing_origin_service_status':service.stdout.strip(),
