@@ -29,7 +29,7 @@ def storage_summary(home, budget_seconds=90, max_files=500000):
     for label,root in roots.items():
         row={'present':root.exists(),'complete':False,'regular_files':0,
              'logical_bytes':0,'allocated_bytes':0,'metadata_errors':0,
-             'symlinks_skipped':0,'cross_device_skipped':0}
+             'symlinks_skipped':0,'cross_device_observed':0}
         result[label]=row
         if root.is_symlink():
             row['status']='SYMLINK_ROOT_DENIED';continue
@@ -48,7 +48,9 @@ def storage_summary(home, budget_seconds=90, max_files=500000):
                                 row['symlinks_skipped']+=1;continue
                             stat=entry.stat(follow_symlinks=False)
                             if stat.st_dev!=device:
-                                row['cross_device_skipped']+=1;continue
+                                row['cross_device_observed']+=1
+                            # Metadata-only inventory remains within explicitly
+                            # scoped roots. Device mismatch does not mean zero usage.
                             if entry.is_dir(follow_symlinks=False):stack.append(Path(entry.path))
                             elif entry.is_file(follow_symlinks=False):
                                 count+=1;identity=(stat.st_dev,stat.st_ino)
@@ -59,8 +61,9 @@ def storage_summary(home, budget_seconds=90, max_files=500000):
                                 row['allocated_bytes']+=stat.st_blocks*512
                         except OSError:row['metadata_errors']+=1
             except OSError:row['metadata_errors']+=1
-        row['complete']=not stack
-        row['status']='METADATA_READ' if row['complete'] else 'BUDGET_LIMIT_PARTIAL'
+        row['complete']=not stack and row['metadata_errors']==0
+        row['status']=('METADATA_READ' if row['complete'] else
+                       'BUDGET_LIMIT_PARTIAL' if stack else 'METADATA_PARTIAL')
     return result
 
 
