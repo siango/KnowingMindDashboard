@@ -1,8 +1,6 @@
 name: kmcp-ubuntu-install-context
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths: ['.github/workflows/kmcp-ubuntu-install-context.yml']
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
