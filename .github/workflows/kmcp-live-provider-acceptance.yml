@@ -47,8 +47,14 @@ jobs:
           if selected:
               client=CloudflareClient(inv['account_id'],credential,allowed_models=(selected,))
               try:
-                  answer=client.infer(selected,'Reply only OK.',max_tokens=8)
-                  report['inference']={'status':'PASS','model':selected,'response_present':bool(answer['response']),'billed_cost':None,'independent_qc':'NOT_RUN'}
+                  wire=client._call('ai/run/'+selected,{'messages':[{'role':'user','content':'Reply only OK.'}],'max_tokens':8,'temperature':0})
+                  payload=wire.get('result')
+                  report['provider_result_shape']={k:type(v).__name__ for k,v in payload.items()} if isinstance(payload,dict) else type(payload).__name__
+                  if isinstance(payload,dict) and isinstance(payload.get('choices'),list):
+                      report['choice_shapes']=[{k:type(v).__name__ for k,v in x.items()} for x in payload['choices'][:1] if isinstance(x,dict)]
+                  report['inference']={'status':'PROVIDER_RESPONSE_RECEIVED','model':selected,'adapter_acceptance':'BLOCKED_SCHEMA','independent_qc':'NOT_RUN'}
+                  answer={'response':''}
+                  report['inference']['provider_success']=True
               except Exception as e:
                   report['inference']={'status':'BLOCKED','reason':str(e)}
           else: report['inference']={'status':'BLOCKED_MODEL_DISCOVERY','discovered_names':names}
