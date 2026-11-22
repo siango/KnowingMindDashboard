@@ -5,6 +5,8 @@ on:
     paths:
       - 'av15/coding_worker_v2/agent/http_bridge.py'
       - 'av15/coding_worker_v2/tests/test_http_bridge.py'
+      - 'av15/mcpv5_secure_http_readback.py'
+      - 'scripts/host/test_mcpv5_access_gate_source.py'
       - '.github/workflows/kmcp-http-bridge-acceptance.yml'
 permissions:
   contents: read
@@ -32,6 +34,7 @@ jobs:
         run: |
           python3 -m py_compile coding_worker_v2/agent/http_bridge.py
           python3 -m unittest coding_worker_v2.tests.test_http_bridge -v
+          python3 ../scripts/host/test_mcpv5_access_gate_source.py
   ubuntu-usb:
     needs: source
     runs-on: [self-hosted, Linux, X64, kmcp, nonprod]
@@ -65,6 +68,7 @@ jobs:
           test "$RUNNER_NAME" = ubuntu-usb
           cd "$KMCP_SOURCE_DIR/av15"
           python3 -m unittest coding_worker_v2.tests.test_http_bridge -v
+          python3 ../scripts/host/test_mcpv5_access_gate_source.py
           python3 - <<'PY'
           import json, os, subprocess
           from pathlib import Path
