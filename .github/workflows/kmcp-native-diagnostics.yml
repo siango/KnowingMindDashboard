@@ -1,7 +1,7 @@
 name: kmcp-native-diagnostics
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened]
     paths:
       - '.github/workflows/kmcp-native-diagnostics.yml'
       - 'scripts/host/read-runtime-diagnostics.py'
