@@ -1,0 +1,115 @@
+name: kmcp-local-services-release-delivery
+on:
+  pull_request:
+    types: [synchronize, reopened]
+    paths:
+      - '.github/workflows/kmcp-local-services-release-delivery.yml'
+      - 'scripts/host/download-local-services-release.py'
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: kmcp-local-services-release-delivery
+  cancel-in-progress: false
+jobs:
+  preserve-built-assets:
+    if: >-
+      github.repository == 'siango/KnowingMindDashboard' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'feature/kmcp-local-services-20261123' &&
+      github.event.pull_request.user.login == 'siango'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      manifest_sha: ${{ steps.pin.outputs.manifest_sha }}
+      installer_sha: ${{ steps.pin.outputs.installer_sha }}
+      downloader_sha: ${{ steps.pin.outputs.downloader_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: kmcp-local-services-455355c25c6eadf683564971435d7f8923d9aa33
+          run-id: 45052335403
+          github-token: ${{ github.token }}
+          path: delivery/
+      - name: Verify and pin the already built software without rebuilding n8n
+        id: pin
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          def sha(p):
+              h=hashlib.sha256()
+              with Path(p).open('rb') as f:
+                  for chunk in iter(lambda:f.read(1048576),b''):h.update(chunk)
+              return h.hexdigest()
+          root=Path('delivery');doc=json.loads((root/'release.json').read_text())
+          assert doc['source_sha']=='455355c25c6eadf683564971435d7f8923d9aa33'
+          for rel,expected in doc['files'].items():
+              p=(root/rel).resolve();assert p.is_relative_to(root.resolve()) and sha(p)==expected
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+              for name,p in [('manifest_sha',root/'release.json'),('installer_sha',Path('scripts/host/install-local-services.py')),('downloader_sha',Path('scripts/host/download-local-services-release.py'))]:
+                  f.write(name+'='+sha(p)+'\n')
+          PY
+      - name: Preserve verified software as owner-reviewable draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json,subprocess
+          tag='km-local-services-20261123-candidate'
+          repo='siango/KnowingMindDashboard'
+          p=subprocess.run(['gh','release','view',tag,'--repo',repo,'--json','isDraft,targetCommitish,body'],capture_output=True,text=True)
+          if p.returncode==0:
+              d=json.loads(p.stdout)
+              assert d['isDraft'] and d['targetCommitish']=='248ea98ac5d004b9e4b79c6a2af8ef0b707d5a62' and 'KEBUNATE_LOCAL_SERVICES_CANDIDATE_V1' in d['body']
+          else:
+              subprocess.run(['gh','release','create',tag,'--repo',repo,'--draft','--target','248ea98ac5d004b9e4b79c6a2af8ef0b707d5a62',
+                  '--title','KEBUNATE local services candidate: n8n and ArtCraft',
+                  '--notes','KEBUNATE_LOCAL_SERVICES_CANDIDATE_V1\nApplication source 455355c25c6eadf683564971435d7f8923d9aa33 matches distribution snapshot 248ea98ac5d004b9e4b79c6a2af8ef0b707d5a62 except CI workflow definitions, which use the default-branch baseline. Software build and tests passed. Ubuntu acceptance is pending. Not a production-readiness claim. No credentials or user data included.'],check=True)
+          PY
+          gh release upload km-local-services-20261123-candidate delivery/* --repo "$GITHUB_REPOSITORY" --clobber
+  receive-and-accept:
+    needs: preserve-built-assets
+    permissions:
+      contents: read
+    runs-on: [self-hosted, Linux, X64, kmcp, nonprod]
+    timeout-minutes: 60
+    steps:
+      - name: Fetch only pinned delivery code through native authenticated GitHub CLI
+        env:
+          EXPECTED_SOURCE: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_INSTALLER: ${{ needs.preserve-built-assets.outputs.installer_sha }}
+          EXPECTED_DOWNLOADER: ${{ needs.preserve-built-assets.outputs.downloader_sha }}
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          python3 - <<'PY'
+          import base64,hashlib,json,os,subprocess
+          from pathlib import Path
+          assert os.environ['RUNNER_NAME']=='ubuntu-usb'
+          for name,expected in [('install-local-services.py',os.environ['EXPECTED_INSTALLER']),('download-local-services-release.py',os.environ['EXPECTED_DOWNLOADER'])]:
+              p=subprocess.run(['gh','api','repos/siango/KnowingMindDashboard/contents/scripts/host/'+name+'?ref='+os.environ['EXPECTED_SOURCE']],capture_output=True,text=True,check=True)
+              doc=json.loads(p.stdout);raw=base64.b64decode(doc['content'])
+              assert hashlib.sha256(raw).hexdigest()==expected
+              (Path(os.environ['RUNNER_TEMP'])/name).write_bytes(raw)
+          PY
+      - name: Resume verified per-file delivery and run actual application acceptance
+        env:
+          INSTALLER_SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          ionice -c3 nice -n10 python3 "$RUNNER_TEMP/download-local-services-release.py" \
+            --manifest-sha "${{ needs.preserve-built-assets.outputs.manifest_sha }}" \
+            --software-sha "455355c25c6eadf683564971435d7f8923d9aa33" \
+            --installer "$RUNNER_TEMP/install-local-services.py" \
+            --installer-sha "${{ needs.preserve-built-assets.outputs.installer_sha }}" \
+            --receipt "$RUNNER_TEMP/kmcp-local-services.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kmcp-local-services-delivery-receipt-${{ github.run_id }}
+          path: ${{ runner.temp }}/kmcp-local-services.json
+          if-no-files-found: warn
+          retention-days: 14

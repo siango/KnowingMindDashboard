@@ -88,17 +88,21 @@ def invoke(ctx, registry, name, arguments, *, child_tools=(), approved=False):
 
 def execute(path, graph, command, request_id, *, approved=False, max_steps=8):
     ctx, registry = load_owner_runtime(path)
-    compiled = circuits.compile_command({'command': command, 'request_id': request_id,
-                                         'graph': graph}, ctx, registry)
-    tools = sorted({node['tool'] for node in compiled['manifest']['graph']['nodes']})
-    if not approved:
-        return {'status': 'PREVIEW_ONLY', 'execution_authority': False, **compiled}
-    submitted = invoke(ctx, registry, 'kmcp.circuit.submit',
-                       {'manifest': compiled['manifest']}, child_tools=tools, approved=True)
-    run = invoke(ctx, registry, 'kmcp.circuit.run',
-                 {'circuit_id': submitted['circuit_id'],
-                  'manifest_sha256': submitted['manifest_sha256'], 'max_steps': max_steps},
-                 child_tools=tools, approved=True)
-    return {'schema': 'KMCW_POSIX_CIRCUIT_RESULT_V1', 'authentication': METHOD,
-            'remote_admin_authority': False, 'result': run,
-            'report': circuits.report({'circuit_id': submitted['circuit_id']}, ctx)}
+    try:
+        compiled = circuits.compile_command({'command': command, 'request_id': request_id,
+                                             'graph': graph}, ctx, registry)
+        tools = sorted({node['tool'] for node in compiled['manifest']['graph']['nodes']})
+        if not approved:
+            return {'status': 'PREVIEW_ONLY', 'execution_authority': False, **compiled}
+        submitted = invoke(ctx, registry, 'kmcp.circuit.submit',
+                           {'manifest': compiled['manifest']}, child_tools=tools, approved=True)
+        run = invoke(ctx, registry, 'kmcp.circuit.run',
+                     {'circuit_id': submitted['circuit_id'],
+                      'manifest_sha256': submitted['manifest_sha256'], 'max_steps': max_steps},
+                     child_tools=tools, approved=True)
+        return {'schema': 'KMCW_POSIX_CIRCUIT_RESULT_V1', 'authentication': METHOD,
+                'remote_admin_authority': False, 'result': run,
+                'report': circuits.report({'circuit_id': submitted['circuit_id']}, ctx)}
+    finally:
+        if ctx.get('photocraft_session') is not None:
+            ctx['photocraft_session'].close()

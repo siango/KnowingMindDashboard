@@ -1,0 +1,96 @@
+name: kmcp-local-services
+on:
+  pull_request:
+    types: [opened]
+    paths:
+      - '.github/workflows/kmcp-local-services.yml'
+      - 'integrations/n8n/**'
+      - 'scripts/host/install-local-services.py'
+      - 'scripts/host/prepare-local-services.py'
+permissions:
+  contents: read
+concurrency:
+  group: kmcp-local-services-ubuntu-usb
+  cancel-in-progress: false
+jobs:
+  release:
+    if: >-
+      github.repository == 'siango/KnowingMindDashboard' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'feature/kmcp-local-services-20261123' &&
+      github.event.pull_request.user.login == 'siango'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.3'
+      - name: Verify source and original policy gates
+        run: |
+          python3 -m py_compile scripts/host/install-local-services.py scripts/host/prepare-local-services.py
+          node --test integrations/n8n/KebunateCircuit.test.js
+          cd av15
+          python3 -m unittest discover -s coding_worker_v2/tests -q
+      - name: Build pinned native n8n and verified official ArtCraft assets
+        run: |
+          mkdir -p local-services-bundle staging/n8n
+          npm install --prefix staging/n8n --omit=dev --no-audit --no-fund n8n@2.48.7
+          node staging/n8n/node_modules/n8n/bin/n8n --version
+          tar -czf local-services-bundle/n8n-2.48.7-linux-x64-node24.tar.gz -C staging/n8n .
+          python3 scripts/host/prepare-local-services.py
+          python3 -m pip wheel --no-deps --wheel-dir local-services-bundle ./av15
+          cp integrations/n8n/KebunateCircuit.node.js integrations/n8n/km_artcraft_local.json local-services-bundle/
+          cp scripts/host/install-local-services.py local-services-bundle/
+      - name: Pin complete delivery manifest
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          root=Path('local-services-bundle')
+          def digest(path):
+              h=hashlib.sha256()
+              with path.open('rb') as stream:
+                  for block in iter(lambda:stream.read(1024*1024),b''):h.update(block)
+              return h.hexdigest()
+          files={p.name:digest(p) for p in root.iterdir() if p.is_file()}
+          (root/'release.json').write_text(json.dumps({'source_sha':os.environ['SOURCE_SHA'],'files':files},indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kmcp-local-services-${{ github.event.pull_request.head.sha }}
+          path: local-services-bundle/
+          compression-level: 0
+          retention-days: 14
+  install:
+    needs: release
+    runs-on: [self-hosted, Linux, X64, kmcp, nonprod]
+    timeout-minutes: 25
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: kmcp-local-services-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/kmcp-local-services
+      - name: Install and accept n8n to native KMCP to PhotoCraft circuit
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          ionice -c3 nice -n10 python3 "$RUNNER_TEMP/kmcp-local-services/install-local-services.py" \
+            --bundle "$RUNNER_TEMP/kmcp-local-services" --source-sha "$SOURCE_SHA" \
+            --receipt "$RUNNER_TEMP/kmcp-local-services.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kmcp-local-services-receipt-${{ github.run_id }}
+          path: ${{ runner.temp }}/kmcp-local-services.json
+          if-no-files-found: warn
+          retention-days: 14
+

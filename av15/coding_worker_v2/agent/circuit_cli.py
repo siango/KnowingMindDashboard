@@ -19,7 +19,7 @@ def load_runtime(path):
     config = json.loads(path.read_text('utf-8'))
     required = {'schema', 'node_id', 'account_id', 'mission_id', 'task_id', 'workspace', 'runtime_base'}
     if (not isinstance(config, dict) or not required.issubset(config)
-            or set(config) - required - {'kmco_catalog', 'pilot_config', 'poll_tools', 'cloudflare', 'postgres_service'}
+            or set(config) - required - {'kmco_catalog', 'pilot_config', 'poll_tools', 'cloudflare', 'postgres_service', 'photocraft', 'audit_all_tools'}
             or config['schema'] != 'KMCP_RUNTIME_V1'
             or any(not isinstance(config[k], str) or not config[k].strip() for k in required)):
         raise ToolError('KMCP_CONFIG_INVALID')
@@ -68,7 +68,26 @@ def load_runtime(path):
         if not isinstance(service, str) or not SERVICE_RE.fullmatch(service):
             raise ToolError('KMCP_POSTGRES_SERVICE_INVALID')
         context['kmco_pg_service'] = service
-    registry = build_default_registry(kmco_catalog=catalog, circuits=True, cloudflare=cloudflare)
+    if 'audit_all_tools' in config:
+        if type(config['audit_all_tools']) is not bool:
+            raise ToolError('KMCP_AUDIT_POLICY_INVALID')
+        if config['audit_all_tools']:
+            from .native_cloudflare import private_file
+            private_file(path)
+            context['audit_all_tools'] = True
+    photocraft = None
+    if 'photocraft' in config:
+        if type(config['photocraft']) is not bool:
+            raise ToolError('KMCP_PHOTOCRAFT_CONFIG_INVALID')
+        if config['photocraft']:
+            from .native_cloudflare import private_file
+            from .tools import PhotoCraftStdio
+            private_file(path)
+            photocraft = PhotoCraftStdio()
+            context['photocraft_session'] = photocraft
+            context['artcraft_write_enabled'] = True
+    registry = build_default_registry(kmco_catalog=catalog, circuits=True, cloudflare=cloudflare,
+                                      photocraft=photocraft)
     context['tool_registry'] = registry
     return context, registry
 
@@ -119,3 +138,4 @@ def main(argv=None):
 
 if __name__ == '__main__':
     raise SystemExit(main())
+

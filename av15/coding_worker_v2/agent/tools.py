@@ -227,7 +227,7 @@ class ToolRegistry:
             # KMCO events are durable only with an owner-provisioned libpq
             # service. Never silently promote in-memory evidence into a DB
             # receipt. A configured but broken sink fails closed.
-            if name.startswith("kmco."):
+            if name.startswith("kmco.") or ctx.get("audit_all_tools") is True:
                 from .kmco_usage import record as record_kmco_usage
                 try:
                     usage_state = record_kmco_usage(
@@ -292,7 +292,8 @@ class ToolRegistry:
                   "checkpoint" if name.startswith(("kmcw.", "db.")) and spec.permission != 'read' else
                   "checkpoint" if name.startswith('kmcp.') and spec.permission == 'write' else
                   "checkpoint" if name in {"task_enqueue", "pilot_submit", "pilot_run",
-                                           "pilot_discuss", "pilot_reconcile", "gui_test", "cf.ai.run"} else
+                                           "pilot_discuss", "pilot_reconcile", "gui_test", "cf.ai.run",
+                                           "creative.photocraft.create", "creative.photocraft.export"} else
                   "inspect" if spec.permission == "read" else name)
         approval = policy_decision(
             action, ctx.get("task_id", "operator"), workspace,
@@ -557,14 +558,19 @@ def build_default_registry(photocraft=None, serena=None, kmco_catalog=None,
 
             def health(ctx, permission=permission):
                 if permission != "read":
-                    return False, "KCC_GOVERNED_ARTCRAFT_DISPATCH_UNVERIFIED"
+                    from .circuits import CircuitStepGrant
+                    grant = ctx.get('_kmcp_parent_grant')
+                    if (ctx.get('artcraft_write_enabled') is not True
+                            or not isinstance(grant, CircuitStepGrant)
+                            or grant.parent.get('command_auth', {}).get('channel') != 'SSH_OWNER'):
+                        return False, "ARTCRAFT_NATIVE_SCOPED_APPROVAL_REQUIRED"
                 return not photocraft.closed, "MCP_CLOSED" if photocraft.closed else "OK"
 
             reg.register(ToolSpec(
                 f"creative.photocraft.{local}", "creative.photocraft",
                 required, optional, permission,
                 "none" if permission == "read" else "isolated ArtCraft document/output",
-                "discovered stdio tools only; writes pending governed KCC admission"),
+                "discovered stdio tools; writes require an approved native-owner circuit"),
                 invoke, health)
     for kind in ("health", "task_read", "mission_read", "node_read"):
         field_name = {"task_read": "task_id", "mission_read": "mission_id",
@@ -630,7 +636,7 @@ class PhotoCraftStdio:
             if not root.is_dir():
                 raise ToolError("ARTCRAFT_ROOT_MISSING")
         self._proc = subprocess.Popen(
-            [str(binary), "mcp", "--no-gpu",
+            [str(binary), "mcp", "--headless", "--no-gpu",
              "--automation-read-root", str(ARTCRAFT_ROOT / "input"),
              "--automation-write-root", str(ARTCRAFT_ROOT / "output")],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -986,5 +992,6 @@ def _ollama_inventory(ctx: dict) -> dict:
     models = data.get("models", [])
     names = [m.get("name", "?") for m in models if isinstance(m, dict)]
     return {"available": True, "models": names[:50]}
+
 
 
