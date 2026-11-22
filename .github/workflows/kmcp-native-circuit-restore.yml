@@ -8,8 +8,56 @@ on:
 permissions:
   contents: read
 jobs:
+  changed-recovery-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    outputs:
+      run_native: ${{ steps.changed.outputs.run_native }}
+    steps:
+      - name: Skip native work unless recovery scripts changed
+        id: changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PYCODE'
+          import json, os, re, urllib.error, urllib.request
+          from pathlib import Path
+          event=json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
+          assert os.environ['GITHUB_REPOSITORY']=='siango/KnowingMindDashboard'
+          pr=event['pull_request']
+          assert pr['head']['repo']['full_name']==os.environ['GITHUB_REPOSITORY']
+          assert pr['head']['ref']=='feature/kmcp-native-diagnostics-20261123'
+          assert pr['user']['login']=='siango'
+          def blob(ref,path):
+              assert re.fullmatch(r'[0-9a-f]{40}',ref)
+              uri=('https://api.github.com/repos/siango/KnowingMindDashboard/contents/'
+                   +path+'?ref='+ref)
+              req=urllib.request.Request(uri,headers={
+                  'Authorization':'Bearer '+os.environ['GH_TOKEN'],
+                  'Accept':'application/vnd.github+json'})
+              class NoRedirect(urllib.request.HTTPRedirectHandler):
+                  def redirect_request(self,*args,**kwargs):return None
+              try:
+                  with urllib.request.build_opener(NoRedirect).open(req,timeout=20) as response:
+                      body=response.read(1048577)
+                  assert len(body)<=1048576
+                  return json.loads(body)['sha']
+              except urllib.error.HTTPError as exc:
+                  if exc.code==404:return None
+                  raise
+          paths=('scripts/host/resume-native-circuit-recovery.py',
+                 'scripts/host/accept-runtime-recovery.py')
+          changed=any(blob(event['before'],p)!=blob(pr['head']['sha'],p) for p in paths)
+          with open(os.environ['GITHUB_OUTPUT'],'a') as out:
+              out.write('run_native='+str(changed).lower()+'\\n')
+          print('RECOVERY_SOURCE_CHANGED' if changed else 'UNCHANGED_RECOVERY_SOURCE_SKIP_NATIVE')
+          PYCODE
   read-native-state:
+    needs: changed-recovery-source
     if: >-
+      needs.changed-recovery-source.outputs.run_native == 'true' &&
       github.repository == 'siango/KnowingMindDashboard' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.head.ref == 'feature/kmcp-native-diagnostics-20261123' &&
