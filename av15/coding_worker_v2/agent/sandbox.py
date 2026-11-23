@@ -153,6 +153,40 @@ def run_isolated_observed(repo: str, command: str, timeout_s: int, *,
         "independent_qc": "NOT_RUN", "production_authority": "NOT_GRANTED",
     }
 
+def run_isolated_recorded(ctx: dict, command: str, timeout_s: int) -> dict:
+    """KMCW/KARL single-path sandbox execution and automatic existing-ledger event.
+
+    Context comes from the already-authorized KMCW runtime, never CLI/env input.
+    Fail closed if original QueueStore/source identity is unavailable. This is
+    not an independent QC, core DB write, or permission escalation.
+    """
+    if not isinstance(ctx, dict):
+        raise SandboxError("KMCW_CONTEXT_REQUIRED")
+    store = ctx.get("store")
+    if store is None or not callable(getattr(store, "append_event", None)):
+        raise SandboxError("KMCW_EXISTING_EVENT_STORE_REQUIRED")
+    from .memory import current_base_commit
+    root = ctx.get("workspace")
+    if not isinstance(root, str) or not Path(root).is_dir():
+        raise SandboxError("KMCW_WORKSPACE_REQUIRED")
+    source = current_base_commit(root)
+    if not source or len(source) != 40 or any(ch not in "0123456789abcdef" for ch in source):
+        raise SandboxError("KMCW_SOURCE_SHA_REQUIRED")
+    mission, task, account = (ctx.get(k) for k in ("mission_id", "task_id", "account_id"))
+    if any(not isinstance(v, str) or not v for v in (mission, task, account)):
+        raise SandboxError("KMCW_SCOPED_IDENTITY_REQUIRED")
+    result = run_isolated_observed(root, command, timeout_s,
+                                   mission_id=mission, task_id=task, source_sha=source)
+    canonical = json.dumps(result, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(canonical.encode()).hexdigest()
+    store.append_event(task, "karl.sandbox.observed", result["status"], digest,
+                       account_id=account, mission_id=mission, task_id=task,
+                       source_sha=source, observation=result)
+    return {**result, "event_recorded": True, "event_digest": digest,
+            "event_owner": "EXISTING_KMCW_QUEUE_STORE",
+            "core_database_readback": "NOT_VERIFIED"}
+
+
 def verify(repo: str, timeout_probe_s: int = 5) -> dict:
     """Sandbox conformance report. Honest booleans, no invented passes."""
     checks: dict = {}
