@@ -399,7 +399,7 @@ class Circuits(unittest.TestCase):
 
     def test_actual_registry_and_kmco_dataflow(self):
         self.reg = build_default_registry(kmco_catalog=catalog(), circuits=True)
-        self.assertEqual(len(self.reg.names()), 92)  # + P09-P12 source-bound resilience circuits
+        self.assertEqual(len(self.reg.names()), 94)  # + two D08/D09 preflight-only tools; no complete domain promotion
         self.authorize()
         value = {'nodes': [node('search', 'code_search', {'repo': str(self.repo), 'pattern': 'evidence'},
             obj(matches={'type': 'array', 'items': obj(file={'type': 'string'}, line={'type': 'string'}, text={'type': 'string'})})),
