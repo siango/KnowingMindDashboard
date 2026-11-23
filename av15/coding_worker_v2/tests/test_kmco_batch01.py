@@ -94,7 +94,7 @@ class Batch01StageTests(unittest.TestCase):
         self.assertTrue(out["existing_handler_called"])
         self.assertFalse(out["provider_ack_verified"])
         registry.call.assert_called_once_with("kmcw.mission.status",
-                                               {"command": self.envelope}, self.ctx)
+                                               {"command": self.envelope}, self.ctx, mcp=True)
 
     def test_07_output_schema_and_scope(self):
         out = batch.d09_m01_schema(self.output, self.egress)
