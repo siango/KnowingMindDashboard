@@ -118,7 +118,7 @@ def d08_m06_existing_readonly(name, envelope, ctx, registry):
     for plan/source/TTL/ACL/checkpoints and must fail closed on any mismatch.
     """
     _ = d08_m05_resolve(name, envelope, ctx, registry)
-    result = registry.call(name, {"command": envelope}, ctx)
+    result = registry.call(name, {"command": envelope}, ctx, mcp=True)
     wire = _serialized(result, 65536)
     return {"operation_id": "D08-M06",
             "existing_handler_called": True,
