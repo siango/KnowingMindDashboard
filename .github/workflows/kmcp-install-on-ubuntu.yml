@@ -60,6 +60,18 @@ jobs:
         with:
           name: kmcp-offline-host-bundle-${{ github.sha }}
           path: ${{ runner.temp }}/kmcp-offline-host-bundle
+      - name: Remove only prior run temporary acceptance reports
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          for name in ('kmcp-ubuntu-installation.json', 'kmco-installed-handler-readback.json',
+                       'kmco-native-database-canary.json', 'kmco-local-tools-call.json',
+                       'kmco-incremental-qualification.json'):
+              (root/name).unlink(missing_ok=True)
+          PY
       - name: Install package and Cloudflare tools on the existing Ubuntu node
         env:
           SOURCE_SHA: ${{ github.sha }}

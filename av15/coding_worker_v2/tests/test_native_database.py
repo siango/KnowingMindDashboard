@@ -43,3 +43,16 @@ class NativeDatabaseTests(unittest.TestCase):
         graph = module.build_graph('README','fixture quote')
         self.assertEqual(validate_graph(graph,build_default_registry(kmco_catalog=catalog())),
                          ['source','checkpoint','memory','owner','read'])
+
+    def test_canary_checkpoint_is_stable_per_run_and_distinct_between_runs(self):
+        import importlib.util
+        from pathlib import Path
+        path = Path(__file__).resolve().parents[3]/'scripts/host/accept-kmco-native.py'
+        spec = importlib.util.spec_from_file_location('kmco_native_ids', path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        def checkpoint(run_id):
+            graph = module.build_graph('README', 'fixture quote', checkpoint_id='native-db-' + run_id)
+            return graph['nodes'][1]['arguments']['checkpoint_id']
+        self.assertEqual(checkpoint('100'), checkpoint('100'))
+        self.assertNotEqual(checkpoint('100'), checkpoint('101'))

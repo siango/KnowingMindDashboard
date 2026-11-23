@@ -15,13 +15,13 @@ from coding_worker_v2.agent.tools import ToolError
 from coding_worker_v2.agent.native_database import TARGET, OPERATION
 
 
-def build_graph(file, quote):
+def build_graph(file, quote, checkpoint_id='native-database-canary'):
     obj = {'type': 'object'}
     return {'nodes': [
         {'id': 'source', 'tool': 'kmco.p01.evidence', 'arguments': {'file': file, 'quote': quote},
          'after': [], 'result_schema': obj},
         {'id': 'checkpoint', 'tool': 'kmco.p07.checkpoint', 'arguments': {
-            'checkpoint_id': 'native-database-canary', 'observation': {
+            'checkpoint_id': checkpoint_id, 'observation': {
                 'phase':'source-evidence','progress_units':1,'evidence_refs':['native:P01'],
                 'failure_class':'NONE','terminal':False}},
          'after':['source'],'result_schema':obj},
@@ -61,7 +61,7 @@ def main():
         file = 'av15/coding_worker_v2/README.md'
         quote = next(line.strip() for line in (Path(ctx['workspace'])/file).read_text().splitlines()
                      if line.strip())[:500]
-        graph = build_graph(file, quote)
+        graph = build_graph(file, quote, checkpoint_id='native-db-' + os.environ['GITHUB_RUN_ID'])
         # Same canonical request ID on retries: original queue dedup prevents replay.
         result = execute(cfg, graph, 'Verify native KMCO scoped database read',
                          'kmco-native-db-'+os.environ['GITHUB_RUN_ID'], approved=True)
