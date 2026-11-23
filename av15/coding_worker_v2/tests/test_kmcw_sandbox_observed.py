@@ -13,8 +13,13 @@ SHA = "a" * 40
 class SandboxObservationTests(unittest.TestCase):
     def test_allowlisted_success(self):
         with tempfile.TemporaryDirectory() as root:
+            Path(root, "test_ok.py").write_text(
+                "import unittest\n"
+                "class TestOK(unittest.TestCase):\n"
+                "    def test_ok(self): self.assertTrue(True)\n",
+                encoding="utf-8")
             result = run_isolated_observed(
-                root, "python3 -m unittest discover -s . -p test_no_such_file.py", 15,
+                root, "python3 -m unittest discover -s . -p test_ok.py", 15,
                 mission_id="G0-G1", task_id="one", source_sha=SHA)
             self.assertEqual(result["status"], "PASS")
             self.assertEqual(result["exit_code"], 0)
