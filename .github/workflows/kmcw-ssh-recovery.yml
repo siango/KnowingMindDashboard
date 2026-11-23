@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/kmcw-ssh-recovery.yml'
       - 'scripts/host/repair-kmcw-bootstrap.py'
+      - 'scripts/host/connect-kmcp-local.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -100,13 +101,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-      - name: Validate bootstrap repair and package only the bounded script
+      - name: Validate and package local KMCP connection script
         run: |
-          python3 -m py_compile scripts/host/repair-kmcw-bootstrap.py
+          python3 -m py_compile scripts/host/connect-kmcp-local.py
           mkdir -p host-bundle
-          cp scripts/host/repair-kmcw-bootstrap.py host-bundle/
+          cp scripts/host/connect-kmcp-local.py host-bundle/
           cd host-bundle
-          sha256sum repair-kmcw-bootstrap.py > SHA256SUMS
+          sha256sum connect-kmcp-local.py > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: kmcw-bootstrap-${{ github.sha }}
@@ -121,7 +122,7 @@ jobs:
         with:
           name: kmcw-bootstrap-${{ github.sha }}
           path: ${{ runner.temp }}/kmcw-bootstrap-${{ github.run_id }}
-      - name: Repair existing launcher and validate pinned canonical auditor
+      - name: Connect Codex KMCW and KMCO to existing local KMCP stdio
         shell: bash
         env:
           SOURCE_SHA: ${{ github.sha }}
@@ -130,11 +131,11 @@ jobs:
           test "$RUNNER_NAME" = ubuntu-usb
           cd "$RUNNER_TEMP/kmcw-bootstrap-${{ github.run_id }}"
           sha256sum --check SHA256SUMS
-          "$HOME/KnowingMind/.venvs/kmcp-portable/bin/python" -I repair-kmcw-bootstrap.py
+          "$HOME/KnowingMind/.venvs/kmcp-portable/bin/python" -I connect-kmcp-local.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: kmcw-bootstrap-evidence-${{ github.run_id }}
-          path: ${{ runner.temp }}/kmcw-bootstrap-repair.json
+          path: ${{ runner.temp }}/kmcp-local-connection.json
           if-no-files-found: warn
           retention-days: 14
