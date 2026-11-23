@@ -12,6 +12,7 @@ on:
       - 'scripts/host/accept-kmco-local-call.py'
       - 'scripts/host/qualify-kmco-with-codex.py'
       - 'scripts/host/karl-evidence-index.py'
+      - 'scripts/host/karl-core-export.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -42,7 +43,7 @@ jobs:
         run: |
           python3 -m py_compile scripts/host/install-runtime.py
           python3 -m pip wheel --no-deps --wheel-dir host-bundle ./av15
-          cp scripts/host/install-runtime.py scripts/host/accept-kmco-native.py scripts/host/accept-kmco-local-call.py scripts/host/qualify-kmco-with-codex.py scripts/host/karl-evidence-index.py host-bundle/
+          cp scripts/host/install-runtime.py scripts/host/accept-kmco-native.py scripts/host/accept-kmco-local-call.py scripts/host/qualify-kmco-with-codex.py scripts/host/karl-evidence-index.py scripts/host/karl-core-export.py host-bundle/
           python3 - <<'PY'
           import hashlib, json, os
           from pathlib import Path
@@ -162,6 +163,17 @@ jobs:
           else
             echo 'KARL_EVIDENCE_INDEX_SOURCE_MISSING'
           fi
+      - name: Export existing evidence as Kebunate Core ingest records (no DB writes)
+        if: always()
+        shell: bash
+        run: |
+          if test -s "$RUNNER_TEMP/karl-evidence-index.json" && test -f "$RUNNER_TEMP/kmcp-offline-host-bundle/karl-core-export.py"; then
+            python3 "$RUNNER_TEMP/kmcp-offline-host-bundle/karl-core-export.py" \
+              --index "$RUNNER_TEMP/karl-evidence-index.json" \
+              --out-dir "$RUNNER_TEMP"
+          else
+            echo 'KARL_CORE_EXPORT_BLOCKED_NO_INDEX_OR_SOURCE'
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -173,5 +185,7 @@ jobs:
             ${{ runner.temp }}/kmco-local-tools-call.json
             ${{ runner.temp }}/kmco-incremental-qualification.json
             ${{ runner.temp }}/karl-evidence-index.json
+            ${{ runner.temp }}/karl-core-activity_event.jsonl
+            ${{ runner.temp }}/karl-core-problem_solution.jsonl
           if-no-files-found: warn
           retention-days: 14
