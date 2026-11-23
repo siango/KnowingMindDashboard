@@ -1,5 +1,10 @@
 name: kmcw-ssh-recovery
 on:
+  push:
+    branches: ['feature/kmcp-portable-circuits-20261122']
+    paths:
+      - '.github/workflows/kmcw-ssh-recovery.yml'
+      - 'scripts/host/repair-kmcw-bootstrap.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -9,6 +14,7 @@ concurrency:
 jobs:
   release:
     if: >-
+      github.event_name == 'workflow_dispatch' &&
       github.repository == 'siango/KnowingMindDashboard' &&
       github.ref == 'refs/heads/feature/kmcp-portable-circuits-20261122' &&
       github.actor == 'siango'
@@ -81,3 +87,54 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+
+  bootstrap-bundle:
+    if: >-
+      github.event_name == 'push' &&
+      github.repository == 'siango/KnowingMindDashboard' &&
+      github.ref == 'refs/heads/feature/kmcp-portable-circuits-20261122' &&
+      github.actor == 'siango'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Validate bootstrap repair and package only the bounded script
+        run: |
+          python3 -m py_compile scripts/host/repair-kmcw-bootstrap.py
+          mkdir -p host-bundle
+          cp scripts/host/repair-kmcw-bootstrap.py host-bundle/
+          cd host-bundle
+          sha256sum repair-kmcw-bootstrap.py > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kmcw-bootstrap-${{ github.sha }}
+          path: host-bundle/
+          retention-days: 14
+  repair-bootstrap:
+    needs: bootstrap-bundle
+    runs-on: [self-hosted, Linux, X64, kmcp, nonprod]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: kmcw-bootstrap-${{ github.sha }}
+          path: ${{ runner.temp }}/kmcw-bootstrap-${{ github.run_id }}
+      - name: Repair existing launcher and validate pinned canonical auditor
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_NAME" = ubuntu-usb
+          cd "$RUNNER_TEMP/kmcw-bootstrap-${{ github.run_id }}"
+          sha256sum --check SHA256SUMS
+          "$HOME/KnowingMind/.venvs/kmcp-portable/bin/python" -I repair-kmcw-bootstrap.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kmcw-bootstrap-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/kmcw-bootstrap-repair.json
+          if-no-files-found: warn
+          retention-days: 14
