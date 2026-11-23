@@ -4,11 +4,14 @@
 No installation, checkout update, workflow dispatch, writes, secrets, or Codex.
 Only authorized local MCP read calls; no circuit submit/DB mutation.
 """
+import argparse
 import json
 import os
 from pathlib import Path
 import subprocess
 from datetime import datetime, timezone
+
+OBSERVATIONS = []
 
 REPO = "siango/KnowingMindDashboard"
 BRANCH = "feature/kmcp-portable-circuits-20261122"
@@ -29,6 +32,7 @@ def command(argv, *, timeout=20, input=None):
 
 
 def emit(name, status, detail=""):
+    OBSERVATIONS.append({"check_id": name, "status": str(status), "detail": str(detail)[:240]})
     print(f"{name:25} {status:12} {detail}", flush=True)
 
 
@@ -142,5 +146,36 @@ def main():
     print("=== KARL CHECK COMPLETE ===", flush=True)
 
 
+def write_report(output):
+    """Produce a sanitized projection for the existing receipt/artifact pipeline.
+    Does not claim an independent QC or replace the KMCW receipt store.
+    """
+    import hashlib
+    report = {
+        "schema": "KARL_READ_ONLY_OBSERVATION_V1",
+        "mission_id": "G0-G1",
+        "pr": 6,
+        "node_id": "ubuntu-usb",
+        "observed_at": datetime.now(timezone.utc).isoformat(),
+        "status": "OBSERVATION_ONLY",
+        "independent_qc": "NOT_VERIFIED",
+        "production_authority": "NOT_GRANTED",
+        "checks": OBSERVATIONS,
+    }
+    data = json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+    path = Path(output)
+    if path.is_symlink() or (path.exists() and not path.is_file()):
+        raise ValueError("UNSAFE_REPORT_PATH")
+    # Explicit opt-in by caller; no arbitrary default mutation of runner state.
+    path.write_text(data, encoding="utf-8")
+    print("EVIDENCE_PROJECTION_SHA256", hashlib.sha256(data.encode()).hexdigest(), flush=True)
+    print("EVIDENCE_PROJECTION_PATH", path, flush=True)
+
+
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json-out", help="Optional JSON projection for existing workflow artifact upload")
+    args = parser.parse_args()
     main()
+    if args.json_out:
+        write_report(args.json_out)
