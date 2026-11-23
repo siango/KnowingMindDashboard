@@ -7,6 +7,7 @@ on:
       - 'av15/coding_worker_v2/agent/native_database.py'
       - 'av15/coding_worker_v2/tests/test_kmco_*.py'
       - '.github/workflows/kmcp-install-on-ubuntu.yml'
+      - 'scripts/host/qualify-kmco-with-codex.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -37,7 +38,7 @@ jobs:
         run: |
           python3 -m py_compile scripts/host/install-runtime.py
           python3 -m pip wheel --no-deps --wheel-dir host-bundle ./av15
-          cp scripts/host/install-runtime.py scripts/host/accept-kmco-native.py scripts/host/accept-kmco-local-call.py host-bundle/
+          cp scripts/host/install-runtime.py scripts/host/accept-kmco-native.py scripts/host/accept-kmco-local-call.py scripts/host/qualify-kmco-with-codex.py host-bundle/
           python3 - <<'PY'
           import hashlib, json, os
           from pathlib import Path
@@ -119,6 +120,16 @@ jobs:
           cd "$RUNNER_TEMP"
           "$HOME/KnowingMind/.venvs/kmcp-portable/bin/python" -I \
             "$RUNNER_TEMP/kmcp-offline-host-bundle/accept-kmco-local-call.py"
+      - name: Qualify six local KMCO tools and optionally one bounded Codex turn
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          KMCO_CODEX_LIVE: ${{ contains(github.event.head_commit.message, '[codex-live]') && '1' || '0' }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          "$HOME/KnowingMind/.venvs/kmcp-portable/bin/python" -I \
+            "$RUNNER_TEMP/kmcp-offline-host-bundle/qualify-kmco-with-codex.py"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -128,5 +139,6 @@ jobs:
             ${{ runner.temp }}/kmco-installed-handler-readback.json
             ${{ runner.temp }}/kmco-native-database-canary.json
             ${{ runner.temp }}/kmco-local-tools-call.json
+            ${{ runner.temp }}/kmco-incremental-qualification.json
           if-no-files-found: warn
           retention-days: 14
