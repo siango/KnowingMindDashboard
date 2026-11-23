@@ -371,3 +371,34 @@ def register_kmco_tools(registry, catalog):
                  "uses existing km_microops and libpq service only; "
                  "retrieval is not verification or authority"),
         core_recall)
+
+    # D08/D09 are partial source preflight handlers, NOT full six-stage domain
+    # circuits. Keep them absent from route_audit source_handlers until the
+    # existing transport/ACK/provider delivery and readback are proved.
+    from .kmco_d08 import preflight_d08
+    from .kmco_d09 import preflight_d09
+
+    def d08_preflight(args, ctx):
+        if any(f"D08-M{i:02d}" not in catalog._operations for i in range(1, 7)):
+            raise ToolError("KMCO_D08_CATALOG_INCOMPLETE")
+        return preflight_d08(args["envelope"], ctx)
+
+    def d09_preflight(args, ctx):
+        if any(f"D09-M{i:02d}" not in catalog._operations for i in range(1, 7)):
+            raise ToolError("KMCO_D09_CATALOG_INCOMPLETE")
+        return preflight_d09(args["output"], ctx)
+
+    registry.register(
+        ToolSpec("kmco.d08.preflight",
+                 "Existing trusted ingress contract preview only",
+                 {"envelope": "dict"}, {}, "read", "none",
+                 "existing qualified issuer required; no signature recheck, "
+                 "dedup persistence, dispatch, ACK or QC promotion"),
+        d08_preflight)
+    registry.register(
+        ToolSpec("kmco.d09.preflight",
+                 "Existing owner-scoped output contract preview only",
+                 {"output": "dict"}, {}, "read", "none",
+                 "private owner only; no payload returned, transport send, "
+                 "provider receipt or QC promotion"),
+        d09_preflight)
