@@ -17,7 +17,7 @@ def read_d07(args, ctx):
                        for k in ("mission_id", "task_id", "account_id", "workspace"))):
         raise ToolError("D07_READ_SCOPE_DENIED")
     result = run_p08(args, ctx)
-    if (result.get("circuit") != "P08" or result.get("retrieval_only") is False
+    if (result.get("circuit") != "P08" or result.get("status") != "SCOPED_MEMORY_RETRIEVED_UNVERIFIED"
             or result.get("truth_owner") != "EXISTING_KMCW_RECEIPTS"
             or result.get("independent_qc") != "NOT_RUN"):
         raise ToolError("D07_MEMORY_OWNER_RESULT_INVALID")
