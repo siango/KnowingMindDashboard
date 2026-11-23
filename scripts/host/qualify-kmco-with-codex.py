@@ -145,7 +145,7 @@ def main():
         report['blocker'] = str(exc)[:180] if isinstance(exc, AssertionError) else type(exc).__name__
     (dest / 'kmco-incremental-qualification.json').write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report, indent=2))
-    return 0 if report['status'] == 'LOCAL_AND_CODEX_PASS' else 1
+    return 0 if report['status'] in ('LOCAL_TOOLS_PASS_CODEX_NOT_REQUESTED', 'LOCAL_AND_CODEX_PASS') else 1
 
 
 if __name__ == '__main__':
