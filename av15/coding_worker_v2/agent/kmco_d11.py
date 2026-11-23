@@ -25,7 +25,8 @@ def inspect_d11(request, ctx):
             or not all(isinstance(ctx.get(k), str) and ctx[k]
                        and request.get(k) == ctx[k] for k in ("mission_id", "task_id"))
             or not isinstance(ctx.get("source_sha"), str)
-            or request["source_sha"] != ctx["source_sha"]):
+            or request["source_sha"] != ctx["source_sha"]
+            or not re.fullmatch(r"[0-9a-f]{40}", ctx["source_sha"])):
         raise ToolError("D11_SOURCE_SCOPE_DENIED")
     observations = request["observations"]
     if not isinstance(observations, list) or not 1 <= len(observations) <= 24:
@@ -42,7 +43,7 @@ def inspect_d11(request, ctx):
         if (not isinstance(obs, dict) or set(obs) != _OBS
                 or not all(isinstance(obs[k], str) and _ID.fullmatch(obs[k])
                            for k in ("source", "evidence_ref", "trace_id"))
-                or obs["state"] not in _STATES
+                or not isinstance(obs["state"], str) or obs["state"] not in _STATES
                 or not isinstance(obs["error_code"], str)
                 or len(obs["error_code"]) > 120
                 or (obs["error_code"] and not _ID.fullmatch(obs["error_code"]))
