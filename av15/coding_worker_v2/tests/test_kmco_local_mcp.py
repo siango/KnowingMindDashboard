@@ -84,5 +84,19 @@ class LocalOwnerTests(unittest.TestCase):
             self.proxy.call('kmco.inspect', {'operation_id': 'P01-M01'}, dict(self.ctx), mcp=True)
 
 
+    def test_host_acceptance_codex_registration_requires_explicit_opt_in(self):
+        import importlib.util
+        root = Path(__file__).resolve().parents[3]
+        source = root / 'scripts/host/accept-kmco-local-call.py'
+        spec = importlib.util.spec_from_file_location('kmco_host_acceptance', source)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertFalse(module.codex_registration_requested(None))
+        self.assertFalse(module.codex_registration_requested(''))
+        self.assertFalse(module.codex_registration_requested('0'))
+        self.assertFalse(module.codex_registration_requested('true'))
+        self.assertTrue(module.codex_registration_requested('1'))
+
+
 if __name__ == '__main__':
     unittest.main()
