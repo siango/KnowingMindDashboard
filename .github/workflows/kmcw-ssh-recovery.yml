@@ -122,20 +122,29 @@ jobs:
         with:
           name: kmcw-bootstrap-${{ github.sha }}
           path: ${{ runner.temp }}/kmcw-bootstrap-${{ github.run_id }}
-      - name: Connect Codex KMCW and KMCO to existing local KMCP stdio
+      - name: Read existing Codex failure only without another model invocation
         shell: bash
-        env:
-          SOURCE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           test "$RUNNER_NAME" = ubuntu-usb
-          cd "$RUNNER_TEMP/kmcw-bootstrap-${{ github.run_id }}"
-          sha256sum --check SHA256SUMS
-          "$HOME/KnowingMind/.venvs/kmcp-portable/bin/python" -I connect-kmcp-local.py
+          python3 - <<'PY'
+          import hashlib, json, os, re
+          from pathlib import Path
+          p = Path(os.environ['RUNNER_TEMP'])/'kmco-codex-private.txt'
+          report = {'schema':'KMCP_CODEX_LAST_FAILURE_V1','model_invoked':False,'exists':p.is_file()}
+          if p.is_file():
+              raw=p.read_bytes()
+              message=raw.decode('utf-8',errors='replace')[-2500:]
+              message=re.sub(r'(?i)(bearer\s+|sk-[A-Za-z0-9_-]+|token[=:]\s*)[^\s]+','[REDACTED]',message)
+              report.update(sha256=hashlib.sha256(raw).hexdigest(),last_message=message)
+          out=Path(os.environ['RUNNER_TEMP'])/'kmcp-codex-last-failure.json'
+          out.write_text(json.dumps(report,indent=2)+'\n')
+          print(json.dumps(report,indent=2))
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: kmcw-bootstrap-evidence-${{ github.run_id }}
-          path: ${{ runner.temp }}/kmcp-local-connection.json
+          path: ${{ runner.temp }}/kmcp-codex-last-failure.json
           if-no-files-found: warn
           retention-days: 14
