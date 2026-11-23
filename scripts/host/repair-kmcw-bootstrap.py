@@ -72,6 +72,10 @@ def main():
             'findings': [v.get('code') for v in audit_report.get('global_findings', [])]}
         # Repair only a recognized, owner-owned launcher after validating imports and pinned auditor.
         launcher = home / '.local/bin/kmcw'
+        if launcher.is_symlink():
+            target = launcher.resolve()
+            assert target == py.parent / 'kmcw', 'Launcher symlink points outside managed runtime; preserve it'
+            launcher = target
         assert launcher.is_file() and not launcher.is_symlink(), 'Unexpected launcher type; preserve it'
         assert launcher.stat().st_uid == os.getuid(), 'Launcher owner mismatch'
         old = launcher.read_text()
