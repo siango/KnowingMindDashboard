@@ -1,11 +1,10 @@
 """D08 negative and positive preflight contracts; no external origin is contacted."""
-import hashlib
 import unittest
 from unittest.mock import patch
 
-from av15.coding_worker_v2.agent import ingress
-from av15.coding_worker_v2.agent.kmco_d08 import preflight_d08
-from av15.coding_worker_v2.agent.tools import ToolError
+from coding_worker_v2.agent import ingress
+from coding_worker_v2.agent.kmco_d08 import preflight_d08
+from coding_worker_v2.agent.tools import ToolError
 
 
 class TestD08Preflight(unittest.TestCase):
