@@ -2,9 +2,9 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from coding_worker_v2.agent.sandbox import SandboxError, run_isolated_observed
+from coding_worker_v2.agent.sandbox import SandboxError, run_isolated_observed, run_isolated_recorded
 
 
 SHA = "a" * 40
@@ -41,6 +41,23 @@ class SandboxObservationTests(unittest.TestCase):
             self.assertEqual(result["status"], "FAIL")
             self.assertEqual(result["failure_class"], "TEST_EXIT_NONZERO")
             self.assertEqual(result["independent_qc"], "NOT_RUN")
+
+    def test_recorded_uses_existing_context_and_queue(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = MagicMock()
+            ctx = {"store": store, "workspace": root, "mission_id": "G0-G1",
+                   "task_id": "one", "account_id": "posix:1000"}
+            with patch("coding_worker_v2.agent.memory.current_base_commit",
+                       return_value=SHA):
+                with patch("coding_worker_v2.agent.sandbox.run_isolated_observed",
+                           return_value={"status": "PASS", "exit_code": 0}):
+                    result = run_isolated_recorded(ctx, "python3 -m unittest discover", 10)
+            self.assertTrue(result["event_recorded"])
+            self.assertEqual(result["core_database_readback"], "NOT_VERIFIED")
+            args, kwargs = store.append_event.call_args
+            self.assertEqual(args[:3], ("one", "karl.sandbox.observed", "PASS"))
+            self.assertEqual(kwargs["mission_id"], "G0-G1")
+            self.assertNotIn("task_id", kwargs)
 
     def test_reject_invalid_sha_without_execution(self):
         with self.assertRaises(SandboxError):
