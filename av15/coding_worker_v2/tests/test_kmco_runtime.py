@@ -52,7 +52,7 @@ class KMCOIntegrationTests(unittest.TestCase):
     def test_registry_integration_without_execution(self):
         reg = ToolRegistry()
         register_kmco_tools(reg, catalog())
-        self.assertEqual(reg.names(), ["kmco.core.recall", "kmco.d01.authority", "kmco.d02.read", "kmco.d12.backup_restore", "kmco.inspect", "kmco.p01.evidence", "kmco.p02.resume", "kmco.p03.loop_guard", "kmco.p04.plan", "kmco.p05.completion", "kmco.p06.permission", "kmco.p07.checkpoint", "kmco.p08.memory", "kmco.p09.lease", "kmco.p10.route", "kmco.p11.security", "kmco.p12.providers", "kmco.plan", "kmco.run_readonly"])
+        self.assertEqual(reg.names(), ["kmco.core.recall", "kmco.d01.authority", "kmco.d02.read", "kmco.d08.preflight", "kmco.d09.preflight", "kmco.d12.backup_restore", "kmco.inspect", "kmco.p01.evidence", "kmco.p02.resume", "kmco.p03.loop_guard", "kmco.p04.plan", "kmco.p05.completion", "kmco.p06.permission", "kmco.p07.checkpoint", "kmco.p08.memory", "kmco.p09.lease", "kmco.p10.route", "kmco.p11.security", "kmco.p12.providers", "kmco.plan", "kmco.run_readonly"])
         ctx = {"evidence": []}
         item = reg.call("kmco.inspect", {"operation_id": "D01-M01"}, ctx)
         self.assertEqual(item["state"], "DESIGN_REGISTERED")
@@ -64,6 +64,10 @@ class KMCOIntegrationTests(unittest.TestCase):
             reg.call("kmco.run_readonly", {"steps": [{"op_id": "D01-M01", "after": []}]}, ctx)
         with self.assertRaises(ToolError):
             reg.call("kmco.execute", {}, ctx)
+        with self.assertRaises(ToolError):
+            reg.call("kmco.d08.preflight", {"envelope": {}}, ctx, mcp=True)
+        with self.assertRaises(ToolError):
+            reg.call("kmco.d09.preflight", {"output": {}}, ctx, mcp=True)
 
 
     def test_p02_permanent_registry_runs_real_five_steps(self):
