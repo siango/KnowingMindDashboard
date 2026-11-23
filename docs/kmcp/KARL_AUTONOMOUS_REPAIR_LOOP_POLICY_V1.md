@@ -61,3 +61,20 @@ Before a new check, query existing scoped evidence and its digest, time, trusted
 The 2026-11-24 AV15 Inspector showed `MCP_INITIALIZE=PASS`, `MCP_TOOLS_LIST=PASS count=101`, and `KMCO_INSPECT_P01=PASS`; this is human-visible evidence from an attached terminal screenshot, **not yet a canonical machine-readable stored receipt**. Do not claim the shared ledger was updated by that screenshot. For the next actual runner check, publish a sanitized machine-readable receipt through the existing receipt/artifact path with exact SHA/run correlation. Never re-run these read-only probes just to reproduce screenshots if source+installed+scope remain identical and a trusted matching receipt already exists.
 
 Gate table: `PASS+trusted receipt+matching provenance+valid freshness => REUSE`; `PASS only in terminal => OBSERVED_UNPERSISTED`; `NOT_TESTED/STALE/SHA_MISMATCH => PENDING_SCOPED_CHECK`; `DENIED => preserve denial evidence`; `AUTHORITY_NOT_GRANTED => STOP`. Neither KARL nor a UI may waive independent QC or production authority.
+
+## KEBUNATE Core: รู้จำทำ + อริยสัจสี่ as the event-to-learning authority
+Canonical owner directive: `siango/KnowingMindApp/docs/KEBUNATE_CORE.md`. This supersedes any interpretation of KARL, GitHub Actions artifact indexes, or KMCW task receipts as a *separate* central learning database.
+
+Map all events in the same ongoing mission to **รู้** (capture original incident, context, timestamps, input/output references and provenance), **จำ** (link versioned receipts to existing problem/cause/solution/result memory and reusable prior lessons), and **ทำ** (decide REUSE / REVERIFY / REPAIR / BLOCKED through existing KMCW/authority, execute, verify actual outcome and append a lesson).
+
+Use the four-part engineering mapping already defined by KEBUNATE Core: ทุกข์ = observed problem and impact; สมุทัย = evidenced cause distinct from assumption; นิโรธ = measurable acceptance/verified outcome; มรรค = authorized repair path and regression prevention. Never infer an outcome merely from a test count or an artifact filename.
+
+Reuse existing structures, not parallel stores:
+- KMCW local versioned task receipts: `av15/coding_worker_v2/receipts.py`; dedup/context decisions: `agent/memory.py`
+- Existing Evidence Ledger/mission audit and GitHub artifacts: supporting observations and transport, never independent promotion of truth
+- `siango/KnowingMindApp/docs/memory/DHAMMA_ARIYASACCA_WORK_MEMORY_V1.md` defines PROBLEM / CAUSE / SOLUTION_PATH / RESULT with original-event provenance and dedicated MCP controlled write/readback
+- Existing `schemas/memory/003_memory_work_cases_v1.sql` is expressly **project-scoped to DHAMMA_GROUNDED_AI**, and its source documentation states production deployment/write/readback was pending at baseline. Do NOT insert G0-G1 KEBUNATE events into that schema, loosen its project constraint or claim it is the fleet-wide live database without explicit authority and schema readback
+
+For G0-G1, first verify the existing authorized central registry/evidence store and applicable work-case bridge; if a KEBUNATE-wide event-recording capability is absent, record a specific scoped blocker and route integration through existing services, not a new DB. Every actual check/repair should preserve one event chain: mission/task/incident fingerprint → observation receipt/source SHA → verified cause → bounded repair commit → CI/runner run and receipt → independent QC → close or next blocker. Read back the stored event through authorized MCP before claiming durable capture or cross-session retrieval. No duplicate tests solely for memory recording.
+
+Current status: **DESIGN LINKED; CENTRAL AUTOMATIC EVENT WRITE AND MCP READBACK NOT VERIFIED**. GitHub-only `karl-evidence-index.json` is a temporary evidence projection, not the Ariyasacca/รู้จำทำ authoritative memory.
