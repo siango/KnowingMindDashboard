@@ -56,6 +56,21 @@ def audit_routes(catalog, registry, ctx):
         "D02": "kmco.d02.read",
         "D12": "kmco.d12.backup_restore",
     }
+    # Preview-only commands implement bounded subsets, never whole D-groups.
+    # This inventory is intentionally separate from source_handlers and MUST
+    # NOT change native_ops, design_only, route unbound, E2E or QC totals.
+    preview_candidates = {
+        "D06": "kmco.d06.question_preview",
+        "D07": "kmco.d07.memory_preview",
+        "D08": "kmco.d08.preflight",
+        "D09": "kmco.d09.preflight",
+        "D10": "kmco.d10.drift_preview",
+        "D11": "kmco.d11.observe",
+    }
+    partial_preview_bindings = {
+        group: tool for group, tool in preview_candidates.items()
+        if tool in commands and commands[tool]["permission"] == "read"
+    }
     operations = []
     native_ops = 0
     for op_id, item in sorted(catalog._operations.items()):
@@ -68,6 +83,7 @@ def audit_routes(catalog, registry, ctx):
             "design_name": item.name,
             "source_sha256": item.source_sha256,
             "source_handler": bound if registered else None,
+            "partial_preview_handler": partial_preview_bindings.get(item.group_id),
             "source_state": ("NATIVE_HANDLER_REGISTERED_NOT_LIVE_VERIFIED"
                              if registered else "DESIGN_ONLY"),
             "actual_tools_call": "NOT_TESTED",
@@ -83,6 +99,7 @@ def audit_routes(catalog, registry, ctx):
             "design_groups": list(nodes),
             "source_group_bindings": actual,
             "unbound_groups": unbound,
+            "partial_preview_groups": sorted(set(nodes) & set(partial_preview_bindings)),
             "source_coverage": ("PARTIAL_SOURCE_BINDINGS_NOT_E2E" if actual
                                 else "NO_VERIFIED_ROUTE_BINDINGS"),
             "live_handler_execution": "NOT_TESTED",
@@ -107,6 +124,7 @@ def audit_routes(catalog, registry, ctx):
             group: tool for group, tool in source_handlers.items()
             if group.startswith("D") and tool in commands
         },
+        "partial_preflight_bindings": partial_preview_bindings,
         "verified_end_to_end_routes": 0,
         "status": "COVERAGE_ONLY_NOT_E2E",
         "routes": rows,
