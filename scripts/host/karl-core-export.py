@@ -61,7 +61,7 @@ def convert(record):
             "actor": "github-actions", "role": "runtime-evidence",
             "mission_id": "G0-G1", "node_id": node, "tools": check_name,
             "work_item": "KARL " + check_name,
-            "started_at": observed, "completed_at": observed, "recorded_at": observed,
+            "recorded_at": observed,
             "duration_quality": "UNKNOWN", "status": status,
             "evidence_ref": evidence + "#check=" + check_name,
             "progress_summary": check["state"] + " / SOURCE_" + str(check.get("provenance", "UNVERIFIED")),
