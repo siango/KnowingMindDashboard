@@ -37,3 +37,18 @@ An actual failure is detected; a bounded evidence packet identifies one root cau
 
 ## Boundaries
 GitHub source and CI are not the same as runtime authority. GitHub-hosted Actions do not prove self-hosted runner online, installed package alignment, HTTP authentication or production acceptance. The Existing Authority Gate remains authoritative. Never upload credentials or private customer data in failure artifacts.
+
+## KVES real-execution visual interface (approved extension, implementation pending)
+KVES (KEBUNATE Visual Engineering Studio, KM-VISUAL-ENGINEERING-V1) is the primary human-facing visual graph for KARL. Embed it in the existing KM AI Admin V2 rather than introducing another dashboard, queue, registry or execution authority.
+
+**Graph behavior:** drag/drop/attach/detach existing KMCO MicroOps and KMCP tools; show input/output port schemas and required permission for each node; draft and validate bounded graph locally. A visual connection or green design check never implies an actual runtime handler or a completed operation.
+
+**Run behavior:** clicking Run submits the version-pinned graph only through existing authenticated KMCP → KMCW dispatcher / original queue and authority gate, subject to tool permissions, idempotency key, concurrency/lease and quota. Never allow untrusted UI fields to assert verified identity, approval, scope or execution authority. Default preview and read-only evidence checks; mutations and production promotion require their own explicit approval.
+
+**Live evidence:** subscribe/poll the existing authorized event/receipt interfaces for exact mission_id, task_id, graph_version, source_sha, installed_sha, circuit_id, node_id and tool_id. Render each node's actual state (DESIGN_ONLY, READY_NOT_EXECUTED, QUEUED, RUNNING, COMPLETED_UNVERIFIED, VERIFIED, FAILED, DENIED, BLOCKED), start/end time, error class, input/output digest, receipt link, independent QC and owner authority. Distinguish latest observed timestamp from freshness/expiry. Never simulate live output or claim REAL_TIME when only historical data is available.
+
+**KARL inspector adapter:** reuse `scripts/host/karl-human-check.py` on AV15 as a read-only evidence collector, not as the execution engine. Evolve it to emit a privacy-safe versioned JSON report plus optional terminal human-readable output, with exact expected deployment SHA from authoritative workflow/run metadata, not FETCH_HEAD. Send reports through the current GitHub artifact/SSOT ledger and existing KMCP authorized read endpoints; do not upload secrets or raw user content.
+
+**Visual result path:** KVES editor → existing graph validator → authorized dispatcher → existing worker/runner → execution receipt and trusted ledger → KMCP read endpoint → KVES node/edge overlays and event timeline. KMAA System Health/Diagnostics displays fleet aggregate; KVES presents the same evidence at each node and route (R01-R13). Both share receipt IDs, never maintain competing truth.
+
+**Acceptance:** one bounded P01 read-only graph through real local MCP / existing worker reaches a terminal state with valid receipt and source SHA alignment; negative unauthorized submit is denied; UI shows actual receipt and evidence freshness, independent QC remains NOT_RUN until separately verified; disconnect/stale event is labeled UNVERIFIED. Automated self-repair remains separate, policy and gate-controlled. No claim of delivered KVES UI, real-time streaming or E2E until runtime and browser evidence exist.
