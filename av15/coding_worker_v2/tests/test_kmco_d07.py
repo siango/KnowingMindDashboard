@@ -10,7 +10,7 @@ class D07Tests(unittest.TestCase):
         self.ctx={"mission_id":"m","task_id":"t","account_id":"a",
                   "workspace":"/bounded","read_only":True}
         self.args={"goal":"a goal","limit":3}
-        self.existing={"circuit":"P08","truth_owner":"EXISTING_KMCW_RECEIPTS",
+        self.existing={"circuit":"P08","status":"SCOPED_MEMORY_RETRIEVED_UNVERIFIED","truth_owner":"EXISTING_KMCW_RECEIPTS",
                        "independent_qc":"NOT_RUN","cases":[]}
 
     def test_uses_original_memory_reader_without_writes(self):
