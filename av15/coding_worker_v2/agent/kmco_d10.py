@@ -17,6 +17,7 @@ def preview_d10(source, projection, ctx):
     if (not isinstance(ctx, dict) or ctx.get("read_only") is not True
             or not all(isinstance(ctx.get(k), str) and ctx[k]
                        for k in ("mission_id", "task_id", "account_id", "source_sha"))
+            or not _SHA.fullmatch(ctx["source_sha"])
             or not isinstance(source, dict) or not isinstance(projection, dict)):
         raise ToolError("D10_TRUSTED_READ_SCOPE_REQUIRED")
     required={"mission_id", "task_id", "account_id", "source_sha",
