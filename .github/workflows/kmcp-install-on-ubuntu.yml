@@ -7,6 +7,9 @@ on:
       - 'av15/coding_worker_v2/agent/native_database.py'
       - 'av15/coding_worker_v2/tests/test_kmco_*.py'
       - '.github/workflows/kmcp-install-on-ubuntu.yml'
+      - 'scripts/host/install-runtime.py'
+      - 'scripts/host/accept-kmco-native.py'
+      - 'scripts/host/accept-kmco-local-call.py'
       - 'scripts/host/qualify-kmco-with-codex.py'
   workflow_dispatch:
 permissions:
