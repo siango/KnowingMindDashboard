@@ -30,8 +30,8 @@ def preflight_d09(output, ctx):
         raise ToolError("D09_VISIBILITY_OR_AUTH_DENIED")
     refs = output["evidence_refs"]
     if (not isinstance(refs, list) or not 1 <= len(refs) <= 20
-            or len(set(refs)) != len(refs)
-            or any(not isinstance(ref, str) or not REF.fullmatch(ref) for ref in refs)):
+            or any(not isinstance(ref, str) or not REF.fullmatch(ref) for ref in refs)
+            or len(set(refs)) != len(refs)):
         raise ToolError("D09_EVIDENCE_INVALID")
     if (output["delivery_channel"] not in ("CHATGPT", "ADMIN_V2", "LINE", "GITHUB")
             or not isinstance(output["payload"], dict)):
