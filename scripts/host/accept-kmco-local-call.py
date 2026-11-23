@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise installed KMCO handlers over the local MCP wire, then configure Codex."""
+"""Exercise installed KMCO handlers over local MCP; configure Codex only by explicit opt-in."""
 import hashlib
 import json
 import os
@@ -12,6 +12,11 @@ from datetime import datetime, timezone
 def run(argv, env, **kwargs):
     return subprocess.run([str(v) for v in argv], env=env, capture_output=True,
                           text=True, timeout=50, **kwargs)
+
+
+def codex_registration_requested(value):
+    """An explicit owner opt-in is required before mutating Codex configuration."""
+    return value == '1'
 
 
 def main():
@@ -77,25 +82,27 @@ def main():
             for i, (name, _) in enumerate(calls)]
         report['p01_source_ref'] = chosen[0]
         report['p01_input_sha256'] = hashlib.sha256(json.dumps(calls[1][1], sort_keys=True).encode()).hexdigest()
-        codex = shutil.which('codex', path=env['PATH'])
-        assert codex, 'Codex executable unavailable'
-        config = home / '.codex/config.toml'
-        assert config.is_file() and not config.is_symlink() and config.stat().st_uid == os.getuid()
-        raw = config.read_bytes()
-        backup = config.with_name('config.toml.before-owner-read-' + hashlib.sha256(raw).hexdigest()[:12])
-        if not backup.exists():
-            fd = os.open(backup, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-            with os.fdopen(fd, 'wb') as f:
-                f.write(raw)
-        updated = run([codex, 'mcp', 'add', 'kmcp-v5', '--', *base], env)
-        assert updated.returncode == 0, 'Codex registration failed'
-        got = run([codex, 'mcp', 'get', 'kmcp-v5', '--json'], env)
-        assert got.returncode == 0
-        transport = json.loads(got.stdout)['transport']
-        assert transport['type'] == 'stdio' and transport['command'] == str(py)
-        assert transport['args'] == [str(v) for v in base[1:]]
-        report['codex'] = 'CONFIGURED_FOR_VERIFIED_LOCAL_OWNER_READS'
-        report['running_session'] = 'RELOAD_REQUIRED'
+        report['codex'] = 'NOT_REQUESTED'
+        if codex_registration_requested(os.environ.get('KMCO_CONFIGURE_CODEX')):
+            codex = shutil.which('codex', path=env['PATH'])
+            assert codex, 'Codex executable unavailable'
+            config = home / '.codex/config.toml'
+            assert config.is_file() and not config.is_symlink() and config.stat().st_uid == os.getuid()
+            raw = config.read_bytes()
+            backup = config.with_name('config.toml.before-owner-read-' + hashlib.sha256(raw).hexdigest()[:12])
+            if not backup.exists():
+                fd = os.open(backup, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                with os.fdopen(fd, 'wb') as f:
+                    f.write(raw)
+            updated = run([codex, 'mcp', 'add', 'kmcp-v5', '--', *base], env)
+            assert updated.returncode == 0, 'Codex registration failed'
+            got = run([codex, 'mcp', 'get', 'kmcp-v5', '--json'], env)
+            assert got.returncode == 0
+            transport = json.loads(got.stdout)['transport']
+            assert transport['type'] == 'stdio' and transport['command'] == str(py)
+            assert transport['args'] == [str(v) for v in base[1:]]
+            report['codex'] = 'CONFIGURED_FOR_VERIFIED_LOCAL_OWNER_READS'
+            report['running_session'] = 'RELOAD_REQUIRED'
         report['status'] = 'LOCAL_TOOLS_CALL_PASS'
     except Exception as exc:
         report['status'] = 'BLOCKED'
