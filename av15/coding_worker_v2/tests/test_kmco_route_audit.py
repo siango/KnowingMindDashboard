@@ -28,6 +28,27 @@ class CanonicalRouteReadinessTests(unittest.TestCase):
         self.assertEqual([row["route_id"] for row in out["routes"]],
                          [f"R{i:02d}" for i in range(1, 14)])
         self.assertEqual(out["verified_end_to_end_routes"], 0)
+        self.assertEqual(out["partial_preflight_bindings"], {
+            "D06": "kmco.d06.question_preview",
+            "D07": "kmco.d07.memory_preview",
+            "D08": "kmco.d08.preflight",
+            "D09": "kmco.d09.preflight",
+            "D10": "kmco.d10.drift_preview",
+            "D11": "kmco.d11.observe",
+        })
+        for op in out["operation_coverage"]:
+            if op["group_id"] in out["partial_preflight_bindings"]:
+                self.assertEqual(
+                    op["partial_preview_handler"],
+                    out["partial_preflight_bindings"][op["group_id"]])
+                self.assertEqual(op["source_state"], "DESIGN_ONLY")
+                self.assertIsNone(op["source_handler"])
+            else:
+                self.assertIsNone(op["partial_preview_handler"])
+        route10 = next(row for row in out["routes"] if row["route_id"] == "R10")
+        self.assertEqual(route10["partial_preview_groups"], ["D06", "D07", "D08", "D09"])
+        self.assertTrue({"D06", "D07", "D08", "D09"}.issubset(route10["unbound_groups"]))
+
         self.assertEqual(out["native_problem_circuit_handlers"],
                          {"P01": "kmco.p01.evidence", "P02": "kmco.p02.resume", "P03": "kmco.p03.loop_guard", "P04": "kmco.p04.plan", "P05": "kmco.p05.completion", "P06": "kmco.p06.permission", "P07": "kmco.p07.checkpoint", "P08": "kmco.p08.memory", "P09": "kmco.p09.lease", "P10": "kmco.p10.route", "P11": "kmco.p11.security", "P12": "kmco.p12.providers"})
         for route in out["routes"]:
