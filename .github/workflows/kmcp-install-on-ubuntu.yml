@@ -126,10 +126,11 @@ jobs:
           "$HOME/KnowingMind/.venvs/kmcp-portable/bin/python" -I \
             "$RUNNER_TEMP/kmcp-offline-host-bundle/accept-kmco-native.py" \
             --receipt "$RUNNER_TEMP/kmco-native-database-canary.json"
-      - name: Exercise real local KMCO tools calls and bind Codex owner reads
+      - name: Exercise real local KMCO tool calls without Codex dependency
         shell: bash
         env:
           SOURCE_SHA: ${{ github.sha }}
+          KMCO_CONFIGURE_CODEX: '0'
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
@@ -139,7 +140,7 @@ jobs:
         shell: bash
         env:
           SOURCE_SHA: ${{ github.sha }}
-          KMCO_CODEX_LIVE: ${{ contains(github.event.head_commit.message, '[codex-live]') && '1' || '0' }}
+          KMCO_CODEX_LIVE: '0' # Real runtime acceptance must not consume Codex quota
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
