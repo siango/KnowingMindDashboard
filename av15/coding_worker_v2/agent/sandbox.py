@@ -180,7 +180,7 @@ def run_isolated_recorded(ctx: dict, command: str, timeout_s: int) -> dict:
     canonical = json.dumps(result, sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(canonical.encode()).hexdigest()
     store.append_event(task, "karl.sandbox.observed", result["status"], digest,
-                       account_id=account, mission_id=mission, task_id=task,
+                       account_id=account, mission_id=mission,
                        source_sha=source, observation=result)
     return {**result, "event_recorded": True, "event_digest": digest,
             "event_owner": "EXISTING_KMCW_QUEUE_STORE",
