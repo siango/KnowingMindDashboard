@@ -137,6 +137,29 @@ jobs:
               message=raw.decode('utf-8',errors='replace')[-2500:]
               message=re.sub(r'(?i)(bearer\s+|sk-[A-Za-z0-9_-]+|token[=:]\s*)[^\s]+','[REDACTED]',message)
               report.update(sha256=hashlib.sha256(raw).hexdigest(),last_message=message)
+          if not p.is_file():
+              marker='Use only the kmcp-v5 MCP server. Do not run shell, browse, edit files, or delegate.'
+              files=sorted((Path.home()/'.codex/sessions').rglob('*.jsonl'),key=lambda x:x.stat().st_mtime,reverse=True)[:20]
+              for session in files:
+                  if session.stat().st_size > 12000000:
+                      continue
+                  raw=session.read_bytes()
+                  if marker.encode() not in raw:
+                      continue
+                  messages=[]
+                  for line in raw.decode('utf-8',errors='replace').splitlines():
+                      try: event=json.loads(line)
+                      except ValueError: continue
+                      payload=event.get('payload',{})
+                      if payload.get('type')=='message' and payload.get('role')=='assistant':
+                          messages += [v.get('text','') for v in payload.get('content',[]) if isinstance(v,dict)]
+                      if payload.get('type') in ('function_call_output','mcp_tool_call_end'):
+                          text=json.dumps(payload)
+                          if 'error' in text.lower() or 'failed' in text.lower():
+                              messages.append(text[-2000:])
+                  report.update(session_found=True,session_sha256=hashlib.sha256(raw).hexdigest(),
+                                failure_messages=messages[-4:])
+                  break
           out=Path(os.environ['RUNNER_TEMP'])/'kmcp-codex-last-failure.json'
           out.write_text(json.dumps(report,indent=2)+'\n')
           print(json.dumps(report,indent=2))
