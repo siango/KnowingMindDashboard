@@ -402,3 +402,39 @@ def register_kmco_tools(registry, catalog):
                  "private owner only; no payload returned, transport send, "
                  "provider receipt or QC promotion"),
         d09_preflight)
+
+    # These are partial read-only previews, not completed D06/D07/D10/D11
+    # circuits. None performs channel sending, memory mutation, projection
+    # writing, alert delivery or verified live readback.
+    from .kmco_d11 import inspect_d11
+    from .kmco_d07 import read_d07
+    from .kmco_d10 import preview_d10
+    from .kmco_d06 import preview_d06
+
+    def guarded_domain(group, handler):
+        def call(args, ctx):
+            if any(f"{group}-M{i:02d}" not in catalog._operations for i in range(1, 7)):
+                raise ToolError("KMCO_DOMAIN_CATALOG_INCOMPLETE")
+            return handler(args, ctx)
+        return call
+
+    registry.register(
+        ToolSpec("kmco.d11.observe", "Observe supplied evidence without live monitoring",
+                 {"request": "dict"}, {}, "read", "none",
+                 "no ledger probe, quota authority, alert send or recovery"),
+        guarded_domain("D11", lambda a, c: inspect_d11(a["request"], c)))
+    registry.register(
+        ToolSpec("kmco.d07.memory_preview", "Original P08 receipt memory read-only",
+                 {"goal": "str", "limit": "int"}, {}, "read", "none",
+                 "no memory storage, correction, expiry or verification promotion"),
+        guarded_domain("D07", read_d07))
+    registry.register(
+        ToolSpec("kmco.d10.drift_preview", "Compare supplied source and projection versions",
+                 {"source": "dict", "projection": "dict"}, {}, "read", "none",
+                 "no live cursor, external read, projection write or conflict resolution"),
+        guarded_domain("D10", lambda a, c: preview_d10(a["source"], a["projection"], c)))
+    registry.register(
+        ToolSpec("kmco.d06.question_preview", "Authenticated question scope preflight",
+                 {"request": "dict"}, {}, "read", "none",
+                 "no Canon lookup, inference, citation verification or provider send"),
+        guarded_domain("D06", lambda a, c: preview_d06(a["request"], c)))
