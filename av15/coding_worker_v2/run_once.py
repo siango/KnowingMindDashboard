@@ -406,10 +406,25 @@ def _run_task_inner(task: Task, store: QueueStore, config: WorkerConfig,
              _karl_observation["command_sha256"],
              _karl_observation["output_sha256"], _karl_status],
             sort_keys=True).encode("utf-8")).hexdigest()
-        store.append_event(task.task_id, "karl.sandbox.observed",
-                           _karl_status, _karl_key,
-                           mission_id=task.mission_id, source_sha=_karl_source,
-                           observation=_karl_observation)
+        _karl_event = store.append_event(
+            task.task_id, "karl.sandbox.observed", _karl_status, _karl_key,
+            mission_id=task.mission_id, source_sha=_karl_source,
+            detail=_karl_observation)
+        # Reuse the KMCO usage+core_memory transaction. The local KMCW event
+        # remains durable when the owner service is unavailable. No new test
+        # invocation, authority grant, environment configuration or database.
+        from coding_worker_v2.agent.kmco_usage import record_karl_event
+        try:
+            _karl_sync = record_karl_event(store, task.task_id,
+                                           _karl_event["event_id"])
+        except RuntimeError as exc:
+            # Keep the verified local observation, disclose that Core was not
+            # updated, and let existing owner-driven reconciliation repair it.
+            _karl_sync = str(exc)
+        task.evidence.append({
+            "event": "karl_core_sync", "queue_event_id": _karl_event["event_id"],
+            "core_sync": _karl_sync,
+            "independent_qc": "NOT_RUN"})
         task.evidence.append({"event": "tests_run", "tests": {
             "ran": test_result["ran"], "rc": test_result["rc"],
             "duration_ms": test_result["duration_ms"],
