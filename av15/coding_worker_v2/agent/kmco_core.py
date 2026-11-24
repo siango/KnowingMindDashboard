@@ -121,3 +121,42 @@ def recall(ctx, *, limit=10):
     except Exception:
         raise RuntimeError("KMCO_CORE_RECALL_UNAVAILABLE") from None
 
+
+
+def readback_exact(ctx, operation, args_sha256, result_sha256):
+    """Independently reconnect and read the exact committed Core projection.
+
+    This proves persistence/readback only, never independent QC or authority.
+    """
+    mission, task = _scope(ctx)
+    if operation != "kmco.karl.sandbox" or not re.fullmatch(r"[0-9a-f]{64}", args_sha256):
+        raise RuntimeError("KMCO_CORE_EXACT_IDENTITY_INVALID")
+    service = _service(ctx)
+    try:
+        import psycopg
+    except ImportError:
+        raise RuntimeError("KMCO_CORE_PG_DRIVER_MISSING") from None
+    try:
+        with psycopg.connect("service=" + service, connect_timeout=3) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SET TRANSACTION READ ONLY")
+                cur.execute("SELECT current_database()")
+                if cur.fetchone() != ("km_microops",):
+                    raise RuntimeError("KMCO_CORE_DB_TARGET_MISMATCH")
+                cur.execute("SET LOCAL statement_timeout = '3000ms'")
+                cur.execute("""
+                    SELECT result_sha256, result_state, source_sha
+                    FROM circuit.core_memory
+                    WHERE mission_id=%s AND task_id=%s AND operation=%s
+                      AND args_sha256=%s
+                """, (mission, task, operation, args_sha256))
+                row = cur.fetchone()
+                if row is None or cur.fetchone() is not None:
+                    raise RuntimeError("KMCO_CORE_EXACT_READBACK_MISMATCH")
+                if (row[0] != result_sha256 or
+                        row[1] not in ("EXECUTED_UNVERIFIED", "BLOCKED_UNVERIFIED") or
+                        row[2] != str(ctx.get("source_sha") or "")[:64]):
+                    raise RuntimeError("KMCO_CORE_EXACT_READBACK_MISMATCH")
+                return "PERSISTED_EXACT_READBACK_UNVERIFIED"
+    except Exception:
+        raise RuntimeError("KMCO_CORE_EXACT_READBACK_FAILED") from None
