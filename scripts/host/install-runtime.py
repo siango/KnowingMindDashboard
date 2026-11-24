@@ -22,10 +22,12 @@ def main():
     ap.add_argument("--bundle", required=True)
     ap.add_argument("--source-sha", required=True)
     ap.add_argument("--receipt", required=True)
+    ap.add_argument("--node", choices=("ubuntu-usb", "ubuntu-ssd"), default="ubuntu-usb",
+                    help="Exact registered runner identity; defaults to legacy USB job")
     ap.add_argument("--package-only", action="store_true",
                     help="Install the tested runtime only; preserve existing setup/Cloudflare tools")
     args = ap.parse_args()
-    assert os.environ.get("RUNNER_NAME") == "ubuntu-usb", "Wrong runner"
+    assert os.environ.get("RUNNER_NAME") == args.node, "Wrong runner"
     assert os.geteuid() != 0, "Ordinary user required"
     bundle = Path(args.bundle).resolve()
     manifest = json.loads((bundle / "release.json").read_text())
@@ -39,7 +41,7 @@ def main():
     receipt = {
         "schema": "KMCP_UBUNTU_INSTALLATION_V1",
         "mission_id": "KMCP-V5-PRODUCTION",
-        "node_id": "ubuntu-usb",
+        "node_id": args.node,
         "source_sha": args.source_sha,
         "started_at": datetime.now(timezone.utc).isoformat(),
         "service_changes": False,
@@ -88,7 +90,7 @@ def main():
             run(["git", "init", "-q", workspace])
             config = root / "runtime.json"
             config.write_text(json.dumps({
-                "schema": "KMCP_RUNTIME_V1", "node_id": "ubuntu-usb",
+                "schema": "KMCP_RUNTIME_V1", "node_id": args.node,
                 "account_id": "INSTALLATION_SMOKE_FIXTURE",
                 "mission_id": "KMCP-V5-PRODUCTION",
                 "task_id": "INSTALLATION_SMOKE_FIXTURE",
