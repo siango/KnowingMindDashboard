@@ -219,3 +219,37 @@ bash scripts/host/cloudflare.sh cloudflare/kmcp-edge login
 The currently observed pre-install host already has `kmcp-v5.service`, loopback port 18856,
 `cloudflared.service` and PostgreSQL 16. Do not reinstall them based on historical missing-service
 reports. The portable package installation leaves that existing origin untouched.
+
+## SSD cutover preflight (same source, no duplicate runtime)
+
+The new SSD is a **separate boot target**, not a second simultaneously active
+production node. Preserve and restore the existing owner configuration,
+PostgreSQL backups and runtime receipts before cutover. Do not upload secrets,
+private backup archives or PostgreSQL dumps to GitHub Actions artifacts.
+
+Read-only security and host readiness (also works on the existing USB):
+
+```bash
+python3 scripts/host/ssd-readiness.py --node ubuntu-usb
+# After Ubuntu Full installation and authorized state restoration:
+python3 scripts/host/ssd-readiness.py --node ubuntu-ssd --expected-sha "$(git rev-parse HEAD)"
+```
+
+The script does **not** start the runner, compare the database content, contact
+Cloudflare, validate the external HTTP origin, or grant production rights.
+A successful precheck is only local host readiness. Do not run the SSD precheck
+against the USB and call it an SSD acceptance; the node argument labels the
+intended node and does not attest the physical disk or boot device.
+
+The existing pinned package installer accepts `--node ubuntu-ssd` when an
+**authorized, already registered** SSD runner with exact name `ubuntu-ssd`
+executes it. Without `--node`, the original `ubuntu-usb` requirement is
+unchanged. The existing USB GitHub workflow and legacy receipts are not
+silently repointed to the SSD. Installation requires the original SHA-bound
+offline release bundle and manifest, not a random zip or unchecked script.
+
+Before SSD Production Cutover independently verify: boot device/mounts,
+PostgreSQL roles and scoped exact readback, local MCP tools/list and denied
+unauthorized calls, trusted read-only HTTP path, Source/Installed SHA, runner
+identity without a simultaneous duplicate, independent QC and rollback.
+If any gate is missing, leave `PRODUCTION_AUTHORITY=NOT_GRANTED`.
