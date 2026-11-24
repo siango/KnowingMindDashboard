@@ -28,14 +28,25 @@ class KarlCoreReplayTests(unittest.TestCase):
     def test_replays_existing_event_without_rerun(self):
         with patch("coding_worker_v2.agent.kmco_usage.record",
                    return_value="PERSISTED_UNVERIFIED") as writer:
-            result = record_karl_event(self.store, "task-1", "event-1")
-        self.assertEqual(result, "PERSISTED_UNVERIFIED")
+            with patch("coding_worker_v2.agent.kmco_core.readback_exact",
+                       return_value="PERSISTED_EXACT_READBACK_UNVERIFIED") as reader:
+                result = record_karl_event(self.store, "task-1", "event-1")
+        self.assertEqual(result, "PERSISTED_EXACT_READBACK_UNVERIFIED")
+        reader.assert_called_once()
         writer.assert_called_once()
         args, kwargs = writer.call_args
         self.assertEqual(args[0], "kmco.karl.sandbox")
         self.assertEqual(args[1], {"queue_event_id": "event-1"})
         self.assertTrue(kwargs["idempotent"])
         self.assertEqual(kwargs["result_sha256"], "b" * 64)
+
+    def test_unconfigured_owner_service_does_not_claim_core_write(self):
+        with patch("coding_worker_v2.agent.kmco_usage.record",
+                   return_value="NOT_CONFIGURED"):
+            with patch("coding_worker_v2.agent.kmco_core.readback_exact") as reader:
+                result = record_karl_event(self.store, "task-1", "event-1")
+                reader.assert_not_called()
+        self.assertEqual(result, "CORE_WRITER_NOT_CONFIGURED_LOCAL_EVENT_DURABLE")
 
     def test_corrupt_chain_blocks_writer(self):
         self.store.read_events.return_value["chain_intact"] = False
