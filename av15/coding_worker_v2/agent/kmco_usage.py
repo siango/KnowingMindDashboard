@@ -166,7 +166,21 @@ def record_karl_event(store, task_id, event_id):
         raise RuntimeError("KARL_OUTPUT_DIGEST_INVALID")
     context = {"mission_id": event["mission_id"], "task_id": task_id,
                "source_sha": event["source_sha"]}
-    return record("kmco.karl.sandbox", {"queue_event_id": event_id}, context,
-                  ok=event["status"] == "PASS", result_sha256=result_hash,
-                  error_class=observation.get("failure_class"),
-                  idempotent=True)
+    args = {"queue_event_id": event_id}
+    persistence = record("kmco.karl.sandbox", args, context,
+                         ok=event["status"] == "PASS",
+                         result_sha256=result_hash,
+                         error_class=observation.get("failure_class"),
+                         idempotent=True)
+    if persistence == "NOT_CONFIGURED":
+        return "CORE_WRITER_NOT_CONFIGURED_LOCAL_EVENT_DURABLE"
+    if persistence not in ("PERSISTED_UNVERIFIED",
+                           "ALREADY_PERSISTED_UNVERIFIED"):
+        raise RuntimeError("KARL_CORE_WRITER_STATUS_UNKNOWN")
+    # Separate read-only database connection. Never treat local spool or a
+    # successful INSERT as proof of a committed database readback.
+    from .kmco_core import readback_exact
+    readback = readback_exact(context, "kmco.karl.sandbox",
+                              _digest(args), result_hash)
+    return ("ALREADY_" if persistence == "ALREADY_PERSISTED_UNVERIFIED"
+            else "") + readback
