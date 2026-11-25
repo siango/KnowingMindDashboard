@@ -139,3 +139,38 @@ CROSS_HOST_RECONCILIATION_PENDING / PRODUCTION_NO_GO.
 Next action: verify KMCW gitdir/worktree relationship; classify and secure
 local deltas, take authenticated backups, then reconcile WSL and GitHub by
 exact SHA. This documentation commit is NOT an AV15 PostgreSQL/D1 write.
+
+## AV15 KMCW Git relationship exact follow-up — 2026-11-25 15:07 ICT
+
+Evidence: owner-provided terminal screenshot after running a bounded READ-ONLY
+`git rev-parse`, `git config --show-origin`, and `git diff --stat`
+probe on ubuntu-usb. No host changes, database writes, backup, merge, CI,
+or independent verification are claimed from this observation.
+
+- Path A: `/home/siango/KnowingMind/workspaces/kmcw-git-recovery`
+  is a Git metadata location, containing an actual `.git` directory.
+- Path B: `/home/siango/KnowingMind/workspaces/kmcw-recovery-staging/kmcw-pr1-head`
+  is the corresponding **actual source worktree** with `av15/coding_worker_v2`.
+- From both locations, `git rev-parse --show-toplevel` returns Path B.
+  From both, `git rev-parse --absolute-git-dir` returns `Path A/.git`.
+- `git config --show-origin --get core.worktree` points to Path B and its
+  configuration origin is `Path A/.git/config`.
+  Path B's `.git` is a pointer file referencing Path A's `.git` directory.
+- **One logical checkout, not two independent source versions.**
+  Do not count KMCW dirty changes twice, and do not delete Path A,
+  which owns the worktree's Git objects/config.
+- The actual tracked delta in Path B is **22 files changed, 3,392 additions,
+  171 deletions**; `git diff --cached --stat` showed **no staged delta**.
+  Previous inventory recorded 346 untracked files. The diff is not
+  independently accepted, backed up, or reconciled into PR #6.
+
+Status: `GITDIR_WORKTREE_RELATIONSHIP_CONFIRMED_FROM_HOST_OUTPUT`;
+`SOURCE_DELTA_UNCOMMITTED`; `OFF_DEVICE_BACKUP_NOT_VERIFIED`;
+`GITHUB_SOURCE_MERGE_PENDING`; `PRODUCTION_NO_GO`.
+
+Next action: take a recoverable backup of this **single linked checkout**
+(including gitdir, actual worktree, untracked files after secret
+classification) to a verified separate volume before applying any Git
+changes; inventory content differences versus current PR #6 by exact
+SHA; preserve runtime state and credentials outside Git. Continue WSL
+inventory separately. Never `git add .`, force-push or delete either path.
