@@ -49,6 +49,12 @@ def main():
         'disk_formatting':False,'off_device_backup':'NOT_PERFORMED',
         'ssd_boot_acceptance':'NOT_RUN','independent_qc':'NOT_ATTESTED_BY_EXECUTOR'}
     try:
+        profile = home/'.config/knowingmind/kmcw-owner-runtime.json'
+        if not profile.is_file() or profile.is_symlink() or profile.stat().st_uid != os.getuid():
+            raise RuntimeError('EXISTING_OWNER_PROFILE_REQUIRED')
+        owner_profile = json.loads(profile.read_text())
+        owner_digest = hashlib.sha256(profile.read_bytes()).hexdigest()
+        report['owner_profile_sha256'] = owner_digest
         manifest = json.loads((bundle/'release.json').read_text())
         assert manifest['source_sha'] == args.source_sha
         for rel, sha in manifest['files'].items():
@@ -85,16 +91,6 @@ def main():
         cfg=home/'.config/knowingmind'
         chat={'schema':'KMCW_SSH_V1','provider':binding,'model':binding['allowed_models'][0],
               'sessions':str(home/'KnowingMind/state/ssh-sessions')}
-        private_json(cfg/'kmcw-ssh.json',chat)
-        request='accept-'+os.environ['GITHUB_RUN_ID']
-        result=converse(private_file(cfg/'kmcw-ssh.json'),'installation-acceptance',
-                        'Reply only OK. Do not claim any commands were executed.',request,client=client)
-        again=converse(chat,'installation-acceptance',
-                      'Reply only OK. Do not claim any commands were executed.',request,client=client)
-        assert result['reply'] and result['execution']=='NOT_REQUESTED' and again['reused']
-        report['ssh_chat']={'status':'PASS','config':str(cfg/'kmcw-ssh.json'),
-            'session_resume_and_dedup':'PASS','execution':'NOT_REQUESTED',
-            'reply_sha256':hashlib.sha256(result['reply'].encode()).hexdigest()}
         service=configparser.ConfigParser(interpolation=None)
         service.read(home/'.pg_service.conf')
         candidates=[s for s in service.sections() if service[s].get('dbname')=='km_microops'
@@ -106,15 +102,32 @@ def main():
             base=legacy;report['runtime_scope']='EXISTING_KM_CLI_RUNTIME_QUEUE'
         else:
             base=home/'KnowingMind/state/acceptance/kmcw-native-runtime'
-            (base/'queue').mkdir(parents=True,exist_ok=True)
-            report['runtime_scope']='ISOLATED_OWNED_NODE_ACCEPTANCE_NOT_PRODUCTION_QUEUE'
+            raise RuntimeError('EXISTING_RUNTIME_QUEUE_REQUIRED')
         catalog=home/'KnowingMind/workspaces/microops-source'
         runtime={'schema':'KMCP_RUNTIME_V1','node_id':'ubuntu-usb',
             'account_id':'posix:'+str(os.getuid()),'mission_id':'KMCP-V5-PRODUCTION',
             'task_id':'SSH-RECOVERY-ACCEPTANCE','workspace':str(checkout),
             'runtime_base':str(base),'kmco_catalog':str(catalog),
             'cloudflare':binding,'postgres_service':pg}
-        profile=cfg/'kmcw-owner-runtime.json';private_json(profile,runtime)
+        if any(owner_profile.get(k) != v for k, v in runtime.items()):
+            raise RuntimeError('EXISTING_OWNER_PROFILE_RECONCILIATION_REQUIRED')
+        if hashlib.sha256(profile.read_bytes()).hexdigest() != owner_digest:
+            raise RuntimeError('OWNER_PROFILE_CHANGED_DURING_ACCEPTANCE')
+        chat_path = cfg/'kmcw-ssh.json'
+        if chat_path.exists() or chat_path.is_symlink():
+            if private_file(chat_path) != chat:
+                raise RuntimeError('EXISTING_SSH_PROFILE_RECONCILIATION_REQUIRED')
+        else:
+            private_json(chat_path,chat)
+        request='accept-'+os.environ['GITHUB_RUN_ID']
+        result=converse(private_file(cfg/'kmcw-ssh.json'),'installation-acceptance',
+                        'Reply only OK. Do not claim any commands were executed.',request,client=client)
+        again=converse(chat,'installation-acceptance',
+                      'Reply only OK. Do not claim any commands were executed.',request,client=client)
+        assert result['reply'] and result['execution']=='NOT_REQUESTED' and again['reused']
+        report['ssh_chat']={'status':'PASS','config':str(cfg/'kmcw-ssh.json'),
+            'session_resume_and_dedup':'PASS','execution':'NOT_REQUESTED',
+            'reply_sha256':hashlib.sha256(result['reply'].encode()).hexdigest()}
         file='av15/coding_worker_v2/README.md'
         quote=next(x.strip() for x in (checkout/file).read_text().splitlines() if x.strip())[:500]
         def obj(properties,required):
@@ -133,7 +146,8 @@ def main():
             'acceptance':[{'path':'/evidence','schema':{'type':'string','enum':['EXACT_QUOTE_VERIFIED']}},
                           {'path':'/reply','schema':{'type':'string','minLength':1}},
                           {'path':'/memory','schema':{'type':'string','enum':['DERIVED_UNVERIFIED']}}]}
-        graph_path=cfg/'recovery-canary.graph.json';private_json(graph_path,graph)
+        graph_path=cfg/('recovery-canary-'+os.environ['GITHUB_RUN_ID']+'.graph.json')
+        private_json(graph_path,graph)
         raw=command([venv/'bin/kmcw','circuit','--config',profile,'--graph',graph_path,
                      '--command','Verify real P01, provider inference and four-part memory',
                      '--request-id','recovery-'+os.environ['GITHUB_RUN_ID'],'--approve'])
@@ -231,6 +245,16 @@ def main():
         private_json(target,report)
         Path(args.receipt).write_text(json.dumps(report,indent=2)+'\n')
         print(json.dumps(report,indent=2))
+        summary = os.environ.get('GITHUB_STEP_SUMMARY')
+        if summary:
+            with open(summary, 'a', encoding='utf-8') as stream:
+                stream.write('## Native circuit — observed execution\n\n')
+                stream.write('| Stage | Result |\n|---|---|\n')
+                for stage in ('ssh_chat','native_circuit','core_memory_readback','kves_projection','portable_restore','postgres_restore'):
+                    value = report.get(stage)
+                    status = value.get('status', 'RECORDED') if isinstance(value, dict) else 'NOT_RUN'
+                    stream.write(f'| {stage} | {status} |\n')
+                stream.write('\nProduction and independent QC are not attested by this executor.\n')
 
 
 if __name__=='__main__':main()
