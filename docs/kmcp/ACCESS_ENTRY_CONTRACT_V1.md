@@ -54,3 +54,24 @@ Reported AV15-SSD evidence: existing kmcp-v5.service, loopback 18856 and Cloudfl
 5. Acceptance: existing owner and machine client compatibility; OAuth discovery and actual callback/token exchange for a supported interactive client; second distinct authorized principal including a non-ChatGPT client; unknown/revoked identity denied; cross-tenant/tool write denied; actual external initialize/tools/list/read-only tools/call with receipt; quota and ledger verification against existing authority; independent QC and rollback. CI is not live acceptance. Stop on a precise failing gate; do not rerun historical jobs or alter database, tunnel, port, secrets or trading authority to repair OAuth.
 
 Owner nodes: KMCP/Cloudflare (step 1); KMCW/KMCP (2,4); Core/KMCO (3); Audit+ (5). Next action: reconcile actual redirect and credential delivery before changing production origin. No merge, deployment, production access grant or execution authority implied by this update.
+
+
+## 27 Nov 2026 — EP12 unified membership and login integration
+
+Status: owner approved integration direction; source contract only, runtime implementation and independent acceptance pending. Continue existing EP12 Membership and Private Storage + KMCP V5 External Gateway; do not create a parallel identity database, mission, OAuth server or MCP runtime.
+
+Canonical upstream membership design: https://github.com/siango/KnowingMindApp/blob/711c4bd642e19d2cef52fcf7bc1fa667c5bd0e91/docs/control/KNOWINGMIND_FULL_EPFM_P02_24X7_V1.md (EP12, MEMBERSHIP_V1). Reuse identity.users, identities, public_profiles and role_grants. Reconcile the existing D1 tenant/entitlement authority with this membership identity, not competing identity masters.
+
+Observed owner screenshots at 19:30 ICT: knowingmind.app/login explicitly reports AUTH_BACKEND_NOT_WIRED; ai.knowingmind.app displays LINE login and a five-minute private-chat linking-code fallback. UI presence is not proof of provider verification or successful session. Existing Cloudflare bitter-king Access remains the transport boundary for protected Admin/MCP routes; ChatGPT is optional, never the system identity authority.
+
+| Task | Owner node | Input | Required output / acceptance | Status |
+| --- | --- | --- | --- | --- |
+| P01 | Core/KMCW | EP12 and installed authority on AV15-SSD | Read back existing membership schema and identity mapping; reconcile D1 tenant policy; no new tables without evidence | Pending |
+| P02 | KMNW/KMCW | Existing LINE login and linking flow | Verified provider subject, real session, expiry/logout, single-use linking code, cross-user denial | Pending |
+| P03 | KMCW/Web | dhamma-web-channel-edge and knowingmind-line-webhook | Wire knowingmind.app/login and ai.knowingmind.app to shared identity; preserve anonymous public content; secure session exchange, no fake session | Pending |
+| P04 | Core/KMCW | Existing provider adapters and kebunate-google-oauth-bridge candidate | Enable LINE, verified email/phone, Facebook, passkey, and Google only after provider/backend evidence; account linking requires reauthentication and verified provider identity, never auto-merge by email/name | Pending |
+| P05 | KMCP/KMCO | Existing AccessGate, tenant-policy.mjs, registry | Verified issuer+subject mapped to same canonical user; per-tool least privilege; existing owner/service compatibility; non-ChatGPT external client acceptance | Pending |
+| P06 | Core/KMAA | Existing entitlement, quota, ledger and Stripe integration | Verified subscription-to-entitlement mapping, idempotent usage, role/session administration; payment not identity proof or execution authority | Pending |
+| P07 | Audit+ | Actual external and web runtime receipts | Two distinct users, cross-user isolation, revocation, logout/expiry, read-only MCP call, denial of unauthorized tools, ledger reconciliation, independent QC | Pending |
+
+Web and MCP sessions are separate trust boundaries: share canonical identity, not raw tokens/cookies across services. Use verified provider assertions and least-privilege server-side exchanges, CSRF/state/nonce/PKCE where applicable; do not expose admin or private storage by default. No live trading permission follows membership. Preserve existing tunnel, port 18856, PostgreSQL, source registry and queue. Next action P01/P02 read-only delta inventory; stop at precise blocker, do not repeat prior checks without change. No deployment, login success or Core registration is asserted by this source update.
