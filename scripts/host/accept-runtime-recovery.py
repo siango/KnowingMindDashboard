@@ -135,7 +135,7 @@ def main():
         string={'type':'string'}
         graph={'nodes':[
             {'id':'p01','tool':'kmco.p01.evidence','arguments':{'file':file,'quote':quote},'after':[],
-             'result_schema':obj({'circuit':{'type':'string','enum':['P01']},'output':{'type':'object'}},['circuit','output'])},
+             'result_schema':obj({'circuit':{'type':'string','enum':['P01']},'output':obj({'state':{'type':'string','enum':['EXACT_QUOTE_VERIFIED']}},['state'])},['circuit','output'])},
             {'id':'ai','tool':'cf.ai.run','arguments':{'model':binding['allowed_models'][0],
              'prompt':'Reply only OK.','max_tokens':8},'after':['p01'],
              'result_schema':obj({'response':{'type':'string','minLength':1}},['response'])},
