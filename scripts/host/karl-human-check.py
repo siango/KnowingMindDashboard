@@ -172,10 +172,75 @@ def write_report(output):
     print("EVIDENCE_PROJECTION_PATH", path, flush=True)
 
 
+
+def review_existing_circuit(result_path, config_path):
+    """Read existing receipt and exact Core row; never execute or attest QC."""
+    import hashlib
+    import shutil
+    import psycopg
+    cfg = json.loads(Path(config_path).read_text())
+    result = json.loads(Path(result_path).read_text())
+    report = result["report"]
+    assert report == result["result"]
+    assert report["mission_id"] == cfg["mission_id"]
+    assert report["status"] == "COMPLETED"
+    node = report["nodes"]["p01"]
+    assert node["status"] == "DONE"
+    receipt = report["receipt"]
+    root = Path(cfg["runtime_base"]).expanduser().resolve() / "receipts"
+    p = Path(receipt["uri"]).resolve(strict=True)
+    assert p.is_relative_to(root)
+    assert hashlib.sha256(p.read_bytes()).hexdigest() == receipt["sha256"]
+    assert node["result"]["output"]["state"] == "EXACT_QUOTE_VERIFIED"
+    with psycopg.connect(service=cfg["postgres_service"], connect_timeout=5) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SET TRANSACTION READ ONLY")
+            cur.execute("SELECT current_database()")
+            assert cur.fetchone() == ("km_microops",)
+            cur.execute("""
+                SELECT source_sha,result_state,result_sha256,dukkha,samudaya,nirodha,magga
+                FROM circuit.core_memory WHERE mission_id=%s AND task_id=%s
+                  AND operation=%s AND args_sha256=%s
+            """, (cfg["mission_id"],cfg["task_id"],"kmco.p01.evidence",node["arguments_sha256"]))
+            row = cur.fetchone()
+            assert row is not None and cur.fetchone() is None
+            assert row[0] == report["source_sha"]
+            assert row[1] == "EXECUTED_UNVERIFIED"
+            assert row[2] == node["result_sha256"]
+            assert all(isinstance(v,dict) for v in row[3:])
+    from coding_worker_v2.agent.kmco_core import recall
+    recalled = recall({"mission_id":cfg["mission_id"],"task_id":cfg["task_id"],
+                       "kmco_pg_service":cfg["postgres_service"]},limit=20)
+    recalled_match = any(x["operation"] == "kmco.p01.evidence" and
+                         x["result_sha256"] == node["result_sha256"] for x in recalled["cases"])
+    disk = shutil.disk_usage("/srv/kebunate")
+    return {"schema":"KARL_EXISTING_CIRCUIT_READBACK_V1",
+            "observed_at":datetime.now(timezone.utc).isoformat(),
+            "mission_id":cfg["mission_id"],"task_id":cfg["task_id"],
+            "circuit_id":report["circuit_id"],"source_sha":report["source_sha"],
+            "receipt_sha256":receipt["sha256"],"result_sha256":node["result_sha256"],
+            "receipt_integrity":"PASS","core_exact_readback":"PASS",
+            "core_recall":"PASS" if recalled_match else "NOT_IN_BOUNDED_RECALL",
+            "execution_status":"COMPLETED_UNVERIFIED",
+            "independent_qc":"NOT_ATTESTED","production_authority":"NOT_GRANTED",
+            "resources":{"disk_total_bytes":disk.total,"disk_free_bytes":disk.free,
+                         "load_average":list(os.getloadavg()),"provider_quota":"UNKNOWN"}}
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--json-out", help="Optional JSON projection for existing workflow artifact upload")
+    parser.add_argument("--review-circuit", type=Path)
+    parser.add_argument("--config", type=Path, default=CFG)
     args = parser.parse_args()
+    if args.review_circuit:
+        report = review_existing_circuit(args.review_circuit, args.config)
+        wire = json.dumps(report, ensure_ascii=False, indent=2)
+        if args.json_out:
+            with Path(args.json_out).open("x", encoding="utf-8") as stream:
+                stream.write(wire+"\n")
+        print(wire)
+        raise SystemExit(0)
     main()
     if args.json_out:
         write_report(args.json_out)
