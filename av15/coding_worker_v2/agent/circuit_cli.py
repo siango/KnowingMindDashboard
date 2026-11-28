@@ -100,7 +100,9 @@ def main(argv=None):
     plan = sub.add_parser('plan')
     plan.add_argument('--command', required=True)
     plan.add_argument('--request-id', required=True)
-    plan.add_argument('--graph', help='Host-AI decomposition JSON; omitted uses configured local planner')
+    decomposition = plan.add_mutually_exclusive_group()
+    decomposition.add_argument('--graph', help='Host-AI decomposition JSON')
+    decomposition.add_argument('--work-units', help='Deterministic work units JSON; no model planning')
     for name in ('status', 'report', 'cancel'):
         sub.add_parser(name).add_argument('circuit_id')
     serve = sub.add_parser('serve')
@@ -117,11 +119,12 @@ def main(argv=None):
             value = registry.command_contract()
         elif args.action == 'plan':
             request = {'command': args.command, 'request_id': args.request_id}
-            if args.graph:
-                file = Path(args.graph)
-                if file.stat().st_size > circuits.LIMIT:
-                    raise ToolError('CIRCUIT_PAYLOAD_LIMIT')
-                request['graph'] = json.loads(file.read_text('utf-8'))
+            for key, filename in (('graph', args.graph), ('work_units', args.work_units)):
+                if filename:
+                    file = Path(filename)
+                    if file.stat().st_size > circuits.LIMIT:
+                        raise ToolError('CIRCUIT_PAYLOAD_LIMIT')
+                    request[key] = json.loads(file.read_text('utf-8'))
             value = circuits.compile_command(request, ctx, registry)
         else:
             # Read/status/cancel local OS-owner interface; execution is ONLY via
