@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {resolveMcpPrincipal,authorizeMcpTool,completedMcpUsage,billingExportAllowed} from './tenant-policy.mjs';
+import {resolveMcpPrincipal,resolveMcpPrincipalFromAuthority,authorizeMcpTool,completedMcpUsage,billingExportAllowed} from './tenant-policy.mjs';
 const verifiedAccess={verified:true,signatureVerified:true,audienceVerified:true,expiryVerified:true,issuer:'https://access.example',subject:'user-123'};
 const membership={verifiedIdentityKey:'https://access.example|user-123',company_id:'tenant-A',user_id:'user-123',role:'COMPANY_VIEWER',status:'ACTIVE',channels:['CHATGPT','WEB']};
 const principal=resolveMcpPrincipal({verifiedAccess,membership,channel:'CHATGPT'});
@@ -35,4 +35,17 @@ test('usage constructed only for successful bound call, never automatically char
   assert.equal(billingExportAllowed({usage:entry,entitlement:{...entitlement,billing_enabled:true},customer:{verified:true,tenantId:'tenant-A'},verifiedInvoiceContract:{verified:true}}),false);
   assert.equal(billingExportAllowed({usage:{...entry,billing_status:'PERSISTED_VERIFIED'},entitlement:{...entitlement,billing_enabled:true},customer:{verified:true,tenantId:'tenant-A'},verifiedInvoiceContract:{verified:true}}),true);
   assert.equal(billingExportAllowed({usage:{...entry,billing_status:'PERSISTED_VERIFIED'},entitlement:{...entitlement,billing_enabled:true},customer:{verified:true,tenantId:'tenant-B'},verifiedInvoiceContract:{verified:true}}),false);
+});
+
+test('authority lookup uses only verified issuer and subject, denies unavailable or ambiguous mapping',async()=>{
+  const args={verifiedAccess,channel:'WEB'};
+  await assert.rejects(resolveMcpPrincipalFromAuthority(args),/IDENTITY_AUTHORITY_NOT_BOUND/);
+  let called=0;
+  const readMembership=async key=>{called++;assert.deepEqual(key,{issuer:verifiedAccess.issuer,subject:verifiedAccess.subject,channel:'WEB'});return [membership];};
+  await assert.rejects(resolveMcpPrincipalFromAuthority({...args,verifiedAccess:{...verifiedAccess,signatureVerified:false},readMembership}),/ACCESS_JWT_VERIFICATION_INCOMPLETE/);
+  assert.equal(called,0);
+  assert.equal((await resolveMcpPrincipalFromAuthority({...args,readMembership})).userId,membership.user_id);
+  for(const rows of [[],[membership,membership],[{...membership,status:'REVOKED'}],[{...membership,verifiedIdentityKey:'wrong'}]]){
+    await assert.rejects(resolveMcpPrincipalFromAuthority({...args,readMembership:async()=>rows}),/IDENTITY_MEMBERSHIP_UNBOUND/);
+  }
 });
