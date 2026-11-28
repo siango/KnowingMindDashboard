@@ -7,7 +7,7 @@ name = "knowingmind-kmcp"
 version = "0.1.0"
 description = "Portable MCP tool circuits on the existing KnowingMind Coding Worker"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["psycopg[binary]>=3.2,<4"]
 
 [project.scripts]
 kmcp = "coding_worker_v2.agent.circuit_cli:main"
