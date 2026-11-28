@@ -303,7 +303,7 @@ def execute_plan(plan: Plan, config: WorkerConfig, store: QueueStore,
                 "tasks": blocked, "reused": 0, "done": 0, "failed": 0,
                 "skipped": len(blocked), "status": "BLOCKED",
                 "admission_audit": admission,
-                "next_action": "AUDITOR_UNAVAILABLE"}
+                "next_action": admission.get("reason", "AUDIT_GATE_BLOCKED")}
     history = history if history is not None else []
     ordered = order_tasks(plan)
     registry = WorktreeRegistry(state_dir) if use_worktree else None
