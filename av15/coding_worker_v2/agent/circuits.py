@@ -315,7 +315,7 @@ def _planner(command, registry, ctx):
         {'role': 'user', 'content': json.dumps({'command': command, 'tools': catalog,
             'scope': {'mission_id': ctx.get('mission_id'),
                       'allowed_paths': ctx.get('pilot', {}).get('allowed_paths', [])}}, ensure_ascii=False)}]
-    generated = provider.generate(messages, max_tokens=4096, timeout=120)
+    generated = provider.generate_plan(messages, max_tokens=4096, timeout=120)
     return parse_plan(generated.text)
 
 

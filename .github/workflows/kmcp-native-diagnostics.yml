@@ -1,0 +1,100 @@
+name: kmcp-native-diagnostics
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - '.github/workflows/kmcp-native-diagnostics.yml'
+      - 'scripts/host/read-runtime-diagnostics.py'
+permissions:
+  contents: read
+jobs:
+  changed-diagnostic-source:
+    if: >-
+      github.repository == 'siango/KnowingMindDashboard' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'feature/kmcp-native-diagnostics-20261123' &&
+      github.event.pull_request.user.login == 'siango'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      run_native: ${{ steps.changed.outputs.run_native }}
+    steps:
+      # PR paths match the whole PR diff on every synchronization, including
+      # documentation updates. Compare this script's immutable blobs instead.
+      # No checkout, native connection, circuit execution or provider call.
+      - name: Gate native diagnostics on actual diagnostic source changes
+        id: changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PYCODE'
+          import json, os, re, urllib.request
+          from pathlib import Path
+          event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
+          repo = 'siango/KnowingMindDashboard'
+          assert os.environ['GITHUB_REPOSITORY'] == repo
+          pr = event['pull_request']
+          assert pr['head']['repo']['full_name'] == repo
+          assert pr['head']['ref'] == 'feature/kmcp-native-diagnostics-20261123'
+          assert pr['user']['login'] == 'siango'
+          def blob(ref):
+              assert isinstance(ref, str) and re.fullmatch(r'[0-9a-f]{40}', ref)
+              url = ('https://api.github.com/repos/' + repo +
+                     '/contents/scripts/host/read-runtime-diagnostics.py?ref=' + ref)
+              request = urllib.request.Request(url, headers={
+                  'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                  'Accept': 'application/vnd.github+json',
+                  'X-GitHub-Api-Version': '2022-11-28'})
+              # A redirect must never forward the token to another host.
+              class NoRedirect(urllib.request.HTTPRedirectHandler):
+                  def redirect_request(self, *args, **kwargs):
+                      return None
+              with urllib.request.build_opener(NoRedirect).open(request, timeout=20) as response:
+                  payload = response.read(1048577)
+              assert len(payload) <= 1048576
+              value = json.loads(payload)
+              assert value['type'] == 'file'
+              assert re.fullmatch(r'[0-9a-f]{40}', value['sha'])
+              return value['sha']
+          action = event['action']
+          assert action in ('opened', 'synchronize')
+          run_native = action == 'opened'
+          if action == 'synchronize':
+              run_native = blob(event['before']) != blob(pr['head']['sha'])
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('run_native=' + str(run_native).lower() + '\n')
+          print('DIAGNOSTIC_SOURCE_CHANGED' if run_native else 'UNCHANGED_DIAGNOSTIC_SOURCE_SKIP_NATIVE')
+          PYCODE
+  read-native-state:
+    needs: changed-diagnostic-source
+    if: >-
+      needs.changed-diagnostic-source.outputs.run_native == 'true' &&
+      github.repository == 'siango/KnowingMindDashboard' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'feature/kmcp-native-diagnostics-20261123' &&
+      github.event.pull_request.user.login == 'siango'
+    runs-on: [self-hosted, Linux, X64, kmcp, nonprod]
+    timeout-minutes: 8
+    steps:
+      - name: Read existing checkpoints and schema without replaying operations
+        env:
+          EXPECTED_SOURCE: ${{ github.event.pull_request.head.sha }}
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          python3 - <<'PY'
+          import base64,hashlib,json,os,subprocess
+          from pathlib import Path
+          assert os.environ['RUNNER_NAME']=='ubuntu-usb'
+          p=subprocess.run(['gh','api','repos/siango/KnowingMindDashboard/contents/scripts/host/read-runtime-diagnostics.py?ref='+os.environ['EXPECTED_SOURCE']],capture_output=True,text=True,check=True)
+          d=json.loads(p.stdout);raw=base64.b64decode(d['content'])
+          assert hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()==d['sha']
+          script=Path(os.environ['RUNNER_TEMP'])/'read-runtime-diagnostics.py';script.write_bytes(raw)
+          subprocess.run([str(Path.home()/'KnowingMind/.venvs/kmcp-portable/bin/python'),str(script)],check=True,timeout=180)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kmcp-native-diagnostics-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/kmcp-native-diagnostics.json
+          if-no-files-found: warn
+          retention-days: 14

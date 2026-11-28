@@ -35,6 +35,25 @@ def private_json(path, value):
     save_private(path, value)
 
 
+def recovery_canary_graph(model,file,quote):
+    def obj(properties,required):
+        return {'type':'object','properties':properties,'required':required,'additionalProperties':True}
+    graph={'nodes':[
+        {'id':'p01','tool':'kmco.p01.evidence','arguments':{'file':file,'quote':quote},'after':[],
+         'result_schema':obj({'circuit':{'type':'string','enum':['P01']},'output':obj({'state':{'type':'string','enum':['EXACT_QUOTE_VERIFIED']}},['state'])},['circuit','output'])},
+        {'id':'ai','tool':'cf.ai.run','arguments':{'model':model,
+         'prompt':'Reply only OK.','max_tokens':8},'after':['p01'],
+         'result_schema':obj({'response':{'type':'string','minLength':1}},['response'])},
+        {'id':'memory','tool':'kmco.core.recall','arguments':{'limit':10},'after':['ai'],
+         'result_schema':obj({'state':{'type':'string','enum':['DERIVED_UNVERIFIED']}},['state'])}],
+        'outputs':{'evidence':{'$ref':'p01#/output/state'},'reply':{'$ref':'ai#/response'},
+                   'memory':{'$ref':'memory#/state'}},
+        'acceptance':[{'path':'/evidence','schema':{'type':'string','enum':['EXACT_QUOTE_VERIFIED']}},
+                      {'path':'/reply','schema':{'type':'string','minLength':1}},
+                      {'path':'/memory','schema':{'type':'string','enum':['DERIVED_UNVERIFIED']}}]}
+    return graph
+
+
 def main():
     ap = argparse.ArgumentParser();ap.add_argument('--bundle', required=True)
     ap.add_argument('--source-sha', required=True);ap.add_argument('--receipt', required=True)
@@ -117,22 +136,7 @@ def main():
         profile=cfg/'kmcw-owner-runtime.json';private_json(profile,runtime)
         file='av15/coding_worker_v2/README.md'
         quote=next(x.strip() for x in (checkout/file).read_text().splitlines() if x.strip())[:500]
-        def obj(properties,required):
-            return {'type':'object','properties':properties,'required':required,'additionalProperties':True}
-        string={'type':'string'}
-        graph={'nodes':[
-            {'id':'p01','tool':'kmco.p01.evidence','arguments':{'file':file,'quote':quote},'after':[],
-             'result_schema':obj({'circuit':{'type':'string','enum':['P01']},'output':{'type':'object'}},['circuit','output'])},
-            {'id':'ai','tool':'cf.ai.run','arguments':{'model':binding['allowed_models'][0],
-             'prompt':'Reply only OK.','max_tokens':8},'after':['p01'],
-             'result_schema':obj({'response':{'type':'string','minLength':1}},['response'])},
-            {'id':'memory','tool':'kmco.core.recall','arguments':{'limit':10},'after':['ai'],
-             'result_schema':obj({'state':{'type':'string','enum':['DERIVED_UNVERIFIED']}},['state'])}],
-            'outputs':{'evidence':{'$ref':'p01#/output/state'},'reply':{'$ref':'ai#/response'},
-                       'memory':{'$ref':'memory#/state'}},
-            'acceptance':[{'path':'/evidence','schema':{'type':'string','enum':['EXACT_QUOTE_VERIFIED']}},
-                          {'path':'/reply','schema':{'type':'string','minLength':1}},
-                          {'path':'/memory','schema':{'type':'string','enum':['DERIVED_UNVERIFIED']}}]}
+        graph=recovery_canary_graph(binding['allowed_models'][0],file,quote)
         graph_path=cfg/'recovery-canary.graph.json';private_json(graph_path,graph)
         raw=command([venv/'bin/kmcw','circuit','--config',profile,'--graph',graph_path,
                      '--command','Verify real P01, provider inference and four-part memory',
