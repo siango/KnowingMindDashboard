@@ -91,3 +91,26 @@ export function billingExportAllowed({usage,entitlement,customer,verifiedInvoice
       customer.verified===true && customer.tenantId===usage.company_id &&
       verifiedInvoiceContract.verified===true);
 }
+
+// Existing Company OS grant rows are role-based, not implicit MCP grants.
+// Exact MCP capability/action markers must be explicitly provisioned by authority.
+export function adaptCompanyOsReadGrant({principal,tool,row}){
+  if (!principal || !row || row.enabled!==1 ||
+      row.company_id!==principal.tenantId || row.tool_id!==tool ||
+      !row.evidence_ref || !row.source_ref ||
+      row.risk_policy_ref!=='KMCP_READ_ONLY_V1')
+    throw new Error('EXACT_READ_GRANT_REQUIRED');
+  const parse=value=>{
+    try {
+      const items=JSON.parse(value);
+      if(Array.isArray(items)&&items.every(x=>typeof x==='string'))return items;
+    } catch {}
+    throw new Error('COMPANY_OS_GRANT_INVALID');
+  };
+  if(!parse(row.roles_json).includes(principal.role) ||
+     !parse(row.capabilities_json).includes('MCP_READ:'+tool) ||
+     !parse(row.actions_json).includes('MCP_READ:'+principal.channel))
+    throw new Error('EXACT_READ_GRANT_REQUIRED');
+  return Object.freeze({company_id:principal.tenantId,user_id:principal.userId,
+    tool,channel:principal.channel,status:'ACTIVE',permission:'read'});
+}
