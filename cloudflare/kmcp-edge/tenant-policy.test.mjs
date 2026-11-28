@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {resolveMcpPrincipal,resolveMcpPrincipalFromAuthority,authorizeMcpTool,completedMcpUsage,billingExportAllowed} from './tenant-policy.mjs';
+import {adaptCompanyOsReadGrant,resolveMcpPrincipal,resolveMcpPrincipalFromAuthority,authorizeMcpTool,completedMcpUsage,billingExportAllowed} from './tenant-policy.mjs';
 const verifiedAccess={verified:true,signatureVerified:true,audienceVerified:true,expiryVerified:true,issuer:'https://access.example',subject:'user-123'};
 const membership={verifiedIdentityKey:'https://access.example|user-123',company_id:'tenant-A',user_id:'user-123',role:'COMPANY_VIEWER',status:'ACTIVE',channels:['CHATGPT','WEB']};
 const principal=resolveMcpPrincipal({verifiedAccess,membership,channel:'CHATGPT'});
@@ -48,4 +48,13 @@ test('authority lookup uses only verified issuer and subject, denies unavailable
   for(const rows of [[],[membership,membership],[{...membership,status:'REVOKED'}],[{...membership,verifiedIdentityKey:'wrong'}]]){
     await assert.rejects(resolveMcpPrincipalFromAuthority({...args,readMembership:async()=>rows}),/IDENTITY_MEMBERSHIP_UNBOUND/);
   }
+});
+
+test('existing Company OS grant never implies MCP access without explicit tool and channel policy',()=>{
+ const row={enabled:1,company_id:principal.tenantId,tool_id:'project.readback',roles_json:JSON.stringify([principal.role]),capabilities_json:'["MCP_READ:project.readback"]',actions_json:'["MCP_READ:CHATGPT"]',risk_policy_ref:'KMCP_READ_ONLY_V1',source_ref:'fixture',evidence_ref:'fixture'};
+ const grant=adaptCompanyOsReadGrant({principal,tool:'project.readback',row});
+ assert.equal(authorizeMcpTool({principal,method:'tools/call',tool:'project.readback',grant,entitlement}).allow,true);
+ for(const delta of [{enabled:0},{company_id:'other'},{actions_json:'["STATUS_CHECK"]'},{capabilities_json:'["RUN_ALLOWED_REVERSIBLE_WORK"]'},{roles_json:'[]'},{risk_policy_ref:'other'},{evidence_ref:null}]){
+  assert.throws(()=>adaptCompanyOsReadGrant({principal,tool:'project.readback',row:{...row,...delta}}),/EXACT_READ_GRANT_REQUIRED/);
+ }
 });
