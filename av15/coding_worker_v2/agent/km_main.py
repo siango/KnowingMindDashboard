@@ -349,14 +349,23 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None, *, context_provider=None) -> int:
+def main(argv: list[str] | None = None, *, context_provider=None, runtime_context=None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
         if args.cmd == "pilot":
             from coding_worker_v2.pilot_install import main as pilot_main
             return pilot_main(args, context_provider=context_provider)
-        ctx = _ctx(args)
+        if runtime_context is None:
+            ctx = _ctx(args)
+        else:
+            # Only the installed owner CLI injects this in-process context.
+            # Argument parsing never accepts credentials or principal claims.
+            ctx = dict(runtime_context)
+            if (not isinstance(ctx.get('store'), QueueStore) or not args.base
+                    or Path(args.base).resolve() != Path(ctx['state_dir']).resolve().parent
+                    or str(Path(args.workspace).resolve()) != ctx.get('workspace')):
+                raise agent_tools.ToolError('KMCW_RUNTIME_CONTEXT_MISMATCH')
         from coding_worker_v2.agent.capabilities import bind_runtime_context
         ctx = bind_runtime_context(ctx, context_provider)
         if args.cmd in ("plan", "run"):
@@ -373,3 +382,4 @@ def main(argv: list[str] | None = None, *, context_provider=None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

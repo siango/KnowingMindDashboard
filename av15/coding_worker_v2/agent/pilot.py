@@ -80,7 +80,7 @@ def validate_config(data):
     return data
 
 
-def load_context(path):
+def load_context(path, *, worker_config=None):
     data = validate_config(_json(Path(path)))
     if "source_files" in data:
         source = Path(data["source_root"]).resolve()
@@ -105,7 +105,7 @@ def load_context(path):
         else:
             os.environ.pop(env, None)
     os.environ["KMW2_STATE_DIR"] = str(state)
-    config = WorkerConfig.from_env()
+    config = worker_config if worker_config is not None else WorkerConfig.from_env()
     if config.owner_node != data["worker_id"]:
         _error("PILOT_WORKER_ID_MISMATCH")
     return {"pilot": data, "workspace": str(Path(data["workspace"]).resolve()),
@@ -551,3 +551,4 @@ def register_pilot_tools(registry):
             "existing plans/queue/worktree/receipts only" if permission == "write" else "none",
             "installed account/project scope; original audit and QC gates"),
             fn, lambda ctx: (True, "OK") if "pilot" in ctx else (False, "PILOT_NOT_CONFIGURED"))
+

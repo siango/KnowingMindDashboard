@@ -31,6 +31,7 @@ def normalize_goal(goal: str) -> str:
 
 def fingerprint_for(goal: str, repo: str, base_commit: str) -> str:
     """Deterministic task fingerprint (sha256, hex)."""
+    repo = str(Path(repo).resolve()) if repo else ""
     canonical = json.dumps({"goal": normalize_goal(goal), "repo": repo or "",
                             "base": base_commit or ""},
                            ensure_ascii=False, sort_keys=True)
@@ -275,7 +276,8 @@ def _observed_audit_cases(goal, repo, source_sha, store, account_id):
             if (not isinstance(scope, dict) or not isinstance(signature, str)
                     or not signature or signature.lower() not in
                        re.findall(r'[a-z0-9_]+', normalize_goal(goal))
-                    or scope.get('repo') != str(root)
+                    or not isinstance(scope.get('repo'), str)
+                    or Path(scope['repo']).resolve() != root
                     or scope.get('account_id') != account_id
                     or scope.get('owner_uid') != os.geteuid()
                     or row.get('classification') != 'OBSERVED'
@@ -331,6 +333,9 @@ def _observed_audit_cases(goal, repo, source_sha, store, account_id):
 
 def retrieve_work(goal, repo, source_sha, store, receipts_dir, limit=5, *,
                   account_id=None, ranking="baseline") -> list[dict]:
+    if not isinstance(repo, str) or not repo:
+        return []
+    repo = str(Path(repo).resolve())
     if ranking not in {"baseline", "qc"}:
         raise ValueError("unknown memory ranking")
     records = []
@@ -558,8 +563,10 @@ def canonical_repo(task_input: dict) -> str:
     """Base workspace for matching (worktree paths are execution detail)."""
     hints = task_input.get("hints", {})
     if isinstance(hints, dict) and hints.get("workspace"):
-        return str(hints["workspace"])
-    return str(task_input.get("repo", ""))
+        workspace = hints["workspace"]
+        return str(Path(workspace).resolve()) if isinstance(workspace, str) else ""
+    repo = task_input.get("repo", "")
+    return str(Path(repo).resolve()) if isinstance(repo, str) and repo else ""
 
 
 def _queued_fingerprints(store) -> list[dict]:
@@ -598,6 +605,7 @@ def classify(goal: str, repo: str, base_commit: str, store,
              task_id: str = "", max_attempts: int = 3,
              account_id=None) -> Classification:
     """Classify an intake task against SSOT (receipts + leases + queue)."""
+    repo = str(Path(repo).resolve()) if repo else ""
     now = time.time() if now is None else now
     fingerprint = fingerprint_for(goal, repo, base_commit)
     if not goal or not goal.strip():
@@ -724,3 +732,4 @@ def classify(goal: str, repo: str, base_commit: str, store,
 
     _ = task_id
     return Classification("NEW", "NO_PRIOR_RECORD", fingerprint)
+

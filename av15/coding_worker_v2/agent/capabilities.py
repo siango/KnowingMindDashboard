@@ -251,6 +251,10 @@ def bind_runtime_context(ctx, producer):
 
 
 def authorized(spec, ctx, args=None):
+    delegation = ctx.get('_kmcp_parent_grant')
+    if delegation is not None:
+        from .circuits import CircuitStepGrant
+        return isinstance(delegation, CircuitStepGrant) and delegation.allows(spec, args)
     from .ingress import qualified
     from .memory import current_base_commit
     if not qualified(ctx):
@@ -423,3 +427,4 @@ def register_gui(registry):
         {'request_id': 'str'}, {}, 'write', 'existing browser actions and local evidence',
         'trusted callable and exact scope required; ambiguous actions never replay'),
         gui_test, gui_health)
+

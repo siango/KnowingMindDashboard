@@ -57,7 +57,8 @@ def build_receipt(task: Task, extra: dict | None = None) -> dict:
     return _scrub(body)
 
 
-def write_receipt(receipts_dir: Path, task: Task, extra: dict | None = None) -> Path:
+def write_receipt(receipts_dir: Path, task: Task, extra: dict | None = None,
+                  *, state_dir: Path | None = None) -> Path:
     receipts_dir.mkdir(parents=True, exist_ok=True)
     history_dir = receipts_dir / "history" / task.task_id
     history_dir.mkdir(parents=True, exist_ok=True)
@@ -96,8 +97,9 @@ def write_receipt(receipts_dir: Path, task: Task, extra: dict | None = None) -> 
     # Latest-pointer for existing AV15 state/reconcile pickup.
     # Overridable so unit tests never touch real AV15 state.
     try:
-        state_dir = Path(os.environ.get("KMW2_STATE_DIR", "") or
-                         Path(__file__).resolve().parent.parent / "state")
+        state_dir = (Path(state_dir) if state_dir is not None else
+                     Path(os.environ.get("KMW2_STATE_DIR", "") or
+                          Path(__file__).resolve().parent.parent / "state"))
         state_dir.mkdir(parents=True, exist_ok=True)
         pointer = state_dir / "coding_worker_v2_last.json"
         ptmp = pointer.with_suffix(".tmp")
@@ -124,3 +126,4 @@ def read_receipt(path: Path) -> dict:
         if key not in data:
             raise ValueError(f"receipt missing {key}")
     return data
+

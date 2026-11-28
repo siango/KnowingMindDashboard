@@ -35,14 +35,11 @@ def kmcw_readiness() -> dict:
     return {"read_only": True, "execution_authority": False,
             "checkpoint": record}
 
-def validate_access_jwt(raw: str) -> dict:
-    """Verify issuer, audience, signature, expiry and exact allowed subject."""
+def verify_access_claims(raw: str) -> dict:
+    """Verify transport assertion cryptographically; never grant a tool or role."""
     import jwt
     if not isinstance(raw, str) or len(raw) > 8192 or not raw:
         raise ValueError("ACCESS_TOKEN_MISSING")
-    subject = os.getenv("KEBUNATE_ACCESS_SUB", "")
-    if not subject or len(subject) > 256:
-        raise ValueError("ACCESS_SUB_NOT_CONFIGURED")
     jwks = jwt.PyJWKClient(ISSUER + "/cdn-cgi/access/certs",
                            cache_keys=True, lifespan=300,
                            timeout=5)
@@ -51,10 +48,22 @@ def validate_access_jwt(raw: str) -> dict:
                         audience=AUDIENCE, issuer=ISSUER,
                         options={"require": ["sub", "exp", "iat", "iss", "aud"]},
                         leeway=10)
-    if claims.get("sub") != subject:
-        raise ValueError("ACCESS_SUB_DENIED")
     if claims.get("type") not in ("app",):
         raise ValueError("ACCESS_TOKEN_TYPE_DENIED")
+    subject = claims.get("sub")
+    if not isinstance(subject, str) or not subject or len(subject) > 256:
+        raise ValueError("ACCESS_SUB_INVALID")
+    return claims
+
+
+def validate_access_jwt(raw: str) -> dict:
+    """Legacy owner-only admission, pending authoritative membership binding."""
+    claims = verify_access_claims(raw)
+    subject = os.getenv("KEBUNATE_ACCESS_SUB", "")
+    if not subject or len(subject) > 256:
+        raise ValueError("ACCESS_SUB_NOT_CONFIGURED")
+    if claims["sub"] != subject:
+        raise ValueError("ACCESS_SUB_DENIED")
     return claims
 
 class AccessGate:
@@ -68,15 +77,21 @@ class AccessGate:
         path = scope.get("path", "")
         if path not in ("/mcp", "/flow", "/flow/api"):
             return await self._reject(send, 404)
-        headers = {k.lower(): v for k, v in scope.get("headers", [])}
-        # Require an actual signed Access JWT; never trust identity headers.
+        raw_headers = [(k.lower(), v) for k, v in scope.get("headers", [])]
+        # A bearer for OAuth/application authorization is NOT an Access JWT.
+        # Cloudflare's signed assertion is a separate transport identity.
+        # Never equate the two, and never accept unsigned identity hints.
+        if any(sum(name == key for name, _ in raw_headers) > 1 for key in
+               (b"authorization", b"cf-access-jwt-assertion")):
+            return await self._reject(send, 401)
+        headers = dict(raw_headers)
         supplied = headers.get(b"cf-access-jwt-assertion", b"")
         auth = headers.get(b"authorization", b"")
-        if auth.startswith(b"Bearer "):
-            bearer = auth[7:]
-            if supplied and supplied != bearer:
-                return await self._reject(send, 401)
-            supplied = bearer
+        # Backwards compatibility: exact Access JWT passed as bearer when no
+        # signed assertion header is supplied. A generic OAuth bearer alone
+        # cannot satisfy the Access gate and still fails closed.
+        if not supplied and auth.startswith(b"Bearer "):
+            supplied = auth[7:]
         try:
             validate_access_jwt(supplied.decode("ascii"))
         except Exception:

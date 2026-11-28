@@ -1,0 +1,173 @@
+name: kmcw-ssh-recovery
+on:
+  push:
+    branches: ['feature/kmcp-portable-circuits-20261122']
+    paths:
+      - '.github/workflows/kmcw-ssh-recovery.yml'
+      - 'scripts/host/repair-kmcw-bootstrap.py'
+      - 'scripts/host/connect-kmcp-local.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: kmcp-install-ubuntu-usb
+  cancel-in-progress: false
+jobs:
+  release:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.repository == 'siango/KnowingMindDashboard' &&
+      github.ref == 'refs/heads/feature/kmcp-portable-circuits-20261122' &&
+      github.actor == 'siango'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate full source before delivery
+        working-directory: av15
+        run: python3 -m unittest discover -s coding_worker_v2/tests -q
+      - name: Build exact-source offline application and database-driver bundle
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          python3 -m py_compile scripts/host/accept-runtime-recovery.py
+          python3 -m pip wheel --no-deps --wheel-dir host-bundle ./av15
+          python3 -m pip download --only-binary=:all: --dest host-bundle/dependencies 'psycopg[binary]>=3.2,<4'
+          cp scripts/host/install-runtime.py scripts/host/accept-runtime-recovery.py host-bundle/
+          python3 - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          root=Path('host-bundle')
+          files={p.relative_to(root).as_posix():hashlib.sha256(p.read_bytes()).hexdigest()
+                 for p in root.rglob('*') if p.is_file()}
+          (root/'release.json').write_text(json.dumps({'source_sha':os.environ['SOURCE_SHA'],'files':files},indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kmcw-ssh-offline-${{ github.sha }}
+          path: host-bundle/
+          retention-days: 14
+  install-and-accept:
+    needs: release
+    runs-on: [self-hosted, Linux, X64, kmcp, nonprod]
+    timeout-minutes: 25
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: kmcw-ssh-offline-${{ github.sha }}
+          path: ${{ runner.temp }}/kmcw-ssh-offline
+      - name: Install verified package on existing node
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          python3 "$RUNNER_TEMP/kmcw-ssh-offline/install-runtime.py" \
+            --bundle "$RUNNER_TEMP/kmcw-ssh-offline" --source-sha "$SOURCE_SHA" \
+            --receipt "$RUNNER_TEMP/kmcw-ssh-installation.json"
+      - name: Accept native conversation, scoped circuit, real database and private recovery
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          WRANGLER_SEND_METRICS: 'false'
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          ionice -c3 nice -n10 "$HOME/KnowingMind/.venvs/kmcp-portable/bin/python" -I \
+            "$RUNNER_TEMP/kmcw-ssh-offline/accept-runtime-recovery.py" \
+            --bundle "$RUNNER_TEMP/kmcw-ssh-offline" --source-sha "$SOURCE_SHA" \
+            --receipt "$RUNNER_TEMP/kmcw-native-recovery.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kmcw-native-recovery-evidence-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/kmcw-ssh-installation.json
+            ${{ runner.temp }}/kmcw-native-recovery.json
+          if-no-files-found: warn
+          retention-days: 14
+
+
+  bootstrap-bundle:
+    if: >-
+      github.event_name == 'push' &&
+      github.repository == 'siango/KnowingMindDashboard' &&
+      github.ref == 'refs/heads/feature/kmcp-portable-circuits-20261122' &&
+      github.actor == 'siango'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Validate and package local KMCP connection script
+        run: |
+          python3 -m py_compile scripts/host/connect-kmcp-local.py
+          mkdir -p host-bundle
+          cp scripts/host/connect-kmcp-local.py host-bundle/
+          cd host-bundle
+          sha256sum connect-kmcp-local.py > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kmcw-bootstrap-${{ github.sha }}
+          path: host-bundle/
+          retention-days: 14
+  repair-bootstrap:
+    needs: bootstrap-bundle
+    runs-on: [self-hosted, Linux, X64, kmcp, nonprod]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: kmcw-bootstrap-${{ github.sha }}
+          path: ${{ runner.temp }}/kmcw-bootstrap-${{ github.run_id }}
+      - name: Read existing Codex failure only without another model invocation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_NAME" = ubuntu-usb
+          python3 - <<'PY'
+          import hashlib, json, os, re
+          from pathlib import Path
+          p = Path(os.environ['RUNNER_TEMP'])/'kmco-codex-private.txt'
+          report = {'schema':'KMCP_CODEX_LAST_FAILURE_V1','model_invoked':False,'exists':p.is_file()}
+          if p.is_file():
+              raw=p.read_bytes()
+              message=raw.decode('utf-8',errors='replace')[-2500:]
+              message=re.sub(r'(?i)(bearer\s+|sk-[A-Za-z0-9_-]+|token[=:]\s*)[^\s]+','[REDACTED]',message)
+              report.update(sha256=hashlib.sha256(raw).hexdigest(),last_message=message)
+          if not p.is_file():
+              marker='Use only the kmcp-v5 MCP server. Do not run shell, browse, edit files, or delegate.'
+              files=sorted((Path.home()/'.codex/sessions').rglob('*.jsonl'),key=lambda x:x.stat().st_mtime,reverse=True)[:20]
+              for session in files:
+                  if session.stat().st_size > 12000000:
+                      continue
+                  raw=session.read_bytes()
+                  if marker.encode() not in raw:
+                      continue
+                  messages=[]
+                  for line in raw.decode('utf-8',errors='replace').splitlines():
+                      try: event=json.loads(line)
+                      except ValueError: continue
+                      payload=event.get('payload',{})
+                      if payload.get('type')=='message' and payload.get('role')=='assistant':
+                          messages += [v.get('text','') for v in payload.get('content',[]) if isinstance(v,dict)]
+                      if payload.get('type') in ('function_call_output','mcp_tool_call_end'):
+                          text=json.dumps(payload)
+                          if 'error' in text.lower() or 'failed' in text.lower():
+                              messages.append(text[-2000:])
+                  report.update(session_found=True,session_sha256=hashlib.sha256(raw).hexdigest(),
+                                failure_messages=messages[-4:])
+                  break
+          out=Path(os.environ['RUNNER_TEMP'])/'kmcp-codex-last-failure.json'
+          out.write_text(json.dumps(report,indent=2)+'\n')
+          print(json.dumps(report,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kmcw-bootstrap-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/kmcp-codex-last-failure.json
+          if-no-files-found: warn
+          retention-days: 14

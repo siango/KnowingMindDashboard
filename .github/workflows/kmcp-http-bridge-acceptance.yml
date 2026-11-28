@@ -1,0 +1,164 @@
+name: kmcp-http-bridge-acceptance
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: kmcp-http-bridge-acceptance
+  cancel-in-progress: false
+jobs:
+  source:
+    if: >-
+      github.repository == 'siango/KnowingMindDashboard' &&
+      github.ref == 'refs/heads/feature/kmcp-portable-circuits-20261122' &&
+      github.actor == 'siango'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate syntax and HTTP bridge with actual registry
+        working-directory: av15
+        run: |
+          python3 -m py_compile coding_worker_v2/agent/http_bridge.py
+          python3 -m unittest coding_worker_v2.tests.test_http_bridge -v
+          python3 ../scripts/host/test_mcpv5_access_gate_source.py
+  ubuntu-usb:
+    needs: source
+    runs-on: [self-hosted, Linux, X64, kmcp, nonprod]
+    timeout-minutes: 10
+    steps:
+      # Host checkout via GitHub's commit-pinned archive: this repository has
+      # an unrelated gitlink without .gitmodules, which breaks checkout@v4
+      # during its unconditional recursive submodule credential cleanup.
+      - name: Fetch exact owner PR source without initializing git submodules
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_NAME" = ubuntu-usb
+          source_dir="$(mktemp -d "$RUNNER_TEMP/kmcp-http-source-XXXXXX")"
+          echo "KMCP_SOURCE_DIR=$source_dir" >> "$GITHUB_ENV"
+          gh api --method GET "repos/$GITHUB_REPOSITORY/tarball/$EXPECTED_SHA" > "$RUNNER_TEMP/kmcp-http-source.tar.gz"
+          tar -tzf "$RUNNER_TEMP/kmcp-http-source.tar.gz" >/dev/null
+          tar -xzf "$RUNNER_TEMP/kmcp-http-source.tar.gz" --strip-components=1 -C "$source_dir"
+          test -f "$source_dir/av15/coding_worker_v2/agent/http_bridge.py"
+          test -f "$source_dir/av15/coding_worker_v2/tests/test_http_bridge.py"
+          echo "PINNED_SOURCE_SHA=$EXPECTED_SHA"
+      - name: Host HTTP real-registry acceptance without modifying kmcp-v5.service
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_NAME" = ubuntu-usb
+          cd "$KMCP_SOURCE_DIR/av15"
+          python3 -m unittest coding_worker_v2.tests.test_http_bridge -v
+          python3 ../scripts/host/test_mcpv5_access_gate_source.py
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          from datetime import datetime, timezone
+          service=subprocess.run(['systemctl','is-active','kmcp-v5.service'],
+                                 capture_output=True,text=True,timeout=5)
+          report={
+            'schema':'KMCP_HTTP_BRIDGE_HOST_ACCEPTANCE_V1',
+            'node':'ubuntu-usb','source_sha':os.environ['EXPECTED_SHA'],
+            'observed_at':datetime.now(timezone.utc).isoformat(),
+            'test':'PASS_REAL_REGISTRY_LOOPBACK',
+            'existing_origin_service_status':service.stdout.strip(),
+            'existing_origin_modified':False,
+            'production_http_cutover':False,
+            'write_authority':'NOT_GRANTED',
+            'authenticated_production_tools_call':'NOT_TESTED',
+            'acceptance':'LOCAL_BRIDGE_VERIFIED_ONLY'}
+          p=Path(os.environ['RUNNER_TEMP'])/'kmcp-http-bridge-acceptance.json'
+          p.write_text(json.dumps(report,indent=2)+'\n')
+          print(json.dumps(report,indent=2))
+          PY
+      - name: Inspect real owner KMCP registry and KMCO routes from pinned source (no tool calls)
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_NAME" = ubuntu-usb
+          python3 - <<'PY'
+          import json, os, subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+          home=Path.home()
+          cfg=home/'.config/knowingmind/kmcw-owner-runtime.json'
+          py=home/'KnowingMind/.venvs/kmcp-portable/bin/python'
+          source=Path(os.environ['KMCP_SOURCE_DIR'])/'av15'
+          report={'schema':'KMCO_REAL_OWNER_SOURCE_READBACK_V1',
+                  'node':'ubuntu-usb',
+                  'source_sha':os.environ['EXPECTED_SHA'],
+                  'observed_at':datetime.now(timezone.utc).isoformat(),
+                  'owner_config_exists':cfg.is_file(),
+                  'managed_python_exists':py.is_file(),
+                  'source_only':True,
+                  'service_cutover':False,
+                  'authenticated_tools_call':'NOT_PERFORMED',
+                  'independent_qc':'NOT_RUN'}
+          for action in ('local-check','route-audit'):
+              if not cfg.is_file() or not py.is_file():
+                  report[action]={'status':'BLOCKED_MISSING_EXISTING_RUNTIME'}
+                  continue
+              process=subprocess.run(
+                  [str(py),'-m','coding_worker_v2.agent.circuit_cli',
+                   '--config',str(cfg),action],
+                  cwd=source,capture_output=True,text=True,timeout=40)
+              try: output=json.loads(process.stdout)
+              except (ValueError,UnicodeError): output={}
+              if action=='local-check':
+                  valid=(process.returncode==0 and
+                         output.get('initialize')=='PASS' and
+                         output.get('tools_list')=='PASS' and
+                         output.get('missing_registered_names')==[])
+                  report[action]={
+                      'status':'SOURCE_ON_OWNER_HOST_PASS' if valid else 'BLOCKED',
+                      'registered_count':output.get('registered_count'),
+                      'advertised_count':output.get('advertised_count'),
+                      'missing_count':len(output.get('missing_registered_names',[]))
+                                        if isinstance(output.get('missing_registered_names'),list) else None,
+                      'kmco_design_status':(output.get('kmco') or {}).get('status'),
+                      'returncode':process.returncode}
+              else:
+                  valid=(process.returncode==0 and
+                         output.get('design_route_count')==13 and
+                         output.get('design_operations')==132 and
+                         output.get('verified_end_to_end_routes')==0)
+                  report[action]={
+                      'status':'COVERAGE_READBACK_PASS' if valid else 'BLOCKED',
+                      'design_route_count':output.get('design_route_count'),
+                      'design_operations':output.get('design_operations'),
+                      'native_operation_source_bound':output.get('native_operation_source_bound'),
+                      'design_only_operations':output.get('design_only_operations'),
+                      'verified_end_to_end_routes':output.get('verified_end_to_end_routes'),
+                      'returncode':process.returncode}
+          report['production_acceptance']=False
+          out=Path(os.environ['RUNNER_TEMP'])/'kmco-owner-local-readback.json'
+          out.write_text(json.dumps(report,indent=2)+'\n')
+          print(json.dumps(report,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kmco-owner-local-readback-${{ github.run_id }}
+          path: ${{ runner.temp }}/kmco-owner-local-readback.json
+          if-no-files-found: warn
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kmcp-http-bridge-host-${{ github.run_id }}
+          path: ${{ runner.temp }}/kmcp-http-bridge-acceptance.json
+          if-no-files-found: warn
+          retention-days: 14

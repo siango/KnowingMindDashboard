@@ -1,0 +1,10 @@
+{
+  "schema": "KMCP_RUNTIME_V1",
+  "node_id": "worker-01",
+  "account_id": "owner-account",
+  "mission_id": "G0-G1-MINIMUM-SELLABLE-DEMO",
+  "task_id": "existing-task-id",
+  "workspace": "../project",
+  "runtime_base": "../existing-runtime",
+  "poll_tools": ["pilot_reconcile"]
+}

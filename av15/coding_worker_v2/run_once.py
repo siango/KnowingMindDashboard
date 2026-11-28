@@ -381,6 +381,50 @@ def _run_task_inner(task: Task, store: QueueStore, config: WorkerConfig,
                     if deterministic_edits is not None else None))
         except PipelineError as exc:
             return _fail(task, exc.failure_class, f"FIX_{exc.failure_class}")
+        # KARL: persist the observation from this *same* test run; never rerun
+        # command solely to collect evidence. Existing QueueStore owns the event.
+        # No raw output or credentials enter the shared event ledger.
+        _karl_source = current_base_commit(task.task_input.repo)
+        _karl_status = ("PASS" if test_result["ran"] and test_result["rc"] == 0
+                        else "FAIL" if test_result["ran"] else "NOT_RUN")
+        _karl_observation = {
+            "schema": "KMCW_SANDBOX_OBSERVATION_V1",
+            "mission_id": task.mission_id,
+            "task_id": task.task_id,
+            "source_sha": _karl_source,
+            "status": _karl_status,
+            "exit_code": test_result["rc"],
+            "duration_ms": test_result["duration_ms"],
+            "command_sha256": hashlib.sha256(
+                task.task_input.test_command.encode("utf-8")).hexdigest(),
+            "output_sha256": hashlib.sha256(
+                test_result["output"].encode("utf-8")).hexdigest(),
+            "failure_class": "TEST_EXIT_NONZERO" if _karl_status == "FAIL" else "NONE",
+            "independent_qc": "NOT_RUN", "core_database_readback": "NOT_VERIFIED"}
+        _karl_key = hashlib.sha256(json.dumps(
+            [task.task_id, task.attempts, round_no, _karl_source,
+             _karl_observation["command_sha256"],
+             _karl_observation["output_sha256"], _karl_status],
+            sort_keys=True).encode("utf-8")).hexdigest()
+        _karl_event = store.append_event(
+            task.task_id, "karl.sandbox.observed", _karl_status, _karl_key,
+            mission_id=task.mission_id, source_sha=_karl_source,
+            detail=_karl_observation)
+        # Reuse the KMCO usage+core_memory transaction. The local KMCW event
+        # remains durable when the owner service is unavailable. No new test
+        # invocation, authority grant, environment configuration or database.
+        from coding_worker_v2.agent.kmco_usage import record_karl_event
+        try:
+            _karl_sync = record_karl_event(store, task.task_id,
+                                           _karl_event["event_id"])
+        except RuntimeError as exc:
+            # Keep the verified local observation, disclose that Core was not
+            # updated, and let existing owner-driven reconciliation repair it.
+            _karl_sync = str(exc)
+        task.evidence.append({
+            "event": "karl_core_sync", "queue_event_id": _karl_event["event_id"],
+            "core_sync": _karl_sync,
+            "independent_qc": "NOT_RUN"})
         task.evidence.append({"event": "tests_run", "tests": {
             "ran": test_result["ran"], "rc": test_result["rc"],
             "duration_ms": test_result["duration_ms"],

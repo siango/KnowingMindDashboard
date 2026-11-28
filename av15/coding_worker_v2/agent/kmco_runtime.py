@@ -235,6 +235,127 @@ def register_kmco_tools(registry, catalog):
                  "MCP requires issuer-bound tool arguments; no execution receipt"),
         p01_evidence)
 
+    # The existing P02-M01..M05 implementation already performs a real,
+    # deterministic five-stage context preservation check. Expose that
+    # implementation; do not invent 5 independently deployed MicroOps.
+    def p02_resume(args, ctx):
+        from .kmco_p02 import run_p02, P02Blocked
+        from .memory import current_base_commit
+        if any(f"P02-M{i:02d}" not in catalog._operations for i in range(1, 6)):
+            raise ToolError("KMCO_P02_CATALOG_INCOMPLETE")
+        old, new = args["previous"], args["current"]
+        if not isinstance(old, dict) or not isinstance(new, dict):
+            raise ToolError("KMCO_P02_CONTEXT_INVALID")
+        # Tenant/mission identity MUST come from the bound KMCW issuer, not
+        # an untrusted arbitrary command argument.
+        if (not isinstance(ctx.get("mission_id"), str)
+                or not isinstance(ctx.get("task_id"), str)
+                or old.get("mission_id") != ctx["mission_id"]
+                or new.get("mission_id") != ctx["mission_id"]
+                or old.get("task_id") != ctx["task_id"]
+                or new.get("task_id") != ctx["task_id"]):
+            raise ToolError("KMCO_P02_ISSUER_SCOPE_MISMATCH")
+        try:
+            pinned = current_base_commit(ctx["workspace"])
+        except (OSError, ValueError, KeyError):
+            raise ToolError("KMCO_P02_SOURCE_UNAVAILABLE") from None
+        if not isinstance(pinned, str) or not re.fullmatch(r"[0-9a-f]{40}", pinned):
+            raise ToolError("KMCO_P02_SOURCE_INVALID")
+        if old.get("source_sha") != pinned or new.get("source_sha") != pinned:
+            raise ToolError("KMCO_P02_SOURCE_CHANGED")
+        try:
+            return run_p02(old, new)
+        except P02Blocked as exc:
+            raise ToolError(str(exc)) from None
+
+    registry.register(
+        ToolSpec("kmco.p02.resume",
+                 "Run real P02-M01..M05 mission context continuity circuit",
+                 {"previous": "dict", "current": "dict"}, {},
+                 "read", "none",
+                 "requires issuer-bound mission/task + exact Git SHA; "
+                 "no state mutation or independent QC promotion"),
+        p02_resume)
+
+    # P03 already reuses the bounded queue/retry problem design. This is a
+    # deterministic analysis of supplied snapshots, NOT an automatic retry.
+    def p03_loop_guard(args, ctx):
+        from .kmco_p03 import run_p03, P03Blocked
+        if any(f"P03-M{i:02d}" not in catalog._operations for i in range(1, 6)):
+            raise ToolError("KMCO_P03_CATALOG_INCOMPLETE")
+        if not isinstance(ctx.get("mission_id"), str) or not isinstance(ctx.get("task_id"), str):
+            raise ToolError("KMCO_P03_TRUSTED_CONTEXT_REQUIRED")
+        try:
+            return run_p03(args["attempts"],
+                           mission_id=ctx["mission_id"],
+                           task_id=ctx["task_id"],
+                           max_attempts=args.get("max_attempts", 3))
+        except P03Blocked as exc:
+            raise ToolError(str(exc)) from None
+
+    registry.register(
+        ToolSpec("kmco.p03.loop_guard",
+                 "Five-stage bounded retry loop analysis with stop recommendation",
+                 {"attempts": "list"}, {"max_attempts": "int"},
+                 "read", "none",
+                 "P03-M01..M05; caller observations not verified; never "
+                 "authorizes retry, mutates queue or grants independence"),
+        p03_loop_guard)
+
+    def p04_plan(args, ctx):
+        from .kmco_p04 import plan_validator, P04Blocked
+        if any(f"P04-M{i:02d}" not in catalog._operations for i in range(1, 6)):
+            raise ToolError("KMCO_P04_CATALOG_INCOMPLETE")
+        if not isinstance(ctx.get("mission_id"), str) or not isinstance(ctx.get("owner_node"), str):
+            raise ToolError("KMCO_P04_ISSUER_REQUIRED")
+        try:
+            return plan_validator(args["plan"], ctx["mission_id"], ctx["owner_node"])
+        except P04Blocked as exc:
+            raise ToolError(str(exc)) from None
+
+    registry.register(
+        ToolSpec("kmco.p04.plan",
+                 "Validate real KM_TASK_PLAN_V1 across five P04 design stages",
+                 {"plan": "dict"}, {}, "read", "none",
+                 "strict existing planner DAG/scope/mission; no enqueue or authority"),
+        p04_plan)
+
+    def p05_completion(args, ctx):
+        from .kmco_p05 import run_p05
+        if any(f"P05-M{i:02d}" not in catalog._operations for i in range(1, 6)):
+            raise ToolError("KMCO_P05_CATALOG_INCOMPLETE")
+        return run_p05(args["plan"], ctx)
+
+    registry.register(
+        ToolSpec("kmco.p05.completion", "Validate receipt, tests and signed independent proof",
+                 {"plan": "dict"}, {}, "read", "none",
+                 "original completion_readback; scoped receipt, signature and criteria; no transition"),
+        p05_completion)
+
+    def p06_permission(args, ctx):
+        from .kmco_p06 import run_p06
+        if any(f"P06-M{i:02d}" not in catalog._operations for i in range(1, 6)):
+            raise ToolError("KMCO_P06_CATALOG_INCOMPLETE")
+        return run_p06(registry, args["tool"], args["arguments"], ctx)
+
+    registry.register(
+        ToolSpec("kmco.p06.permission", "Existing tool schema, grant and read scope preflight",
+                 {"tool": "str", "arguments": "dict"}, {}, "read", "none",
+                 "no target dispatch; same capabilities.authorized gate; privileged calls use original tool"),
+        p06_permission)
+
+    from .kmco_backup import register_backup
+    register_backup(registry, catalog)
+
+    from .kmco_continuity import register_continuity
+    register_continuity(registry, catalog)
+
+    from .kmco_resilience import register_resilience
+    register_resilience(registry, catalog)
+
+    from .kmco_database import register_database_circuits
+    register_database_circuits(registry, catalog)
+
     def core_recall(args, ctx):
         from .kmco_core import recall
         try:
@@ -250,3 +371,70 @@ def register_kmco_tools(registry, catalog):
                  "uses existing km_microops and libpq service only; "
                  "retrieval is not verification or authority"),
         core_recall)
+
+    # D08/D09 are partial source preflight handlers, NOT full six-stage domain
+    # circuits. Keep them absent from route_audit source_handlers until the
+    # existing transport/ACK/provider delivery and readback are proved.
+    from .kmco_d08 import preflight_d08
+    from .kmco_d09 import preflight_d09
+
+    def d08_preflight(args, ctx):
+        if any(f"D08-M{i:02d}" not in catalog._operations for i in range(1, 7)):
+            raise ToolError("KMCO_D08_CATALOG_INCOMPLETE")
+        return preflight_d08(args["envelope"], ctx)
+
+    def d09_preflight(args, ctx):
+        if any(f"D09-M{i:02d}" not in catalog._operations for i in range(1, 7)):
+            raise ToolError("KMCO_D09_CATALOG_INCOMPLETE")
+        return preflight_d09(args["output"], ctx)
+
+    registry.register(
+        ToolSpec("kmco.d08.preflight",
+                 "Existing trusted ingress contract preview only",
+                 {"envelope": "dict"}, {}, "read", "none",
+                 "existing qualified issuer required; no signature recheck, "
+                 "dedup persistence, dispatch, ACK or QC promotion"),
+        d08_preflight)
+    registry.register(
+        ToolSpec("kmco.d09.preflight",
+                 "Existing owner-scoped output contract preview only",
+                 {"output": "dict"}, {}, "read", "none",
+                 "private owner only; no payload returned, transport send, "
+                 "provider receipt or QC promotion"),
+        d09_preflight)
+
+    # These are partial read-only previews, not completed D06/D07/D10/D11
+    # circuits. None performs channel sending, memory mutation, projection
+    # writing, alert delivery or verified live readback.
+    from .kmco_d11 import inspect_d11
+    from .kmco_d07 import read_d07
+    from .kmco_d10 import preview_d10
+    from .kmco_d06 import preview_d06
+
+    def guarded_domain(group, handler):
+        def call(args, ctx):
+            if any(f"{group}-M{i:02d}" not in catalog._operations for i in range(1, 7)):
+                raise ToolError("KMCO_DOMAIN_CATALOG_INCOMPLETE")
+            return handler(args, ctx)
+        return call
+
+    registry.register(
+        ToolSpec("kmco.d11.observe", "Observe supplied evidence without live monitoring",
+                 {"request": "dict"}, {}, "read", "none",
+                 "no ledger probe, quota authority, alert send or recovery"),
+        guarded_domain("D11", lambda a, c: inspect_d11(a["request"], c)))
+    registry.register(
+        ToolSpec("kmco.d07.memory_preview", "Original P08 receipt memory read-only",
+                 {"goal": "str", "limit": "int"}, {}, "read", "none",
+                 "no memory storage, correction, expiry or verification promotion"),
+        guarded_domain("D07", read_d07))
+    registry.register(
+        ToolSpec("kmco.d10.drift_preview", "Compare supplied source and projection versions",
+                 {"source": "dict", "projection": "dict"}, {}, "read", "none",
+                 "no live cursor, external read, projection write or conflict resolution"),
+        guarded_domain("D10", lambda a, c: preview_d10(a["source"], a["projection"], c)))
+    registry.register(
+        ToolSpec("kmco.d06.question_preview", "Authenticated question scope preflight",
+                 {"request": "dict"}, {}, "read", "none",
+                 "no Canon lookup, inference, citation verification or provider send"),
+        guarded_domain("D06", lambda a, c: preview_d06(a["request"], c)))

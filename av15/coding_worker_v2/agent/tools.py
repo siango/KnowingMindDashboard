@@ -244,6 +244,25 @@ class ToolRegistry:
                                      "tool": name, "state": usage_state,
                                      "durable": usage_state == "PERSISTED_UNVERIFIED"})
 
+    def validate_arguments(self, name, args):
+        """Shared exact input schema check; never dispatch or grant authority."""
+        spec = self._specs.get(name)
+        if spec is None:
+            raise ToolError("TOOL_UNKNOWN")
+        if not isinstance(args, dict):
+            raise ToolError("TOOL_ARGS_INVALID", name)
+        for key in args:
+            if key not in spec.required and key not in spec.optional:
+                raise ToolError("TOOL_ARG_UNKNOWN", f"{name}.{key}"[:120])
+        for key, type_name in spec.required.items():
+            if key not in args:
+                raise ToolError("TOOL_ARG_MISSING", f"{name}.{key}")
+            if not _check_type(args[key], type_name):
+                raise ToolError("TOOL_ARG_TYPE", f"{name}.{key} want {type_name}")
+        for key, type_name in spec.optional.items():
+            if key in args and not _check_type(args[key], type_name):
+                raise ToolError("TOOL_ARG_TYPE", f"{name}.{key} want {type_name}")
+
     def _call_inner(self, name: str, args: dict, ctx: dict, *, mcp=False) -> dict:
         spec = self._specs.get(name)
         if spec is None:
@@ -267,19 +286,7 @@ class ToolRegistry:
         if name == "pr_create" and ctx.get("allow_new_pr") is not True:
             raise ToolError("PR_CREATE_NOT_APPROVED",
                             "new pull requests require separate owner approval")
-        if not isinstance(args, dict):
-            raise ToolError("TOOL_ARGS_INVALID", name)
-        for key in args:
-            if key not in spec.required and key not in spec.optional:
-                raise ToolError("TOOL_ARG_UNKNOWN", f"{name}.{key}"[:120])
-        for key, type_name in spec.required.items():
-            if key not in args:
-                raise ToolError("TOOL_ARG_MISSING", f"{name}.{key}")
-            if not _check_type(args[key], type_name):
-                raise ToolError("TOOL_ARG_TYPE", f"{name}.{key} want {type_name}")
-        for key, type_name in spec.optional.items():
-            if key in args and not _check_type(args[key], type_name):
-                raise ToolError("TOOL_ARG_TYPE", f"{name}.{key} want {type_name}")
+        self.validate_arguments(name, args)
         workspace = ctx.get("workspace", "")
         paths = []
         if args.get("repo"):
@@ -290,8 +297,9 @@ class ToolRegistry:
                 paths = ["../outside-workspace"]
         action = ("test" if name == "test_run" else
                   "checkpoint" if name.startswith(("kmcw.", "db.")) and spec.permission != 'read' else
+                  "checkpoint" if name.startswith('kmcp.') and spec.permission == 'write' else
                   "checkpoint" if name in {"task_enqueue", "pilot_submit", "pilot_run",
-                                           "pilot_discuss", "pilot_reconcile", "gui_test"} else
+                                           "pilot_discuss", "pilot_reconcile", "gui_test", "cf.ai.run", "kmco.p07.checkpoint", "kmco.d12.backup_restore"} else
                   "inspect" if spec.permission == "read" else name)
         approval = policy_decision(
             action, ctx.get("task_id", "operator"), workspace,
@@ -407,7 +415,8 @@ def search_code(repo: str, pattern: str, max_matches: int = 30) -> list[dict]:
     return out
 
 
-def build_default_registry(photocraft=None, serena=None, kmco_catalog=None) -> ToolRegistry:
+def build_default_registry(photocraft=None, serena=None, kmco_catalog=None,
+                           *, circuits=False, cloudflare=None) -> ToolRegistry:
     reg = ToolRegistry()
     from .pilot import register_pilot_tools
     register_pilot_tools(reg)
@@ -584,6 +593,12 @@ def build_default_registry(photocraft=None, serena=None, kmco_catalog=None) -> T
     if kmco_catalog is not None:
         from .kmco_runtime import register_kmco_tools
         register_kmco_tools(reg, kmco_catalog)
+    if circuits:
+        from .circuits import register as register_circuits
+        register_circuits(reg)
+    if cloudflare is not None:
+        from .cloudflare_tools import register as register_cloudflare
+        register_cloudflare(reg, cloudflare)
     return reg
 
 
@@ -978,3 +993,5 @@ def _ollama_inventory(ctx: dict) -> dict:
     models = data.get("models", [])
     names = [m.get("name", "?") for m in models if isinstance(m, dict)]
     return {"available": True, "models": names[:50]}
+
+

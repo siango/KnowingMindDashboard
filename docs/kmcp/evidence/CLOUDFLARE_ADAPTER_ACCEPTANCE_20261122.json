@@ -1,0 +1,43 @@
+{
+  "schema": "KMCP_CLOUDFLARE_ADAPTER_ACCEPTANCE_V1",
+  "source_sha": "be4a09639abbde705b4495a554985fce0f5e3aee",
+  "metadata": {
+    "observed_models": 52,
+    "pagination": {
+      "count": 52,
+      "page": 1,
+      "per_page": 100,
+      "total_count": 336
+    },
+    "complete": false
+  },
+  "http_cutover": false,
+  "production_circuit": "NOT_RUN",
+  "resource_creation": false,
+  "inference": {
+    "status": "PASS",
+    "model": "@cf/ibm-granite/granite-4.0-h-micro",
+    "response_present": true,
+    "billed_cost": null,
+    "independent_qc": "NOT_RUN"
+  },
+  "registry_tools": 81,
+  "kmco_catalog": "VALIDATED_EXISTING_SNAPSHOT",
+  "adapter_import": "PASS",
+  "evidence": {
+    "installation_and_live_inference": "https://github.com/siango/KnowingMindDashboard/actions/runs/45027581899",
+    "full_test_matrix": "https://github.com/siango/KnowingMindDashboard/actions/runs/45027581897",
+    "canonical_kves_status": "https://github.com/siango/KnowingMindApp/issues/290"
+  },
+  "boundaries": {
+    "public_http_registry": "NOT_BOUND",
+    "kmaa_write_execution": "NOT_QUALIFIED",
+    "kmnw_e2e": "NOT_VERIFIED",
+    "kves_runtime": "NOT_IMPLEMENTED_PER_CANONICAL_ISSUE",
+    "containers": "NO_APPLICATION_DEPLOYED",
+    "postgres_km_microops": "READBACK_PASS",
+    "d1_existing_schema": "READBACK_PASS",
+    "dhamma_canonical_health": "CONNECTOR_AUTH_RETRY_LOOP_NOT_VERIFIED",
+    "core_four_truths_execution": "SOURCE_AND_TABLE_PRESENT_E2E_NOT_RUN"
+  }
+}

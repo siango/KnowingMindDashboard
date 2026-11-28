@@ -1,0 +1,29 @@
+name: kmcp-host-installers
+on:
+  push:
+    paths: ['scripts/host/**', 'cloudflare/kmcp-edge/**', '.github/workflows/kmcp-hosts.yml']
+  pull_request:
+    paths: ['scripts/host/**', 'cloudflare/kmcp-edge/**', '.github/workflows/kmcp-hosts.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.ref != 'feature/kmcp-portable-circuits-20261122'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Shell syntax and actual installer with fixture commands
+        run: |
+          for script in scripts/host/*.sh; do bash -n "$script"; done
+          python3 -m unittest discover -s scripts/host/tests -v
+      - name: Worker tests and real Wrangler bundle (no deploy)
+        working-directory: cloudflare/kmcp-edge
+        run: |
+          npm ci
+          npm test
+          npm run check

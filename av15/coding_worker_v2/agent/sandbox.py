@@ -6,6 +6,8 @@ and a machine-readable verify report. Model output is never executed.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 import subprocess
@@ -112,6 +114,77 @@ def run_isolated(repo: str, command: str, timeout_s: int,
         return run_tests(repo, command, timeout_s, env=scrubbed_env(extra_env))
     except PipelineError as exc:
         raise SandboxError(exc.failure_class, exc.detail) from None
+
+
+
+def run_isolated_observed(repo: str, command: str, timeout_s: int, *,
+                          mission_id: str, task_id: str, source_sha: str) -> dict:
+    """Run one existing allowlisted test with an evidence projection.
+
+    The owner must persist this through the existing QueueStore/KMCW receipt
+    path. This returns an observation only: never independent QC or a grant.
+    No raw stdout/stderr is included to avoid credential leakage.
+    """
+    if (not isinstance(mission_id, str) or not mission_id or len(mission_id) > 128
+            or not isinstance(task_id, str) or not task_id or len(task_id) > 128
+            or not isinstance(source_sha, str) or len(source_sha) != 40
+            or any(ch not in "0123456789abcdef" for ch in source_sha)
+            or not isinstance(timeout_s, int) or not 1 <= timeout_s <= 600
+            or not isinstance(command, str) or not command.strip()):
+        raise SandboxError("OBSERVATION_CONTEXT_REQUIRED")
+    try:
+        result = run_isolated(repo, command, timeout_s)
+        status = "PASS" if result.get("ran") is True and result.get("rc") == 0 else "FAIL"
+        failure = "NONE" if status == "PASS" else "TEST_EXIT_NONZERO"
+        code = result.get("rc")
+        output = result.get("output", "")
+        duration = result.get("duration_ms")
+    except SandboxError as exc:
+        status, failure, code, output, duration = "BLOCKED", exc.reason, None, "", None
+    return {
+        "schema": "KMCW_SANDBOX_OBSERVATION_V1",
+        "mission_id": mission_id, "task_id": task_id, "source_sha": source_sha,
+        "command_sha256": hashlib.sha256(command.encode("utf-8")).hexdigest(),
+        "status": status, "failure_class": failure,
+        "exit_code": code, "duration_ms": duration,
+        "output_sha256": hashlib.sha256(output.encode("utf-8")).hexdigest() if status != "BLOCKED" else None,
+        "output_captured_bytes": len(output.encode("utf-8")) if status != "BLOCKED" else 0,
+        "receipt_status": "NOT_PERSISTED",
+        "independent_qc": "NOT_RUN", "production_authority": "NOT_GRANTED",
+    }
+
+def run_isolated_recorded(ctx: dict, command: str, timeout_s: int) -> dict:
+    """KMCW/KARL single-path sandbox execution and automatic existing-ledger event.
+
+    Context comes from the already-authorized KMCW runtime, never CLI/env input.
+    Fail closed if original QueueStore/source identity is unavailable. This is
+    not an independent QC, core DB write, or permission escalation.
+    """
+    if not isinstance(ctx, dict):
+        raise SandboxError("KMCW_CONTEXT_REQUIRED")
+    store = ctx.get("store")
+    if store is None or not callable(getattr(store, "append_event", None)):
+        raise SandboxError("KMCW_EXISTING_EVENT_STORE_REQUIRED")
+    from .memory import current_base_commit
+    root = ctx.get("workspace")
+    if not isinstance(root, str) or not Path(root).is_dir():
+        raise SandboxError("KMCW_WORKSPACE_REQUIRED")
+    source = current_base_commit(root)
+    if not source or len(source) != 40 or any(ch not in "0123456789abcdef" for ch in source):
+        raise SandboxError("KMCW_SOURCE_SHA_REQUIRED")
+    mission, task, account = (ctx.get(k) for k in ("mission_id", "task_id", "account_id"))
+    if any(not isinstance(v, str) or not v for v in (mission, task, account)):
+        raise SandboxError("KMCW_SCOPED_IDENTITY_REQUIRED")
+    result = run_isolated_observed(root, command, timeout_s,
+                                   mission_id=mission, task_id=task, source_sha=source)
+    canonical = json.dumps(result, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(canonical.encode()).hexdigest()
+    store.append_event(task, "karl.sandbox.observed", result["status"], digest,
+                       account_id=account, mission_id=mission,
+                       source_sha=source, observation=result)
+    return {**result, "event_recorded": True, "event_digest": digest,
+            "event_owner": "EXISTING_KMCW_QUEUE_STORE",
+            "core_database_readback": "NOT_VERIFIED"}
 
 
 def verify(repo: str, timeout_probe_s: int = 5) -> dict:
