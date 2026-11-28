@@ -114,3 +114,44 @@ export function adaptCompanyOsReadGrant({principal,tool,row}){
   return Object.freeze({company_id:principal.tenantId,user_id:principal.userId,
     tool,channel:principal.channel,status:'ACTIVE',permission:'read'});
 }
+
+// Fixed, parameterized reader of the already deployed Company OS tables.
+// The identity link is deliberately supplied by a trusted server-side resolver;
+// pilot session_hash is NOT an OAuth subject and cannot be repurposed as one.
+// This adapter performs no D1 writes, quota reservations or tool execution.
+export function existingCompanyOsAuthorityReader(db, resolveVerifiedIdentity) {
+  if (!db || typeof db.prepare!=='function' || typeof resolveVerifiedIdentity!=='function')
+    throw new Error('IDENTITY_AUTHORITY_NOT_BOUND');
+  async function rows(sql, args){
+    const result=await db.prepare(sql).bind(...args).all();
+    if(result?.success!==true || !Array.isArray(result.results))
+      throw new Error('AUTHORITY_READ_UNAVAILABLE');
+    return result.results;
+  }
+  return Object.freeze({
+    async readMembership({issuer,subject,channel}){
+      identifier(issuer,'ACCESS_ISSUER');identifier(subject,'ACCESS_SUBJECT');
+      const link=await resolveVerifiedIdentity(Object.freeze({issuer,subject,channel}));
+      if(!link || link.status!=='ACTIVE' || link.issuer!==issuer || link.subject!==subject ||
+          !Array.isArray(link.channels) || !link.channels.includes(channel) || !link.evidence_ref)
+        return [];
+      const user=identifier(link.user_id,'USER'), tenant=identifier(link.company_id,'TENANT');
+      const found=await rows("SELECT m.user_id,m.company_id,m.role,m.status FROM company_os_membership m JOIN company_os_pilot_identity i ON i.user_id=m.user_id JOIN company_os_company c ON c.company_id=m.company_id WHERE m.user_id=? AND m.company_id=? AND m.status='ACTIVE' AND i.status='ACTIVE' AND c.status='ACTIVE' LIMIT 2",[user,tenant]);
+      return found.map(row=>({...row,verifiedIdentityKey:issuer+'|'+subject,channels:[channel]}));
+    },
+    async readGrant(principal,tool){
+      const found=await rows("SELECT company_id,tool_id,enabled,roles_json,capabilities_json,actions_json,risk_policy_ref,source_ref,evidence_ref FROM company_os_tool_grant_current WHERE company_id=? AND tool_id=? LIMIT 2",[identifier(principal.tenantId,'TENANT'),identifier(tool,'TOOL')]);
+      if(found.length!==1)throw new Error('EXACT_READ_GRANT_REQUIRED');
+      return adaptCompanyOsReadGrant({principal,tool,row:found[0]});
+    },
+    async readQuota(principal,periodKey){
+      const found=await rows("SELECT limit_value,used_value FROM company_os_quota_current WHERE company_id=? AND metric='MCP_READ_CALL' AND period_key=? LIMIT 2",[identifier(principal.tenantId,'TENANT'),identifier(periodKey,'QUOTA_PERIOD')]);
+      if(found.length!==1 || !Number.isSafeInteger(found[0].limit_value) ||
+          !Number.isSafeInteger(found[0].used_value) || found[0].limit_value<0 ||
+          found[0].used_value<0 || found[0].used_value>found[0].limit_value)
+        throw new Error('MCP_QUOTA_UNAVAILABLE');
+      return Object.freeze({limit:found[0].limit_value,used:found[0].used_value,
+        reservation:'NOT_PERFORMED'});
+    }
+  });
+}
