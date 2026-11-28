@@ -26,6 +26,21 @@ export function resolveMcpPrincipal({verifiedAccess, membership, channel}) {
     throw new Error('CHANNEL_NOT_GRANTED');
   return Object.freeze({tenantId,userId,channel,role:identifier(membership.role,'ROLE')});
 }
+// Server-side adapter seam: the injected reader MUST be the existing authoritative
+// membership/identity lookup. Never construct its rows from HTTP request data.
+// Until that reader is bound, unknown/ambiguous identities remain denied.
+export async function resolveMcpPrincipalFromAuthority({verifiedAccess,channel,readMembership}){
+  if (!verifiedAccess || verifiedAccess.verified!==true ||
+      verifiedAccess.signatureVerified!==true || verifiedAccess.audienceVerified!==true ||
+      verifiedAccess.expiryVerified!==true)
+    throw new Error('ACCESS_JWT_VERIFICATION_INCOMPLETE');
+  const issuer=identifier(verifiedAccess.issuer,'ACCESS_ISSUER');
+  const subject=identifier(verifiedAccess.subject,'ACCESS_SUBJECT');
+  if (typeof readMembership!=='function') throw new Error('IDENTITY_AUTHORITY_NOT_BOUND');
+  const rows=await readMembership(Object.freeze({issuer,subject,channel}));
+  if (!Array.isArray(rows) || rows.length!==1) throw new Error('IDENTITY_MEMBERSHIP_UNBOUND_OR_AMBIGUOUS');
+  return resolveMcpPrincipal({verifiedAccess,membership:rows[0],channel});
+}
 export function authorizeMcpTool({principal,method,tool,grant,entitlement,quantity=1}) {
   if (!principal || !READ_METHODS.has(method)) throw new Error('MCP_METHOD_DENIED');
   if (method !== 'tools/call') return {allow:true, billable:false};
