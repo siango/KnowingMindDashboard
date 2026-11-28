@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {adaptCompanyOsReadGrant,resolveMcpPrincipal,resolveMcpPrincipalFromAuthority,authorizeMcpTool,completedMcpUsage,billingExportAllowed} from './tenant-policy.mjs';
+import {existingCompanyOsAuthorityReader,adaptCompanyOsReadGrant,resolveMcpPrincipal,resolveMcpPrincipalFromAuthority,authorizeMcpTool,completedMcpUsage,billingExportAllowed} from './tenant-policy.mjs';
 const verifiedAccess={verified:true,signatureVerified:true,audienceVerified:true,expiryVerified:true,issuer:'https://access.example',subject:'user-123'};
 const membership={verifiedIdentityKey:'https://access.example|user-123',company_id:'tenant-A',user_id:'user-123',role:'COMPANY_VIEWER',status:'ACTIVE',channels:['CHATGPT','WEB']};
 const principal=resolveMcpPrincipal({verifiedAccess,membership,channel:'CHATGPT'});
@@ -57,4 +57,24 @@ test('existing Company OS grant never implies MCP access without explicit tool a
  for(const delta of [{enabled:0},{company_id:'other'},{actions_json:'["STATUS_CHECK"]'},{capabilities_json:'["RUN_ALLOWED_REVERSIBLE_WORK"]'},{roles_json:'[]'},{risk_policy_ref:'other'},{evidence_ref:null}]){
   assert.throws(()=>adaptCompanyOsReadGrant({principal,tool:'project.readback',row:{...row,...delta}}),/EXACT_READ_GRANT_REQUIRED/);
  }
+});
+
+test('D1 authority adapter binds identity, tenant, exact grant and quota without writes',async()=>{
+ const queries=[];
+ const grantRow={enabled:1,company_id:principal.tenantId,tool_id:'project.readback',roles_json:JSON.stringify([principal.role]),capabilities_json:'["MCP_READ:project.readback"]',actions_json:'["MCP_READ:CHATGPT"]',risk_policy_ref:'KMCP_READ_ONLY_V1',source_ref:'fixture',evidence_ref:'fixture'};
+ const db={prepare(sql){assert.match(sql,/^SELECT /);return {bind(...args){queries.push({sql,args});return {async all(){return {success:true,results:sql.includes('company_os_membership')?[{user_id:principal.userId,company_id:principal.tenantId,role:principal.role,status:'ACTIVE'}]:sql.includes('company_os_tool_grant_current')?[grantRow]:[{limit_value:10,used_value:9}]};}};}};}};
+ const link={issuer:verifiedAccess.issuer,subject:verifiedAccess.subject,company_id:principal.tenantId,user_id:principal.userId,status:'ACTIVE',channels:['CHATGPT'],evidence_ref:'fixture'};
+ const reader=existingCompanyOsAuthorityReader(db,async()=>link);
+ const actual=await resolveMcpPrincipalFromAuthority({verifiedAccess,channel:'CHATGPT',readMembership:reader.readMembership});
+ assert.deepEqual(actual,principal);
+ assert.deepEqual(queries[0].args,[principal.userId,principal.tenantId]);
+ assert.equal((await reader.readGrant(actual,'project.readback')).permission,'read');
+ assert.deepEqual(await reader.readQuota(actual,'2026-11'),{limit:10,used:9,reservation:'NOT_PERFORMED'});
+ const revoked=existingCompanyOsAuthorityReader(db,async()=>({...link,status:'REVOKED'}));
+ const before=queries.length;
+ await assert.rejects(resolveMcpPrincipalFromAuthority({verifiedAccess,channel:'CHATGPT',readMembership:revoked.readMembership}),/IDENTITY_MEMBERSHIP_UNBOUND/);
+ assert.equal(queries.length,before);
+ assert.throws(()=>existingCompanyOsAuthorityReader(db),/IDENTITY_AUTHORITY_NOT_BOUND/);
+ const broken=existingCompanyOsAuthorityReader({prepare(){return {bind(){return {all:async()=>({success:false})}}}}},async()=>link);
+ await assert.rejects(broken.readGrant(actual,'project.readback'),/AUTHORITY_READ_UNAVAILABLE/);
 });
